@@ -101,6 +101,7 @@ public class PersistenceConstraintTests
 
         Assert.Contains(applied, id => id.EndsWith("_InitialCreate"));
         Assert.Contains(applied, id => id.EndsWith("_AddDomainAndIdentityFoundation"));
+        Assert.Contains(applied, id => id.EndsWith("_AddRefreshTokenAndRoleSeed"));
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
     }
 

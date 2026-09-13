@@ -20,7 +20,8 @@ public class PersistenceModelTests
     private static readonly Type[] BusinessEntityTypes =
     [
         typeof(Customer), typeof(Site), typeof(Equipment), typeof(RepairRequestAggregate),
-        typeof(RepairRequestAttachment), typeof(FileAsset), typeof(AuditHistory), typeof(UserSiteScope)
+        typeof(RepairRequestAttachment), typeof(FileAsset), typeof(AuditHistory), typeof(UserSiteScope),
+        typeof(RefreshToken)
     ];
 
     private static RepairRequestDbContext CreateContext() =>
@@ -50,6 +51,7 @@ public class PersistenceModelTests
     [InlineData(typeof(FileAsset), "file_asset")]
     [InlineData(typeof(AuditHistory), "audit_history")]
     [InlineData(typeof(UserSiteScope), "user_site_scope")]
+    [InlineData(typeof(RefreshToken), "refresh_token")]
     public void BusinessEntities_MapToBaselineTableNames(Type clrType, string tableName)
     {
         using var context = CreateContext();
@@ -184,6 +186,34 @@ public class PersistenceModelTests
             Assert.Equal(3, property.GetPrecision());
             Assert.NotNull(property.GetValueConverter());
         });
+    }
+
+    [Fact]
+    public void RefreshToken_StoresOnlyFixedLengthHash_AndIsIndexedForLookupAndFamilyRevocation()
+    {
+        using var context = CreateContext();
+        var entityType = Entity<RefreshToken>(DesignTimeModel(context));
+
+        Assert.DoesNotContain(entityType.GetProperties(), property => property.ClrType == typeof(string));
+        Assert.Equal("binary(32)", entityType.FindProperty(nameof(RefreshToken.TokenHash))!.GetColumnType());
+
+        var hashIndex = entityType.GetIndexes().Single(i => i.GetDatabaseName() == "UQ_refresh_token_token_hash");
+        Assert.True(hashIndex.IsUnique);
+        Assert.Equal(["token_hash"], hashIndex.Properties.Select(property => property.GetColumnName()));
+
+        var familyIndex = entityType.GetIndexes().Single(i => i.GetDatabaseName() == "IX_refresh_token_family_id");
+        Assert.Equal(["family_id"], familyIndex.Properties.Select(property => property.GetColumnName()));
+    }
+
+    [Fact]
+    public void ApplicationUser_EmailLoginIdentifierIsUnique()
+    {
+        using var context = CreateContext();
+        var emailIndex = Entity<ApplicationUser>(DesignTimeModel(context)).GetIndexes()
+            .Single(i => i.GetDatabaseName() == "EmailIndex");
+
+        Assert.True(emailIndex.IsUnique);
+        Assert.Equal([nameof(ApplicationUser.NormalizedEmail)], emailIndex.Properties.Select(property => property.Name));
     }
 
     [Fact]

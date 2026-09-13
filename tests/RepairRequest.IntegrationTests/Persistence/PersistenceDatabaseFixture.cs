@@ -10,7 +10,7 @@ namespace RepairRequest.IntegrationTests.Persistence;
 /// </summary>
 public sealed class PersistenceDatabaseFixture : IAsyncLifetime
 {
-    private const string ConnectionString =
+    public const string ConnectionString =
         "Server=(localdb)\\MSSQLLocalDB;Database=RepairRequestDb_PersistenceTest;Trusted_Connection=True;TrustServerCertificate=True";
 
     public RepairRequestDbContext CreateContext()

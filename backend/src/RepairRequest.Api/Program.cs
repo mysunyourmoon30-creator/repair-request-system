@@ -1,5 +1,8 @@
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.Extensions.Options;
 using RepairRequest.Api.Middleware;
 using RepairRequest.Application.DependencyInjection;
+using RepairRequest.Infrastructure.Authentication;
 using RepairRequest.Infrastructure.DependencyInjection;
 using RepairRequest.Infrastructure.Persistence;
 using Serilog;
@@ -15,17 +18,33 @@ try
 {
     var builder = WebApplication.CreateBuilder(args);
 
-    builder.Host.UseSerilog((context, services, configuration) => configuration
-        .ReadFrom.Configuration(context.Configuration)
-        .ReadFrom.Services(services)
-        .Enrich.FromLogContext()
-        .WriteTo.Console());
+    // preserveStaticLogger: the host gets its own configured logger instead of freezing the static
+    // bootstrap logger, so more than one host can be built in a process (API integration tests).
+    // The bootstrap logger stays available for the startup-failure log below.
+    builder.Host.UseSerilog(
+        (context, services, configuration) => configuration
+            .ReadFrom.Configuration(context.Configuration)
+            .ReadFrom.Services(services)
+            .Enrich.FromLogContext()
+            .WriteTo.Console(),
+        preserveStaticLogger: true);
 
     // Add services to the container.
     builder.Services.AddControllers();
 
     builder.Services.AddApplication();
     builder.Services.AddInfrastructure(builder.Configuration);
+
+    // DEC-PS1-004: JWT bearer validation shares its rules with token issuance. JWT settings
+    // are validated on startup (JwtOptionsValidator), so a missing or weak signing key stops the host.
+    builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme).AddJwtBearer();
+    builder.Services.AddOptions<JwtBearerOptions>(JwtBearerDefaults.AuthenticationScheme)
+        .Configure<IOptions<JwtOptions>>((bearerOptions, jwtOptions) =>
+        {
+            bearerOptions.MapInboundClaims = false;
+            bearerOptions.TokenValidationParameters = JwtTokenValidation.CreateParameters(jwtOptions.Value);
+        });
+    builder.Services.AddAuthorization();
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>
@@ -73,6 +92,7 @@ try
 
     app.UseCors(CorsPolicyName);
 
+    app.UseAuthentication();
     app.UseAuthorization();
 
     app.MapControllers();
@@ -83,6 +103,9 @@ try
 catch (Exception ex) when (ex is not HostAbortedException)
 {
     Log.Fatal(ex, "RepairRequest.Api terminated unexpectedly during startup.");
+
+    // Fail fast: never swallow startup failures such as invalid JWT configuration (decision M6).
+    throw;
 }
 finally
 {
