@@ -5,11 +5,13 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using RepairRequest.Application.Authentication;
 using RepairRequest.Application.MasterData;
+using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
 using RepairRequest.Infrastructure.Authentication;
 using RepairRequest.Infrastructure.Authorization;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.MasterData;
+using RepairRequest.Infrastructure.RepairRequests;
 using RepairRequest.Infrastructure.Persistence;
 
 namespace RepairRequest.Infrastructure.DependencyInjection;
@@ -46,6 +48,9 @@ public static class InfrastructureServiceCollectionExtensions
 
         // S1-004: master data persistence port.
         services.AddScoped<IMasterDataStore, MasterDataStore>();
+
+        // S1-005: Repair Request Draft persistence port.
+        services.AddScoped<IRepairRequestDraftStore, RepairRequestDraftStore>();
 
         return services;
     }

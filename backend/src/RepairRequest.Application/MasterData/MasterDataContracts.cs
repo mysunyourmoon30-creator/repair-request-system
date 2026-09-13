@@ -1,10 +1,6 @@
-using RepairRequest.Application.Security;
 using RepairRequest.Domain.MasterData;
 
 namespace RepairRequest.Application.MasterData;
-
-/// <summary>The caller and correlation id of one master-data command (RR-API-001 section 1 audit linkage).</summary>
-public sealed record MasterDataCommandContext(CurrentUser User, Guid CorrelationId);
 
 /// <summary>A bounded page request. Values are validated and clamped by the API before reaching the Application layer.</summary>
 public sealed record PageRequest(int Page, int PageSize);

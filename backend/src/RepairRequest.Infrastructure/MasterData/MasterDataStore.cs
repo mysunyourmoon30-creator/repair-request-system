@@ -1,6 +1,7 @@
 using System.Data;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
+using RepairRequest.Application.Common;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.Auditing;
@@ -178,7 +179,7 @@ internal sealed class MasterDataStore : IMasterDataStore
         }
     }
 
-    public async Task<MasterDataResult<T>> RunSerializableAsync<T>(Func<Task<MasterDataResult<T>>> command, CancellationToken cancellationToken)
+    public async Task<CommandResult<T>> RunSerializableAsync<T>(Func<Task<CommandResult<T>>> command, CancellationToken cancellationToken)
     {
         try
         {
@@ -196,7 +197,7 @@ internal sealed class MasterDataStore : IMasterDataStore
         catch (Exception exception) when (SqlErrorNumber(exception) is DeadlockVictim)
         {
             _db.ChangeTracker.Clear();
-            return MasterDataError.ConcurrencyConflict;
+            return CommandError.ConcurrencyConflict;
         }
     }
 

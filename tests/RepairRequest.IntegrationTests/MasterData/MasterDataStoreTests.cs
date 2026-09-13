@@ -2,6 +2,7 @@ using System.Data.Common;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
+using RepairRequest.Application.Common;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.MasterData;
@@ -204,7 +205,7 @@ public sealed class MasterDataStoreTests : IAsyncLifetime
     public async Task ServiceUpdate_WithTokenFromBeforeAConcurrentChange_Returns409()
     {
         var world = await NewWorldAsync();
-        var context = new MasterDataCommandContext(Administrator(world.TenantId), Guid.NewGuid());
+        var context = new CommandContext(Administrator(world.TenantId), Guid.NewGuid());
         var originalToken = world.SiteA1.RowVersion.ToArray();
 
         await using (var scope = _host.CreateScope())
@@ -218,7 +219,7 @@ public sealed class MasterDataStoreTests : IAsyncLifetime
         {
             var second = await scope.ServiceProvider.GetRequiredService<SiteService>()
                 .UpdateAsync(context, world.SiteA1.Id, originalToken, "SECOND-WRITER", CancellationToken.None);
-            Assert.Equal(MasterDataFailure.ConcurrencyConflict, second.Error?.Failure);
+            Assert.Equal(CommandFailure.ConcurrencyConflict, second.Error?.Failure);
         }
 
         Assert.Equal("FIRST-WRITER", await WithDbAsync(db => db.Sites
@@ -248,7 +249,7 @@ public sealed class MasterDataStoreTests : IAsyncLifetime
     public async Task AuditWriteFailure_RollsBackTheMasterChange()
     {
         var world = await NewWorldAsync();
-        var context = new MasterDataCommandContext(Administrator(world.TenantId), Guid.NewGuid());
+        var context = new CommandContext(Administrator(world.TenantId), Guid.NewGuid());
 
         await using var failingHost = new AuthenticationTestHost(services =>
             services.ConfigureDbContext<RepairRequestDbContext>(options => options.AddInterceptors(new FailAuditInsertInterceptor())));
@@ -279,7 +280,7 @@ public sealed class MasterDataStoreTests : IAsyncLifetime
     public async Task SuccessfulCommand_WritesChangeAndAuditTogether()
     {
         var world = await NewWorldAsync();
-        var context = new MasterDataCommandContext(Administrator(world.TenantId), Guid.NewGuid());
+        var context = new CommandContext(Administrator(world.TenantId), Guid.NewGuid());
 
         await using (var scope = _host.CreateScope())
         {

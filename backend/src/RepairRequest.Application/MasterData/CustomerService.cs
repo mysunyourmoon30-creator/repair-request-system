@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.MasterData;
 
@@ -24,13 +25,13 @@ public sealed class CustomerService
     public Task<CustomerDto?> GetAsync(CurrentUser user, Guid customerId, CancellationToken cancellationToken) =>
         _store.GetCustomerAsync(user, customerId, cancellationToken);
 
-    public async Task<MasterDataResult<CustomerDto>> CreateAsync(MasterDataCommandContext context, string? customerCode, CancellationToken cancellationToken)
+    public async Task<CommandResult<CustomerDto>> CreateAsync(CommandContext context, string? customerCode, CancellationToken cancellationToken)
     {
         var errors = new Dictionary<string, string[]>();
         var code = MasterDataValidation.Code(customerCode, MasterDataFields.CustomerCode, errors);
         if (code is null)
         {
-            return MasterDataError.Validation(errors);
+            return CommandError.Validation(errors);
         }
 
         // Tenant is always the caller's database-resolved tenant (D-11 / BR-16), never client input.
@@ -51,8 +52,8 @@ public sealed class CustomerService
         return await MasterDataCommandSteps.SaveAsync(_store, customer, null, MasterDataFields.CustomerCode, ToDto, cancellationToken);
     }
 
-    public async Task<MasterDataResult<CustomerDto>> UpdateAsync(
-        MasterDataCommandContext context,
+    public async Task<CommandResult<CustomerDto>> UpdateAsync(
+        CommandContext context,
         Guid customerId,
         byte[] expectedRowVersion,
         string? customerCode,
@@ -75,8 +76,8 @@ public sealed class CustomerService
             cancellationToken);
     }
 
-    public async Task<MasterDataResult<CustomerDto>> ActivateAsync(
-        MasterDataCommandContext context,
+    public async Task<CommandResult<CustomerDto>> ActivateAsync(
+        CommandContext context,
         Guid customerId,
         byte[] expectedRowVersion,
         CancellationToken cancellationToken)
@@ -88,8 +89,8 @@ public sealed class CustomerService
     }
 
     /// <summary>DEC-PS1-013: denied while an active Site exists; guard and change share one SERIALIZABLE transaction.</summary>
-    public Task<MasterDataResult<CustomerDto>> DeactivateAsync(
-        MasterDataCommandContext context,
+    public Task<CommandResult<CustomerDto>> DeactivateAsync(
+        CommandContext context,
         Guid customerId,
         byte[] expectedRowVersion,
         string? reason,

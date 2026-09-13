@@ -55,6 +55,24 @@ internal sealed class DataScope : IDataScope
             scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == site.Id));
     }
 
+    public IQueryable<Site> BusinessSites(CurrentUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        var sites = _db.Sites.Where(site => site.TenantId == tenantId);
+
+        // Configuration-only roles (ADMINISTRATOR) never contribute business Site scope (S1-003 decision 2).
+        if (!user.HasBusinessRole)
+        {
+            return sites.Where(_ => false);
+        }
+
+        return sites.Where(site => _db.UserSiteScopes.Any(scope =>
+            scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == site.Id));
+    }
+
     public IQueryable<Equipment> Equipment(CurrentUser user)
     {
         ArgumentNullException.ThrowIfNull(user);
@@ -105,5 +123,5 @@ internal sealed class DataScope : IDataScope
     }
 
     public Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken) =>
-        Sites(user).AnyAsync(site => site.Id == siteId, cancellationToken);
+        BusinessSites(user).AnyAsync(site => site.Id == siteId, cancellationToken);
 }

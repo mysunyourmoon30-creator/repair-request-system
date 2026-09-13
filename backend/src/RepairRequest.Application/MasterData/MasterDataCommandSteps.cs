@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Domain.MasterData;
 
 namespace RepairRequest.Application.MasterData;
@@ -11,8 +12,8 @@ internal static class MasterDataCommandSteps
 {
     public const string InactiveParentMessage = "The {0} is inactive.";
 
-    public static MasterDataError DuplicateCode(string field) =>
-        MasterDataError.Validation(field, "The code is already used within its scope.");
+    public static CommandError DuplicateCode(string field) =>
+        CommandError.Validation(field, "The code is already used within its scope.");
 
     public static DateTime UtcNow(TimeProvider clock)
     {
@@ -23,10 +24,10 @@ internal static class MasterDataCommandSteps
     public static bool RowVersionMatches(MasterDataEntity entity, byte[] expectedRowVersion) =>
         entity.RowVersion.AsSpan().SequenceEqual(expectedRowVersion);
 
-    public static async Task<MasterDataResult<TDto>> UpdateCodeAsync<TEntity, TDto>(
+    public static async Task<CommandResult<TDto>> UpdateCodeAsync<TEntity, TDto>(
         IMasterDataStore store,
         TimeProvider clock,
-        MasterDataCommandContext context,
+        CommandContext context,
         TEntity? entity,
         byte[] expectedRowVersion,
         string? requestedCode,
@@ -40,26 +41,26 @@ internal static class MasterDataCommandSteps
     {
         if (entity is null)
         {
-            return MasterDataError.NotFound;
+            return CommandError.NotFound;
         }
 
         if (!RowVersionMatches(entity, expectedRowVersion))
         {
-            return MasterDataError.ConcurrencyConflict;
+            return CommandError.ConcurrencyConflict;
         }
 
         var errors = new Dictionary<string, string[]>();
         var code = MasterDataValidation.Code(requestedCode, codeField, errors);
         if (code is null)
         {
-            return MasterDataError.Validation(errors);
+            return CommandError.Validation(errors);
         }
 
         var oldCode = currentCode(entity);
         if (string.Equals(oldCode, code, StringComparison.Ordinal))
         {
             // No change: nothing is written and nothing is audited.
-            return MasterDataResult<TDto>.Success(toDto(entity));
+            return CommandResult<TDto>.Success(toDto(entity));
         }
 
         if (await codeTakenByOther(entity, code))
@@ -73,10 +74,10 @@ internal static class MasterDataCommandSteps
         return await SaveAsync(store, entity, expectedRowVersion, codeField, toDto, cancellationToken);
     }
 
-    public static async Task<MasterDataResult<TDto>> ActivateAsync<TEntity, TDto>(
+    public static async Task<CommandResult<TDto>> ActivateAsync<TEntity, TDto>(
         IMasterDataStore store,
         TimeProvider clock,
-        MasterDataCommandContext context,
+        CommandContext context,
         TEntity? entity,
         byte[] expectedRowVersion,
         Func<TEntity, Task<MasterDataStatus?>>? parentStatus,
@@ -88,23 +89,23 @@ internal static class MasterDataCommandSteps
     {
         if (entity is null)
         {
-            return MasterDataError.NotFound;
+            return CommandError.NotFound;
         }
 
         if (!RowVersionMatches(entity, expectedRowVersion))
         {
-            return MasterDataError.ConcurrencyConflict;
+            return CommandError.ConcurrencyConflict;
         }
 
         if (entity.Status == MasterDataStatus.Active)
         {
-            return MasterDataError.StateConflict($"The {entity.GetType().Name} is already active.");
+            return CommandError.StateConflict($"The {entity.GetType().Name} is already active.");
         }
 
         // Decision D2: a Site / Equipment cannot become active under an inactive parent.
         if (parentStatus is not null && await parentStatus(entity) != MasterDataStatus.Active)
         {
-            return MasterDataError.Validation(parentField!, string.Format(InactiveParentMessage, parentName));
+            return CommandError.Validation(parentField!, string.Format(InactiveParentMessage, parentName));
         }
 
         var previousReason = entity.DeactivateReason;
@@ -114,10 +115,10 @@ internal static class MasterDataCommandSteps
         return await SaveAsync(store, entity, expectedRowVersion, null, toDto, cancellationToken);
     }
 
-    public static async Task<MasterDataResult<TDto>> DeactivateAsync<TEntity, TDto>(
+    public static async Task<CommandResult<TDto>> DeactivateAsync<TEntity, TDto>(
         IMasterDataStore store,
         TimeProvider clock,
-        MasterDataCommandContext context,
+        CommandContext context,
         TEntity? entity,
         byte[] expectedRowVersion,
         string? requestedReason,
@@ -129,24 +130,24 @@ internal static class MasterDataCommandSteps
     {
         if (entity is null)
         {
-            return MasterDataError.NotFound;
+            return CommandError.NotFound;
         }
 
         if (!RowVersionMatches(entity, expectedRowVersion))
         {
-            return MasterDataError.ConcurrencyConflict;
+            return CommandError.ConcurrencyConflict;
         }
 
         var errors = new Dictionary<string, string[]>();
         var reason = MasterDataValidation.Reason(requestedReason, errors);
         if (reason is null)
         {
-            return MasterDataError.Validation(errors);
+            return CommandError.Validation(errors);
         }
 
         if (entity.Status == MasterDataStatus.Inactive)
         {
-            return MasterDataError.StateConflict($"The {entity.GetType().Name} is already inactive.");
+            return CommandError.StateConflict($"The {entity.GetType().Name} is already inactive.");
         }
 
         // DEC-PS1-013: no deactivation while active children exist; children are never deactivated automatically.
@@ -155,7 +156,7 @@ internal static class MasterDataCommandSteps
             var activeChildren = await countActiveChildren(entity);
             if (activeChildren > 0)
             {
-                return MasterDataError.StateConflict(
+                return CommandError.StateConflict(
                     $"The {entity.GetType().Name} cannot be deactivated while {activeChildren} active {childName} exist.",
                     activeChildren);
             }
@@ -167,7 +168,7 @@ internal static class MasterDataCommandSteps
         return await SaveAsync(store, entity, expectedRowVersion, null, toDto, cancellationToken);
     }
 
-    public static async Task<MasterDataResult<TDto>> SaveAsync<TEntity, TDto>(
+    public static async Task<CommandResult<TDto>> SaveAsync<TEntity, TDto>(
         IMasterDataStore store,
         TEntity entity,
         byte[]? expectedRowVersion,
@@ -180,7 +181,7 @@ internal static class MasterDataCommandSteps
 
         if (outcome == MasterDataSaveOutcome.Saved)
         {
-            return MasterDataResult<TDto>.Success(toDto(entity));
+            return CommandResult<TDto>.Success(toDto(entity));
         }
 
         if (outcome == MasterDataSaveOutcome.DuplicateCode && codeField is not null)
@@ -188,6 +189,6 @@ internal static class MasterDataCommandSteps
             return DuplicateCode(codeField);
         }
 
-        return MasterDataError.ConcurrencyConflict;
+        return CommandError.ConcurrencyConflict;
     }
 }

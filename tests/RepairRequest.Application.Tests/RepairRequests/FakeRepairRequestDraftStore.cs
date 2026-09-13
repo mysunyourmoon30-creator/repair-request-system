@@ -1,0 +1,136 @@
+using RepairRequest.Application.Common;
+using RepairRequest.Application.RepairRequests;
+using RepairRequest.Application.Security;
+using RepairRequest.Domain.Auditing;
+using RepairRequest.Domain.MasterData;
+using RepairRequest.Domain.RepairRequests;
+using RepairRequest.Domain.Security;
+using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
+
+namespace RepairRequest.Application.Tests.RepairRequests;
+
+/// <summary>
+/// In-memory Draft port for Application-rule tests. Site scope is modelled as an explicit set of Sites the caller may
+/// select; SQL scope behaviour is covered by the integration and API tests.
+/// </summary>
+internal sealed class FakeRepairRequestDraftStore : IRepairRequestDraftStore
+{
+    public static readonly byte[] InitialRowVersion = [0, 0, 0, 0, 0, 0, 0, 1];
+    public static readonly byte[] SavedRowVersion = [0, 0, 0, 0, 0, 0, 0, 2];
+
+    private readonly List<RepairRequestAggregate> _pending = [];
+    private readonly List<AuditHistory> _pendingAudits = [];
+
+    public List<RepairRequestAggregate> Requests { get; } = [];
+
+    public List<AuditHistory> Audits { get; } = [];
+
+    public Dictionary<Guid, MasterDataStatus> SitesInScope { get; } = new();
+
+    /// <summary>Equipment id -> (Site id, status).</summary>
+    public Dictionary<Guid, (Guid SiteId, MasterDataStatus Status)> Equipment { get; } = new();
+
+    public int SaveCount { get; private set; }
+
+    public int SelectionQueries { get; private set; }
+
+    public RepairRequestSaveOutcome SaveOutcome { get; set; } = RepairRequestSaveOutcome.Saved;
+
+    public static CommandContext RequesterContext(Guid tenantId, Guid? userId = null) =>
+        new(new CurrentUser(userId ?? Guid.NewGuid(), tenantId, [RoleCodes.Requester]), Guid.NewGuid());
+
+    public Guid AddSite(MasterDataStatus status = MasterDataStatus.Active)
+    {
+        var siteId = Guid.NewGuid();
+        SitesInScope[siteId] = status;
+        return siteId;
+    }
+
+    public Guid AddEquipment(Guid siteId, MasterDataStatus status = MasterDataStatus.Active)
+    {
+        var equipmentId = Guid.NewGuid();
+        Equipment[equipmentId] = (siteId, status);
+        return equipmentId;
+    }
+
+    public RepairRequestAggregate SeedDraft(CommandContext owner, Guid? siteId = null, Guid? equipmentId = null, string? description = null)
+    {
+        var draft = RepairRequestAggregate.CreateDraft(owner.User.TenantId, owner.User.UserId);
+        draft.EditDraft(siteId, equipmentId, description, null, null);
+        Set(draft, nameof(RepairRequestAggregate.Id), Guid.NewGuid());
+        Set(draft, nameof(RepairRequestAggregate.RowVersion), InitialRowVersion);
+        Requests.Add(draft);
+        return draft;
+    }
+
+    public static void ForceStatus(RepairRequestAggregate request, RepairRequestStatus status) =>
+        Set(request, nameof(RepairRequestAggregate.Status), status);
+
+    public Task<RepairRequestDraftDto?> GetAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken) =>
+        Task.FromResult(Requests
+            .Where(request => request.Id == repairRequestId && request.TenantId == user.TenantId)
+            .Select(request => new RepairRequestDraftDto(
+                request.Id, request.Status, request.RequestNo, request.SiteId, request.EquipmentId, request.Description,
+                request.PreferredStartAt, request.PreferredEndAt, request.CreatedBy, request.RowVersion))
+            .SingleOrDefault());
+
+    public Task<RepairRequestAggregate?> FindOwnAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken) =>
+        Task.FromResult(Requests.SingleOrDefault(request =>
+            request.Id == repairRequestId && request.TenantId == user.TenantId && request.CreatedBy == user.UserId));
+
+    public Task<DraftSiteSelection?> GetSiteSelectionAsync(CurrentUser user, Guid siteId, Guid? equipmentId, CancellationToken cancellationToken)
+    {
+        SelectionQueries++;
+
+        if (!SitesInScope.TryGetValue(siteId, out var siteStatus))
+        {
+            return Task.FromResult<DraftSiteSelection?>(null);
+        }
+
+        MasterDataStatus? equipmentStatus =
+            equipmentId is { } id && Equipment.TryGetValue(id, out var equipment) && equipment.SiteId == siteId
+                ? equipment.Status
+                : null;
+
+        return Task.FromResult<DraftSiteSelection?>(new DraftSiteSelection(siteStatus, equipmentStatus));
+    }
+
+    public void Add(RepairRequestAggregate repairRequest)
+    {
+        Set(repairRequest, nameof(RepairRequestAggregate.Id), Guid.NewGuid());
+        _pending.Add(repairRequest);
+    }
+
+    public void AddAudit(AuditHistory audit) => _pendingAudits.Add(audit);
+
+    public Task<RepairRequestSaveOutcome> SaveChangesAsync(RepairRequestAggregate repairRequest, byte[]? expectedRowVersion, CancellationToken cancellationToken)
+    {
+        SaveCount++;
+
+        if (SaveOutcome != RepairRequestSaveOutcome.Saved)
+        {
+            _pending.Clear();
+            _pendingAudits.Clear();
+            return Task.FromResult(SaveOutcome);
+        }
+
+        foreach (var pending in _pending)
+        {
+            Set(pending, nameof(RepairRequestAggregate.RowVersion), InitialRowVersion);
+            Requests.Add(pending);
+        }
+
+        if (expectedRowVersion is not null)
+        {
+            Set(repairRequest, nameof(RepairRequestAggregate.RowVersion), SavedRowVersion);
+        }
+
+        Audits.AddRange(_pendingAudits);
+        _pending.Clear();
+        _pendingAudits.Clear();
+        return Task.FromResult(RepairRequestSaveOutcome.Saved);
+    }
+
+    private static void Set(RepairRequestAggregate request, string property, object value) =>
+        typeof(RepairRequestAggregate).GetProperty(property)!.SetValue(request, value);
+}

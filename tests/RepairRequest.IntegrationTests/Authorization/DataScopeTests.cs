@@ -245,6 +245,39 @@ public sealed class DataScopeTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task BusinessSites_AreAssignedSitesOnly_AndConfigurationScopeNeverWidensThem()
+    {
+        var world = await NewWorldAsync();
+        var requester = await NewUserAsync(world, [world.SiteA1], RoleCodes.Requester);
+        var adminRequester = await NewUserAsync(world, [world.SiteA1], RoleCodes.Administrator, RoleCodes.Requester);
+        var administrator = await NewUserAsync(world, [world.SiteA1], RoleCodes.Administrator);
+        var spoofedTenant = new CurrentUser(adminRequester.UserId, world.OtherTenantId, [RoleCodes.Administrator, RoleCodes.Requester]);
+
+        Assert.Equal(new[] { world.SiteA1.Id }, await QueryAsync(scope => scope.BusinessSites(requester).Select(site => site.Id).ToListAsync()));
+        Assert.Equal(new[] { world.SiteA1.Id }, await QueryAsync(scope => scope.BusinessSites(adminRequester).Select(site => site.Id).ToListAsync()));
+        Assert.Empty(await QueryAsync(scope => scope.BusinessSites(administrator).ToListAsync()));
+        Assert.Empty(await QueryAsync(scope => scope.BusinessSites(spoofedTenant).ToListAsync()));
+
+        // Configuration scope is unchanged: ADMINISTRATOR still reads every Site of its own tenant.
+        Assert.Equal(
+            Sorted([world.SiteA1.Id, world.SiteA2.Id, world.SiteB1.Id]),
+            Sorted(await QueryAsync(scope => scope.Sites(adminRequester).Select(site => site.Id).ToListAsync())));
+    }
+
+    [Fact]
+    public async Task IsSiteInScope_UsesBusinessSiteScope_ForUsersHoldingAdministrator()
+    {
+        var world = await NewWorldAsync();
+        var adminRequester = await NewUserAsync(world, [world.SiteA1], RoleCodes.Administrator, RoleCodes.Requester);
+        var administrator = await NewUserAsync(world, [], RoleCodes.Administrator);
+
+        Assert.True(await QueryAsync(scope => scope.IsSiteInScopeAsync(adminRequester, world.SiteA1.Id, CancellationToken.None)));
+        Assert.False(await QueryAsync(scope => scope.IsSiteInScopeAsync(adminRequester, world.SiteA2.Id, CancellationToken.None)));
+        Assert.False(await QueryAsync(scope => scope.IsSiteInScopeAsync(adminRequester, world.OtherTenantSite.Id, CancellationToken.None)));
+        Assert.False(await QueryAsync(scope => scope.IsSiteInScopeAsync(administrator, world.SiteA1.Id, CancellationToken.None)));
+    }
+
+    [Fact]
     public async Task ForgedTenantInCurrentUser_CannotReachRecordsOfThatTenantWithoutAssignment()
     {
         var world = await NewWorldAsync();

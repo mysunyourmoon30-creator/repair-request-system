@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Domain.MasterData;
 
@@ -17,7 +18,7 @@ public class CustomerServiceTests
         _service = new CustomerService(_store, new FixedClock(Now));
     }
 
-    private MasterDataCommandContext Context() => FakeMasterDataStore.AdministratorContext(_tenantId);
+    private CommandContext Context() => FakeMasterDataStore.AdministratorContext(_tenantId);
 
     [Fact]
     public async Task Create_AddsActiveCustomerInCallerTenant_WithCreateAudit()
@@ -56,7 +57,7 @@ public class CustomerServiceTests
     {
         var result = await _service.CreateAsync(Context(), code, CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.True(result.Error!.Errors.ContainsKey(MasterDataFields.CustomerCode));
         Assert.Equal(0, _store.SaveCount);
         Assert.Empty(_store.Audits);
@@ -69,7 +70,7 @@ public class CustomerServiceTests
 
         var result = await _service.CreateAsync(Context(), "cust-001", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.True(result.Error!.Errors.ContainsKey(MasterDataFields.CustomerCode));
         Assert.Equal(0, _store.SaveCount);
     }
@@ -91,7 +92,7 @@ public class CustomerServiceTests
 
         var result = await _service.CreateAsync(Context(), "CUST-RACE", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.Empty(_store.Customers);
         Assert.Empty(_store.Audits);
     }
@@ -103,7 +104,7 @@ public class CustomerServiceTests
 
         var result = await _service.UpdateAsync(Context(), foreign.Id, FakeMasterDataStore.InitialRowVersion, "CUST-002", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.NotFound, result.Error?.Failure);
+        Assert.Equal(CommandFailure.NotFound, result.Error?.Failure);
         Assert.Equal("CUST-001", foreign.CustomerCode);
     }
 
@@ -114,7 +115,7 @@ public class CustomerServiceTests
 
         var result = await _service.UpdateAsync(Context(), customer.Id, [9, 9, 9, 9, 9, 9, 9, 9], "CUST-002", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ConcurrencyConflict, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error?.Failure);
         Assert.Equal("CUST-001", customer.CustomerCode);
         Assert.Equal(0, _store.SaveCount);
     }
@@ -156,7 +157,7 @@ public class CustomerServiceTests
 
         var result = await _service.UpdateAsync(Context(), customer.Id, FakeMasterDataStore.InitialRowVersion, "CUST-TAKEN", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.Equal(0, _store.SaveCount);
     }
 
@@ -179,7 +180,7 @@ public class CustomerServiceTests
 
         var result = await _service.UpdateAsync(Context(), customer.Id, FakeMasterDataStore.InitialRowVersion, "CUST-002", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ConcurrencyConflict, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error?.Failure);
         Assert.Empty(_store.Audits);
     }
 
@@ -193,7 +194,7 @@ public class CustomerServiceTests
 
         var result = await _service.DeactivateAsync(Context(), customer.Id, FakeMasterDataStore.InitialRowVersion, reason, CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.True(result.Error!.Errors.ContainsKey(MasterDataFields.Reason));
         Assert.Equal(MasterDataStatus.Active, customer.Status);
     }
@@ -206,7 +207,7 @@ public class CustomerServiceTests
         var result = await _service.DeactivateAsync(
             Context(), customer.Id, FakeMasterDataStore.InitialRowVersion, new string('r', MasterDataEntity.DeactivateReasonMaxLength + 1), CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
     }
 
     [Fact]
@@ -218,7 +219,7 @@ public class CustomerServiceTests
 
         var result = await _service.DeactivateAsync(Context(), customer.Id, FakeMasterDataStore.InitialRowVersion, "Contract ended", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.StateConflict, result.Error?.Failure);
+        Assert.Equal(CommandFailure.StateConflict, result.Error?.Failure);
         Assert.Equal(1, result.Error!.ActiveChildCount);
         Assert.Equal(MasterDataStatus.Active, customer.Status);
         Assert.Equal(1, _store.SerializableRuns);
@@ -252,7 +253,7 @@ public class CustomerServiceTests
 
         var result = await _service.DeactivateAsync(Context(), customer.Id, FakeMasterDataStore.InitialRowVersion, "Second", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.StateConflict, result.Error?.Failure);
+        Assert.Equal(CommandFailure.StateConflict, result.Error?.Failure);
         Assert.Equal("First", customer.DeactivateReason);
     }
 
@@ -281,7 +282,7 @@ public class CustomerServiceTests
 
         var result = await _service.ActivateAsync(Context(), customer.Id, FakeMasterDataStore.InitialRowVersion, CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.StateConflict, result.Error?.Failure);
+        Assert.Equal(CommandFailure.StateConflict, result.Error?.Failure);
         Assert.Empty(_store.Audits);
     }
 }

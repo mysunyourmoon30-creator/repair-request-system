@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.MasterData;
 
@@ -26,8 +27,8 @@ public sealed class SiteService
         _store.GetSiteAsync(user, siteId, cancellationToken);
 
     /// <summary>DEC-PS1-002: the Customer must be ACTIVE; the check and the insert share one SERIALIZABLE transaction.</summary>
-    public Task<MasterDataResult<SiteDto>> CreateAsync(
-        MasterDataCommandContext context,
+    public Task<CommandResult<SiteDto>> CreateAsync(
+        CommandContext context,
         Guid customerId,
         string? siteCode,
         CancellationToken cancellationToken) =>
@@ -37,7 +38,7 @@ public sealed class SiteService
                 var customerStatus = await _store.GetCustomerStatusAsync(context.User, customerId, cancellationToken);
                 if (customerStatus is null)
                 {
-                    return MasterDataError.NotFound;
+                    return CommandError.NotFound;
                 }
 
                 var errors = new Dictionary<string, string[]>();
@@ -49,7 +50,7 @@ public sealed class SiteService
 
                 if (code is null || errors.Count > 0)
                 {
-                    return MasterDataError.Validation(errors);
+                    return CommandError.Validation(errors);
                 }
 
                 var tenantId = context.User.TenantId;
@@ -74,8 +75,8 @@ public sealed class SiteService
             },
             cancellationToken);
 
-    public async Task<MasterDataResult<SiteDto>> UpdateAsync(
-        MasterDataCommandContext context,
+    public async Task<CommandResult<SiteDto>> UpdateAsync(
+        CommandContext context,
         Guid siteId,
         byte[] expectedRowVersion,
         string? siteCode,
@@ -99,8 +100,8 @@ public sealed class SiteService
     }
 
     /// <summary>Decision D2: the Customer must be ACTIVE; checked in the same SERIALIZABLE transaction.</summary>
-    public Task<MasterDataResult<SiteDto>> ActivateAsync(
-        MasterDataCommandContext context,
+    public Task<CommandResult<SiteDto>> ActivateAsync(
+        CommandContext context,
         Guid siteId,
         byte[] expectedRowVersion,
         CancellationToken cancellationToken) =>
@@ -124,8 +125,8 @@ public sealed class SiteService
             cancellationToken);
 
     /// <summary>DEC-PS1-013: denied while active Equipment exists; guard and change share one SERIALIZABLE transaction.</summary>
-    public Task<MasterDataResult<SiteDto>> DeactivateAsync(
-        MasterDataCommandContext context,
+    public Task<CommandResult<SiteDto>> DeactivateAsync(
+        CommandContext context,
         Guid siteId,
         byte[] expectedRowVersion,
         string? reason,

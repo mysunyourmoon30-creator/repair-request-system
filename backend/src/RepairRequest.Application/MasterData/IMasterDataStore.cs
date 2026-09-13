@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.MasterData;
@@ -77,5 +78,5 @@ public interface IMasterDataStore
     /// Runs a guarded command in one SERIALIZABLE transaction so dependency guards (DEC-PS1-013, decision D2) cannot
     /// be broken by a concurrent change. Commits only a successful result; a lock conflict becomes a concurrency conflict.
     /// </summary>
-    Task<MasterDataResult<T>> RunSerializableAsync<T>(Func<Task<MasterDataResult<T>>> command, CancellationToken cancellationToken);
+    Task<CommandResult<T>> RunSerializableAsync<T>(Func<Task<CommandResult<T>>> command, CancellationToken cancellationToken);
 }

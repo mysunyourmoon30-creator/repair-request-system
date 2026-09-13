@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Domain.MasterData;
 
@@ -21,7 +22,7 @@ public class SiteAndEquipmentServiceTests
         _equipment = new EquipmentService(_store, clock);
     }
 
-    private MasterDataCommandContext Context() => FakeMasterDataStore.AdministratorContext(_tenantId);
+    private CommandContext Context() => FakeMasterDataStore.AdministratorContext(_tenantId);
 
     // ---------------- Site ----------------
 
@@ -47,7 +48,7 @@ public class SiteAndEquipmentServiceTests
 
         var result = await _sites.CreateAsync(Context(), foreign.Id, "SITE-1", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.NotFound, result.Error?.Failure);
+        Assert.Equal(CommandFailure.NotFound, result.Error?.Failure);
         Assert.Empty(_store.Sites);
     }
 
@@ -58,7 +59,7 @@ public class SiteAndEquipmentServiceTests
 
         var result = await _sites.CreateAsync(Context(), customer.Id, "SITE-1", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.True(result.Error!.Errors.ContainsKey(MasterDataFields.CustomerId));
         Assert.Empty(_store.Sites);
     }
@@ -73,7 +74,7 @@ public class SiteAndEquipmentServiceTests
         var duplicate = await _sites.CreateAsync(Context(), customerA.Id, "SITE-1", CancellationToken.None);
         var otherCustomer = await _sites.CreateAsync(Context(), customerB.Id, "SITE-1", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, duplicate.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, duplicate.Error?.Failure);
         Assert.True(duplicate.Error!.Errors.ContainsKey(MasterDataFields.SiteCode));
         Assert.True(otherCustomer.Succeeded);
     }
@@ -99,7 +100,7 @@ public class SiteAndEquipmentServiceTests
 
         var result = await _sites.ActivateAsync(Context(), site.Id, FakeMasterDataStore.InitialRowVersion, CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.True(result.Error!.Errors.ContainsKey(MasterDataFields.CustomerId));
         Assert.Equal(MasterDataStatus.Inactive, site.Status);
         Assert.Equal(0, _store.SaveCount);
@@ -127,7 +128,7 @@ public class SiteAndEquipmentServiceTests
 
         var result = await _sites.DeactivateAsync(Context(), site.Id, FakeMasterDataStore.InitialRowVersion, "Closed", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.StateConflict, result.Error?.Failure);
+        Assert.Equal(CommandFailure.StateConflict, result.Error?.Failure);
         Assert.Equal(1, result.Error!.ActiveChildCount);
         Assert.Equal(MasterDataStatus.Active, site.Status);
         Assert.Equal(MasterDataStatus.Active, equipment.Status);
@@ -154,7 +155,7 @@ public class SiteAndEquipmentServiceTests
 
         var result = await _equipment.CreateAsync(Context(), foreignSite.Id, "EQ-1", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.NotFound, result.Error?.Failure);
+        Assert.Equal(CommandFailure.NotFound, result.Error?.Failure);
     }
 
     [Fact]
@@ -164,7 +165,7 @@ public class SiteAndEquipmentServiceTests
 
         var result = await _equipment.CreateAsync(Context(), site.Id, "EQ-1", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.True(result.Error!.Errors.ContainsKey(MasterDataFields.SiteId));
     }
 
@@ -176,7 +177,7 @@ public class SiteAndEquipmentServiceTests
 
         var result = await _equipment.CreateAsync(Context(), site.Id, "EQ-1", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.True(result.Error!.Errors.ContainsKey(MasterDataFields.EquipmentCode));
     }
 
@@ -188,7 +189,7 @@ public class SiteAndEquipmentServiceTests
 
         var result = await _equipment.ActivateAsync(Context(), equipment.Id, FakeMasterDataStore.InitialRowVersion, CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, result.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error?.Failure);
         Assert.Equal(MasterDataStatus.Inactive, equipment.Status);
     }
 
@@ -201,7 +202,7 @@ public class SiteAndEquipmentServiceTests
         var withoutReason = await _equipment.DeactivateAsync(Context(), equipment.Id, FakeMasterDataStore.InitialRowVersion, " ", CancellationToken.None);
         var withReason = await _equipment.DeactivateAsync(Context(), equipment.Id, FakeMasterDataStore.InitialRowVersion, "Broken", CancellationToken.None);
 
-        Assert.Equal(MasterDataFailure.ValidationFailed, withoutReason.Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, withoutReason.Error?.Failure);
         Assert.True(withReason.Succeeded);
         Assert.Equal(MasterDataStatus.Inactive, equipment.Status);
         Assert.Equal("EQUIPMENT_DEACTIVATED", Assert.Single(_store.Audits).ActionCode);

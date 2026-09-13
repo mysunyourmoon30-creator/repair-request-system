@@ -1,4 +1,5 @@
 using System.Text.Json;
+using RepairRequest.Application.Common;
 using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.MasterData;
 
@@ -31,13 +32,13 @@ public static class MasterDataAudit
         _ => throw new ArgumentOutOfRangeException(nameof(entity))
     };
 
-    public static AuditHistory Created(MasterDataCommandContext context, MasterDataEntity entity, IReadOnlyDictionary<string, object?> values, DateTime occurredAt)
+    public static AuditHistory Created(CommandContext context, MasterDataEntity entity, IReadOnlyDictionary<string, object?> values, DateTime occurredAt)
     {
         var entityType = EntityTypeOf(entity);
         return Create(context, entity, CreatedAction(entityType), null, MasterDataStatusCodes.ToCode(entity.Status), null, values, null, occurredAt);
     }
 
-    public static AuditHistory Updated(MasterDataCommandContext context, MasterDataEntity entity, string field, string oldValue, string newValue, DateTime occurredAt) =>
+    public static AuditHistory Updated(CommandContext context, MasterDataEntity entity, string field, string oldValue, string newValue, DateTime occurredAt) =>
         Create(
             context,
             entity,
@@ -49,7 +50,7 @@ public static class MasterDataAudit
             null,
             occurredAt);
 
-    public static AuditHistory Activated(MasterDataCommandContext context, MasterDataEntity entity, string? previousReason, DateTime occurredAt) =>
+    public static AuditHistory Activated(CommandContext context, MasterDataEntity entity, string? previousReason, DateTime occurredAt) =>
         Create(
             context,
             entity,
@@ -61,7 +62,7 @@ public static class MasterDataAudit
             null,
             occurredAt);
 
-    public static AuditHistory Deactivated(MasterDataCommandContext context, MasterDataEntity entity, string reason, DateTime occurredAt) =>
+    public static AuditHistory Deactivated(CommandContext context, MasterDataEntity entity, string reason, DateTime occurredAt) =>
         Create(
             context,
             entity,
@@ -74,7 +75,7 @@ public static class MasterDataAudit
             occurredAt);
 
     private static AuditHistory Create(
-        MasterDataCommandContext context,
+        CommandContext context,
         MasterDataEntity entity,
         string actionCode,
         string? fromState,

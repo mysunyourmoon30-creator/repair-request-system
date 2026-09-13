@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using RepairRequest.Application.MasterData;
+using RepairRequest.Application.RepairRequests;
 
 namespace RepairRequest.Application.DependencyInjection;
 
@@ -18,6 +19,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<CustomerService>();
         services.AddScoped<SiteService>();
         services.AddScoped<EquipmentService>();
+
+        // S1-005: Repair Request Draft create / edit / detail.
+        services.AddScoped<RepairRequestDraftService>();
 
         return services;
     }

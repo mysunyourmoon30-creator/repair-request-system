@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.Auditing;
@@ -33,7 +34,7 @@ internal sealed class FakeMasterDataStore : IMasterDataStore
     /// <summary>Outcome the next saves report; anything other than Saved discards pending changes.</summary>
     public MasterDataSaveOutcome SaveOutcome { get; set; } = MasterDataSaveOutcome.Saved;
 
-    public static MasterDataCommandContext AdministratorContext(Guid tenantId) =>
+    public static CommandContext AdministratorContext(Guid tenantId) =>
         new(new CurrentUser(Guid.NewGuid(), tenantId, [RoleCodes.Administrator]), Guid.NewGuid());
 
     public Customer SeedCustomer(Guid tenantId, string code, string? inactiveReason = null)
@@ -157,7 +158,7 @@ internal sealed class FakeMasterDataStore : IMasterDataStore
         return Task.FromResult(MasterDataSaveOutcome.Saved);
     }
 
-    public async Task<MasterDataResult<T>> RunSerializableAsync<T>(Func<Task<MasterDataResult<T>>> command, CancellationToken cancellationToken)
+    public async Task<CommandResult<T>> RunSerializableAsync<T>(Func<Task<CommandResult<T>>> command, CancellationToken cancellationToken)
     {
         SerializableRuns++;
         return await command();

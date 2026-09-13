@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.MasterData;
 
@@ -26,8 +27,8 @@ public sealed class EquipmentService
         _store.GetEquipmentAsync(user, equipmentId, cancellationToken);
 
     /// <summary>DEC-PS1-003: the Site must be ACTIVE; the check and the insert share one SERIALIZABLE transaction.</summary>
-    public Task<MasterDataResult<EquipmentDto>> CreateAsync(
-        MasterDataCommandContext context,
+    public Task<CommandResult<EquipmentDto>> CreateAsync(
+        CommandContext context,
         Guid siteId,
         string? equipmentCode,
         CancellationToken cancellationToken) =>
@@ -37,7 +38,7 @@ public sealed class EquipmentService
                 var siteStatus = await _store.GetSiteStatusAsync(context.User, siteId, cancellationToken);
                 if (siteStatus is null)
                 {
-                    return MasterDataError.NotFound;
+                    return CommandError.NotFound;
                 }
 
                 var errors = new Dictionary<string, string[]>();
@@ -49,7 +50,7 @@ public sealed class EquipmentService
 
                 if (code is null || errors.Count > 0)
                 {
-                    return MasterDataError.Validation(errors);
+                    return CommandError.Validation(errors);
                 }
 
                 var tenantId = context.User.TenantId;
@@ -74,8 +75,8 @@ public sealed class EquipmentService
             },
             cancellationToken);
 
-    public async Task<MasterDataResult<EquipmentDto>> UpdateAsync(
-        MasterDataCommandContext context,
+    public async Task<CommandResult<EquipmentDto>> UpdateAsync(
+        CommandContext context,
         Guid equipmentId,
         byte[] expectedRowVersion,
         string? equipmentCode,
@@ -99,8 +100,8 @@ public sealed class EquipmentService
     }
 
     /// <summary>Decision D2: the Site must be ACTIVE; checked in the same SERIALIZABLE transaction.</summary>
-    public Task<MasterDataResult<EquipmentDto>> ActivateAsync(
-        MasterDataCommandContext context,
+    public Task<CommandResult<EquipmentDto>> ActivateAsync(
+        CommandContext context,
         Guid equipmentId,
         byte[] expectedRowVersion,
         CancellationToken cancellationToken) =>
@@ -124,8 +125,8 @@ public sealed class EquipmentService
             cancellationToken);
 
     /// <summary>Equipment has no child master, so no dependency guard applies (DEC-PS1-013).</summary>
-    public async Task<MasterDataResult<EquipmentDto>> DeactivateAsync(
-        MasterDataCommandContext context,
+    public async Task<CommandResult<EquipmentDto>> DeactivateAsync(
+        CommandContext context,
         Guid equipmentId,
         byte[] expectedRowVersion,
         string? reason,

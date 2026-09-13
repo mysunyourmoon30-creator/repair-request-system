@@ -14,8 +14,19 @@ public interface IDataScope
     /// <summary>Customers of the caller's tenant with at least one assigned Site (all tenant Customers for ADMINISTRATOR).</summary>
     IQueryable<Customer> Customers(CurrentUser user);
 
-    /// <summary>Assigned Sites of the caller's tenant (all tenant Sites for ADMINISTRATOR). Inactive Sites remain visible.</summary>
+    /// <summary>
+    /// Master-data read/configuration Site scope: assigned Sites of the caller's tenant (all tenant Sites for
+    /// ADMINISTRATOR). Inactive Sites remain visible. Never use this for Repair Request business operations; use
+    /// <see cref="BusinessSites"/>.
+    /// </summary>
     IQueryable<Site> Sites(CurrentUser user);
+
+    /// <summary>
+    /// Business Site scope for Repair Request operations: Sites of the caller's tenant assigned to the caller, and only
+    /// when the caller holds a business role. Configuration-only roles contribute nothing, so ADMINISTRATOR never widens
+    /// it (S1-003 decisions 1 and 2). Inactive Sites are included; active-master rules are the use case's concern.
+    /// </summary>
+    IQueryable<Site> BusinessSites(CurrentUser user);
 
     /// <summary>Equipment at the caller's permitted Sites.</summary>
     IQueryable<Equipment> Equipment(CurrentUser user);
@@ -27,6 +38,6 @@ public interface IDataScope
     /// </summary>
     IQueryable<RepairRequestAggregate> RepairRequests(CurrentUser user);
 
-    /// <summary>Validates a client-supplied Site id against the caller's scope in a single query.</summary>
+    /// <summary>Validates a client-supplied Site id against the caller's <see cref="BusinessSites"/> scope in a single query.</summary>
     Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken);
 }

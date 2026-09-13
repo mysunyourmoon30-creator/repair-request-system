@@ -4,10 +4,10 @@ namespace RepairRequest.Domain.RepairRequests;
 
 /// <summary>
 /// Repair Request aggregate root (RR-DD-001 RR-001..RR-020; RR-DBD-001 repair_request).
-/// S1-001 establishes the persisted shape and the initial DRAFT state only.
-/// Draft editing, submit, review and cancel commands (ST-RR-001..007) are added by
-/// later Sprint 1 tickets; CONVERTED (ST-RR-008) exists for lifecycle compatibility
-/// but Work Order creation is Sprint 2 scope.
+/// S1-001 establishes the persisted shape and the initial DRAFT state; S1-005 adds Draft editing
+/// (ST-RR-001). Submit, review and cancel commands (ST-RR-002..007) are added by later Sprint 1
+/// tickets; CONVERTED (ST-RR-008) exists for lifecycle compatibility but Work Order creation is
+/// Sprint 2 scope.
 /// </summary>
 public sealed class RepairRequest
 {
@@ -94,4 +94,55 @@ public sealed class RepairRequest
 
     /// <summary>RR-020. UTC; required at Submit; must be &gt;= PreferredStartAt.</summary>
     public DateTime? PreferredEndAt { get; private set; }
+
+    /// <summary>
+    /// ST-RR-001 Create/Edit (DRAFT -> DRAFT). Replaces the S1-005 editable Draft fields; every field is optional
+    /// while DRAFT (RR-DD-001 "Y@Submit"). Aggregate-local rules are enforced here: only a DRAFT can be edited,
+    /// Equipment requires a Site, timestamps are UTC and the preferred window is ordered. Scope, active-master and
+    /// Equipment-belongs-to-Site checks need the database and are enforced by the Application layer.
+    /// Category, priority, location and contact are not editable until their masters exist (S1-005 decision E1).
+    /// </summary>
+    public void EditDraft(Guid? siteId, Guid? equipmentId, string? description, DateTime? preferredStartAt, DateTime? preferredEndAt)
+    {
+        if (Status != RepairRequestStatus.Draft)
+        {
+            throw new DomainRuleViolationException("Only a DRAFT Repair Request can be edited.");
+        }
+
+        if (siteId is { } site)
+        {
+            DomainGuard.NotEmpty(site, nameof(siteId));
+        }
+
+        if (equipmentId is { } equipment)
+        {
+            DomainGuard.NotEmpty(equipment, nameof(equipmentId));
+
+            if (siteId is null)
+            {
+                throw new ArgumentException("Equipment requires a selected Site.", nameof(equipmentId));
+            }
+        }
+
+        if (preferredStartAt is { } start)
+        {
+            DomainGuard.Utc(start, nameof(preferredStartAt));
+        }
+
+        if (preferredEndAt is { } end)
+        {
+            DomainGuard.Utc(end, nameof(preferredEndAt));
+
+            if (preferredStartAt is { } windowStart && end < windowStart)
+            {
+                throw new ArgumentException("The preferred end must not be earlier than the preferred start.", nameof(preferredEndAt));
+            }
+        }
+
+        SiteId = siteId;
+        EquipmentId = equipmentId;
+        Description = DomainGuard.OptionalText(description, DescriptionMaxLength, nameof(description));
+        PreferredStartAt = preferredStartAt;
+        PreferredEndAt = preferredEndAt;
+    }
 }
