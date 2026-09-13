@@ -54,4 +54,24 @@ public abstract class MasterDataEntity
         DeactivateReason = DomainGuard.RequiredText(reason, DeactivateReasonMaxLength, nameof(reason));
         Status = MasterDataStatus.Inactive;
     }
+
+    /// <summary>
+    /// INACTIVE -> ACTIVE. The stored deactivate reason is cleared (S1-004 decision D1); the previous
+    /// reason remains in the deactivation audit record. The "parent must be active" guard (S1-004
+    /// decision D2) is an Application-layer check and is not evaluated here.
+    /// </summary>
+    public void Activate()
+    {
+        if (Status == MasterDataStatus.Active)
+        {
+            throw new DomainRuleViolationException($"{GetType().Name} is already active.");
+        }
+
+        Status = MasterDataStatus.Active;
+        DeactivateReason = null;
+    }
+
+    /// <summary>Code rules shared by construction and code changes (S1-004 decision D3: code is the only editable field).</summary>
+    protected static string ValidCode(string code, string paramName) =>
+        DomainGuard.RequiredText(code, CodeMaxLength, paramName);
 }

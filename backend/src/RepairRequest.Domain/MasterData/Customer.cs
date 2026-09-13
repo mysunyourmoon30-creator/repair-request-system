@@ -1,5 +1,3 @@
-using RepairRequest.Domain.Common;
-
 namespace RepairRequest.Domain.MasterData;
 
 /// <summary>
@@ -16,8 +14,12 @@ public sealed class Customer : MasterDataEntity
     public Customer(Guid tenantId, string customerCode)
         : base(tenantId)
     {
-        CustomerCode = DomainGuard.RequiredText(customerCode, CodeMaxLength, nameof(customerCode));
+        CustomerCode = ValidCode(customerCode, nameof(customerCode));
     }
 
     public string CustomerCode { get; private set; }
+
+    /// <summary>Uniqueness within the Tenant is checked by the Application layer and the database.</summary>
+    public void ChangeCode(string customerCode) =>
+        CustomerCode = ValidCode(customerCode, nameof(customerCode));
 }

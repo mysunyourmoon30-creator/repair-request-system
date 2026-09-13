@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using RepairRequest.Api.Authorization;
+using RepairRequest.Api.Http;
 using RepairRequest.Api.Middleware;
 using RepairRequest.Application.DependencyInjection;
 using RepairRequest.Infrastructure.Authentication;
@@ -47,6 +48,8 @@ try
         });
     // S1-003: deny-by-default fallback policy, role-capability policies and tenant/site data scope.
     builder.Services.AddRepairRequestAuthorization();
+    // S1-004: bounded list paging (RR-API-001 sections 7/9), validated on start.
+    builder.Services.AddApiPaging(builder.Configuration);
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>

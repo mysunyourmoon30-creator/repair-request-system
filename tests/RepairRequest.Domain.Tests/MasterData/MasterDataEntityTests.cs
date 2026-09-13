@@ -86,6 +86,88 @@ public class MasterDataEntityTests
         Assert.Throws<ArgumentException>(() => Create(kind, new string('C', MasterDataEntity.CodeMaxLength + 1)));
     }
 
+    [Theory]
+    [MemberData(nameof(EntityKinds))]
+    public void Activate_FromInactive_BecomesActiveAndClearsReason(string kind)
+    {
+        var entity = Create(kind);
+        entity.Deactivate("Contract ended");
+
+        entity.Activate();
+
+        Assert.Equal(MasterDataStatus.Active, entity.Status);
+        Assert.Null(entity.DeactivateReason);
+    }
+
+    [Theory]
+    [MemberData(nameof(EntityKinds))]
+    public void Activate_WhenAlreadyActive_IsRejected(string kind)
+    {
+        var entity = Create(kind);
+
+        Assert.Throws<DomainRuleViolationException>(entity.Activate);
+        Assert.Equal(MasterDataStatus.Active, entity.Status);
+    }
+
+    [Theory]
+    [MemberData(nameof(EntityKinds))]
+    public void Reactivated_Entity_CanBeDeactivatedAgainWithNewReason(string kind)
+    {
+        var entity = Create(kind);
+        entity.Deactivate("First");
+        entity.Activate();
+
+        entity.Deactivate("Second");
+
+        Assert.Equal(MasterDataStatus.Inactive, entity.Status);
+        Assert.Equal("Second", entity.DeactivateReason);
+    }
+
+    [Fact]
+    public void ChangeCode_ReplacesCodeOfEachEntity()
+    {
+        var customer = new Customer(Guid.NewGuid(), "C-1");
+        var site = new Site(Guid.NewGuid(), Guid.NewGuid(), "S-1");
+        var equipment = new Equipment(Guid.NewGuid(), Guid.NewGuid(), "E-1");
+
+        customer.ChangeCode("C-2");
+        site.ChangeCode("S-2");
+        equipment.ChangeCode("E-2");
+
+        Assert.Equal("C-2", customer.CustomerCode);
+        Assert.Equal("S-2", site.SiteCode);
+        Assert.Equal("E-2", equipment.EquipmentCode);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ChangeCode_Blank_IsRejectedAndKeepsCode(string? code)
+    {
+        var customer = new Customer(Guid.NewGuid(), "C-1");
+        var site = new Site(Guid.NewGuid(), Guid.NewGuid(), "S-1");
+        var equipment = new Equipment(Guid.NewGuid(), Guid.NewGuid(), "E-1");
+
+        Assert.Throws<ArgumentException>(() => customer.ChangeCode(code!));
+        Assert.Throws<ArgumentException>(() => site.ChangeCode(code!));
+        Assert.Throws<ArgumentException>(() => equipment.ChangeCode(code!));
+
+        Assert.Equal("C-1", customer.CustomerCode);
+        Assert.Equal("S-1", site.SiteCode);
+        Assert.Equal("E-1", equipment.EquipmentCode);
+    }
+
+    [Fact]
+    public void ChangeCode_LongerThanLimit_IsRejected()
+    {
+        var tooLong = new string('C', MasterDataEntity.CodeMaxLength + 1);
+
+        Assert.Throws<ArgumentException>(() => new Customer(Guid.NewGuid(), "C-1").ChangeCode(tooLong));
+        Assert.Throws<ArgumentException>(() => new Site(Guid.NewGuid(), Guid.NewGuid(), "S-1").ChangeCode(tooLong));
+        Assert.Throws<ArgumentException>(() => new Equipment(Guid.NewGuid(), Guid.NewGuid(), "E-1").ChangeCode(tooLong));
+    }
+
     [Fact]
     public void Create_WithoutTenant_IsRejected()
     {

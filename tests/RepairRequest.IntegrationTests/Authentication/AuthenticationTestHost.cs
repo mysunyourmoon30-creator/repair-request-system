@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using RepairRequest.Application.DependencyInjection;
 using RepairRequest.Infrastructure.Authentication;
 using RepairRequest.Infrastructure.DependencyInjection;
 using RepairRequest.Infrastructure.Identity;
@@ -26,11 +27,11 @@ internal sealed class AuthenticationTestHost : IAsyncDisposable
 
     private readonly ServiceProvider _provider;
 
-    public AuthenticationTestHost()
+    public AuthenticationTestHost(Action<IServiceCollection>? configureServices = null)
     {
         SigningKey = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
         Clock = new TestClock(DateTimeOffset.UtcNow);
-        _provider = BuildProvider(CreateSettings(SigningKey), Clock, Logs);
+        _provider = BuildProvider(CreateSettings(SigningKey), Clock, Logs, configureServices);
     }
 
     public string SigningKey { get; }
@@ -55,7 +56,8 @@ internal sealed class AuthenticationTestHost : IAsyncDisposable
     public static ServiceProvider BuildProvider(
         IDictionary<string, string?> settings,
         TimeProvider? clock = null,
-        ILoggerProvider? logs = null)
+        ILoggerProvider? logs = null,
+        Action<IServiceCollection>? configureServices = null)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(settings).Build();
         var services = new ServiceCollection();
@@ -75,6 +77,8 @@ internal sealed class AuthenticationTestHost : IAsyncDisposable
         });
 
         services.AddInfrastructure(configuration);
+        services.AddApplication();
+        configureServices?.Invoke(services);
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }
