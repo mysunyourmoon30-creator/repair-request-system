@@ -4,7 +4,9 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using RepairRequest.Application.Authentication;
+using RepairRequest.Application.Security;
 using RepairRequest.Infrastructure.Authentication;
+using RepairRequest.Infrastructure.Authorization;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence;
 
@@ -35,6 +37,10 @@ public static class InfrastructureServiceCollectionExtensions
         });
 
         AddAuthentication(services, configuration);
+
+        // S1-003: caller resolution and tenant/site data scope.
+        services.AddScoped<ICurrentUserStore, CurrentUserStore>();
+        services.AddScoped<IDataScope, DataScope>();
 
         return services;
     }

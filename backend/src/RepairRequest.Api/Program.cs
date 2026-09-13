@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
+using RepairRequest.Api.Authorization;
 using RepairRequest.Api.Middleware;
 using RepairRequest.Application.DependencyInjection;
 using RepairRequest.Infrastructure.Authentication;
@@ -44,7 +45,8 @@ try
             bearerOptions.MapInboundClaims = false;
             bearerOptions.TokenValidationParameters = JwtTokenValidation.CreateParameters(jwtOptions.Value);
         });
-    builder.Services.AddAuthorization();
+    // S1-003: deny-by-default fallback policy, role-capability policies and tenant/site data scope.
+    builder.Services.AddRepairRequestAuthorization();
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>
@@ -96,7 +98,7 @@ try
     app.UseAuthorization();
 
     app.MapControllers();
-    app.MapHealthChecks("/health");
+    app.MapHealthChecks("/health").AllowAnonymous();
 
     app.Run();
 }

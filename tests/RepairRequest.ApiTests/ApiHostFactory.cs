@@ -17,7 +17,8 @@ namespace RepairRequest.ApiTests;
 /// </summary>
 public class ApiHostFactory : WebApplicationFactory<Program>
 {
-    public const string ConnectionString =
+    /// <summary>Each database-backed factory uses its own disposable database so test classes can run in parallel.</summary>
+    public virtual string ConnectionString =>
         "Server=(localdb)\\MSSQLLocalDB;Database=RepairRequestDb_ApiTest;Trusted_Connection=True;TrustServerCertificate=True";
 
     public string SigningKey { get; } = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -36,7 +37,7 @@ public class ApiHostFactory : WebApplicationFactory<Program>
 }
 
 /// <summary>API host backed by a disposable, migrated LocalDB database for authentication flows.</summary>
-public sealed class AuthApiFactory : ApiHostFactory, IAsyncLifetime
+public class AuthApiFactory : ApiHostFactory, IAsyncLifetime
 {
     public const string ValidPassword = "Correct-Horse-42!";
 
@@ -58,13 +59,16 @@ public sealed class AuthApiFactory : ApiHostFactory, IAsyncLifetime
         await DisposeAsync();
     }
 
-    public async Task<ApplicationUser> CreateUserAsync(params string[] roleCodes)
+    public Task<ApplicationUser> CreateUserAsync(params string[] roleCodes) =>
+        CreateUserInTenantAsync(Guid.NewGuid(), roleCodes);
+
+    public async Task<ApplicationUser> CreateUserInTenantAsync(Guid tenantId, params string[] roleCodes)
     {
         await using var scope = Services.CreateAsyncScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
         var email = $"api-{Guid.NewGuid():N}@example.test";
-        var user = new ApplicationUser { TenantId = Guid.NewGuid(), Email = email, UserName = email };
+        var user = new ApplicationUser { TenantId = tenantId, Email = email, UserName = email };
 
         var created = await userManager.CreateAsync(user, ValidPassword);
         Assert.True(created.Succeeded, string.Join("; ", created.Errors.Select(error => error.Code)));

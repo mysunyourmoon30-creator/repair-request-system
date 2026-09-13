@@ -81,13 +81,16 @@ internal sealed class AuthenticationTestHost : IAsyncDisposable
 
     public AsyncServiceScope CreateScope() => _provider.CreateAsyncScope();
 
-    public async Task<ApplicationUser> CreateUserAsync(params string[] roleCodes)
+    public Task<ApplicationUser> CreateUserAsync(params string[] roleCodes) =>
+        CreateUserInTenantAsync(Guid.NewGuid(), roleCodes);
+
+    public async Task<ApplicationUser> CreateUserInTenantAsync(Guid tenantId, params string[] roleCodes)
     {
         await using var scope = CreateScope();
         var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
 
         var email = $"user-{Guid.NewGuid():N}@example.test";
-        var user = new ApplicationUser { TenantId = Guid.NewGuid(), Email = email, UserName = email };
+        var user = new ApplicationUser { TenantId = tenantId, Email = email, UserName = email };
 
         var created = await userManager.CreateAsync(user, ValidPassword);
         Assert.True(created.Succeeded, string.Join("; ", created.Errors.Select(error => error.Code)));
@@ -119,6 +122,11 @@ internal sealed class CapturingLoggerProvider : ILoggerProvider
     private readonly ConcurrentQueue<string> _entries = new();
 
     public IReadOnlyCollection<string> Entries => _entries;
+
+    public void Clear() => _entries.Clear();
+
+    /// <summary>Number of SQL commands EF Core executed since the last <see cref="Clear"/>.</summary>
+    public int ExecutedDbCommandCount => _entries.Count(entry => entry.StartsWith("Executed DbCommand", StringComparison.Ordinal));
 
     public ILogger CreateLogger(string categoryName) => new CapturingLogger(_entries);
 
