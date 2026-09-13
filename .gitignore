@@ -1,0 +1,78 @@
+# =========================
+# .NET
+# =========================
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# =========================
+# Node / Angular
+# =========================
+node_modules/
+dist/
+.angular/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# =========================
+# Flutter / Dart
+# =========================
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+.pub-cache/
+.pub/
+build/
+
+# =========================
+# VS Code
+# =========================
+.vscode/*
+!.vscode/extensions.json
+!.vscode/launch.json
+!.vscode/tasks.json
+
+# =========================
+# Environment / Secrets
+# =========================
+.env
+.env.*
+!.env.example
+
+appsettings.Development.json
+appsettings.Production.json
+
+# =========================
+# Certificates / Keys
+# =========================
+*.pfx
+*.p12
+*.key
+*.pem
+
+# =========================
+# Logs
+# =========================
+*.log
+logs/
+
+# =========================
+# Test / Coverage
+# =========================
+TestResults/
+coverage/
+coverage.xml
+
+# =========================
+# OS / Temporary
+# =========================
+.DS_Store
+Thumbs.db
+*.tmp
+*.temp
