@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  DOTNET_VERSION: "10.0.401"
+  NODE_VERSION: "24.19.0"
+
+jobs:
+  backend:
+    name: Backend (.NET)
+    # LocalDB is required by RepairRequest.IntegrationTests and is preinstalled
+    # on GitHub-hosted Windows runners; see docs/Repair_Request_Solution_Architecture
+    # section 19 (Testing Architecture - Integration).
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Start LocalDB
+        run: sqllocaldb start MSSQLLocalDB
+
+      - name: Restore
+        run: dotnet restore RepairRequest.slnx
+
+      - name: Build
+        run: dotnet build RepairRequest.slnx --no-restore --configuration Release
+
+      - name: Test
+        run: dotnet test RepairRequest.slnx --no-build --configuration Release --logger "trx;LogFileName=test-results.trx"
+
+      - name: Publish test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: "**/TestResults/**/*.trx"
+
+  frontend:
+    name: Frontend (Angular)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build (production)
+        working-directory: frontend
+        run: npx ng build
+
+      - name: Test
+        working-directory: frontend
+        run: npx ng test --watch=false

@@ -1,0 +1,9 @@
+{
+  "_comment": "Copy to appsettings.Development.json (gitignored) or use `dotnet user-secrets` instead. Never commit real secrets here.",
+  "ConnectionStrings": {
+    "DefaultConnection": "Server=(localdb)\\MSSQLLocalDB;Database=RepairRequestDb;Trusted_Connection=True;MultipleActiveResultSets=true;TrustServerCertificate=True"
+  },
+  "Cors": {
+    "AllowedOrigins": [ "http://localhost:4200" ]
+  }
+}

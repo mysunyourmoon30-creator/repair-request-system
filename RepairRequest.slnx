@@ -1,0 +1,15 @@
+<Solution>
+  <Folder Name="/backend/" />
+  <Folder Name="/backend/src/">
+    <Project Path="backend/src/RepairRequest.Api/RepairRequest.Api.csproj" />
+    <Project Path="backend/src/RepairRequest.Application/RepairRequest.Application.csproj" />
+    <Project Path="backend/src/RepairRequest.Domain/RepairRequest.Domain.csproj" />
+    <Project Path="backend/src/RepairRequest.Infrastructure/RepairRequest.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RepairRequest.ApiTests/RepairRequest.ApiTests.csproj" />
+    <Project Path="tests/RepairRequest.Application.Tests/RepairRequest.Application.Tests.csproj" />
+    <Project Path="tests/RepairRequest.Domain.Tests/RepairRequest.Domain.Tests.csproj" />
+    <Project Path="tests/RepairRequest.IntegrationTests/RepairRequest.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
