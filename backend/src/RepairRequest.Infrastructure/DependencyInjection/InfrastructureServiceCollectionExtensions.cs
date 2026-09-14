@@ -3,12 +3,15 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using RepairRequest.Application.Attachments;
 using RepairRequest.Application.Authentication;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
+using RepairRequest.Infrastructure.Attachments;
 using RepairRequest.Infrastructure.Authentication;
 using RepairRequest.Infrastructure.Authorization;
+using RepairRequest.Infrastructure.Files;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.MasterData;
 using RepairRequest.Infrastructure.RepairRequests;
@@ -51,6 +54,15 @@ public static class InfrastructureServiceCollectionExtensions
 
         // S1-005: Repair Request Draft persistence port.
         services.AddScoped<IRepairRequestDraftStore, RepairRequestDraftStore>();
+
+        // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
+        services.AddScoped<IAttachmentStore, AttachmentStore>();
+        services.AddOptions<FileStorageOptions>()
+            .Bind(configuration.GetSection(FileStorageOptions.SectionName))
+            .ValidateOnStart();
+        services.AddSingleton<IValidateOptions<FileStorageOptions>, FileStorageOptionsValidator>();
+        services.AddSingleton<IFileStorage, LocalFileStorage>();
+        services.TryAddSingleton<IFileMalwareScanner, NotConfiguredMalwareScanner>();
 
         return services;
     }

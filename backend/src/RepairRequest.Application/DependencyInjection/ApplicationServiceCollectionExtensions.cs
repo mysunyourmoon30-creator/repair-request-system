@@ -1,5 +1,6 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using RepairRequest.Application.Attachments;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
 
@@ -22,6 +23,10 @@ public static class ApplicationServiceCollectionExtensions
 
         // S1-005: Repair Request Draft create / edit / detail.
         services.AddScoped<RepairRequestDraftService>();
+
+        // S1-006: attachment upload/download and malware scan result handling.
+        services.AddScoped<RepairRequestAttachmentService>();
+        services.AddScoped<FileScanService>();
 
         return services;
     }

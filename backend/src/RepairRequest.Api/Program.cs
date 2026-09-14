@@ -6,6 +6,7 @@ using RepairRequest.Api.Middleware;
 using RepairRequest.Application.DependencyInjection;
 using RepairRequest.Infrastructure.Authentication;
 using RepairRequest.Infrastructure.DependencyInjection;
+using RepairRequest.Infrastructure.Files;
 using RepairRequest.Infrastructure.Persistence;
 using Serilog;
 
@@ -50,6 +51,14 @@ try
     builder.Services.AddRepairRequestAuthorization();
     // S1-004: bounded list paging (RR-API-001 sections 7/9), validated on start.
     builder.Services.AddApiPaging(builder.Configuration);
+    // S1-006: private attachment storage root; a relative configured path is resolved against the content root.
+    builder.Services.PostConfigure<FileStorageOptions>(options =>
+    {
+        if (!string.IsNullOrWhiteSpace(options.RootPath) && !Path.IsPathRooted(options.RootPath))
+        {
+            options.RootPath = Path.GetFullPath(Path.Combine(builder.Environment.ContentRootPath, options.RootPath));
+        }
+    });
 
     builder.Services.AddEndpointsApiExplorer();
     builder.Services.AddSwaggerGen(options =>

@@ -1,6 +1,49 @@
+using System.Diagnostics.CodeAnalysis;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
+using RepairRequest.Application.Common;
 
 namespace RepairRequest.Api.Http;
+
+/// <summary>Paged list response shape shared by list endpoints.</summary>
+public sealed record PagedResponse<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
+
+/// <summary>
+/// Builds a bounded <see cref="PageRequest"/> from query values (RR-API-001 sections 7/9): page and pageSize must be 1 or
+/// greater (otherwise 400 BAD_REQUEST); pageSize defaults to the configured default and is clamped to the configured maximum.
+/// </summary>
+public static class PageRequests
+{
+    public static bool TryCreate(
+        int? page,
+        int? pageSize,
+        PagingOptions options,
+        HttpContext httpContext,
+        [NotNullWhen(true)] out PageRequest? request,
+        [NotNullWhen(false)] out ObjectResult? problem)
+    {
+        request = null;
+        problem = null;
+
+        var requestedPage = page ?? 1;
+        var requestedPageSize = pageSize ?? options.DefaultPageSize;
+
+        if (requestedPage < 1)
+        {
+            problem = ApiProblemResults.BadRequest(httpContext, "page must be 1 or greater.");
+            return false;
+        }
+
+        if (requestedPageSize < 1)
+        {
+            problem = ApiProblemResults.BadRequest(httpContext, "pageSize must be 1 or greater.");
+            return false;
+        }
+
+        request = new PageRequest(requestedPage, Math.Min(requestedPageSize, options.MaxPageSize));
+        return true;
+    }
+}
 
 /// <summary>
 /// List paging limits. RR-API-001 sections 7/9: page/pageSize are technical conventions, the exact maximum page

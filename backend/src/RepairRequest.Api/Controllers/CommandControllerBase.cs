@@ -53,27 +53,35 @@ public abstract class CommandControllerBase : ControllerBase
         return Ok(map(dto));
     }
 
+    /// <summary>Maps a command result; <paramref name="rowVersion"/> is null for resources without an ETag.</summary>
     protected IActionResult CommandResult<TDto, TResponse>(
         CommandResult<TDto> result,
         string resourceType,
         Func<TDto, TResponse> map,
-        Func<TDto, byte[]> rowVersion,
+        Func<TDto, byte[]>? rowVersion,
         Func<TDto, string>? createdLocation = null)
     {
         if (result.Succeeded)
         {
             var value = result.Value!;
-            Response.Headers.ETag = ETagHeader.Format(rowVersion(value));
+            if (rowVersion is not null)
+            {
+                Response.Headers.ETag = ETagHeader.Format(rowVersion(value));
+            }
+
             return createdLocation is null ? Ok(map(value)) : Created(createdLocation(value), map(value));
         }
 
-        var error = result.Error!;
-        return error.Failure switch
+        return ProblemFor(result.Error!, resourceType);
+    }
+
+    /// <summary>RR-API-001 section 2 problem response for a controlled command failure.</summary>
+    protected ObjectResult ProblemFor(CommandError error, string resourceType) =>
+        error.Failure switch
         {
             CommandFailure.NotFound => ApiProblemResults.ResourceNotFound(HttpContext, resourceType),
             CommandFailure.ValidationFailed => ApiProblemResults.ValidationFailed(HttpContext, error.Errors, error.Message),
             CommandFailure.StateConflict => ApiProblemResults.Conflict(HttpContext, ApiProblemResults.StateConflictCode, error.Message, error.ActiveChildCount),
             _ => ApiProblemResults.Conflict(HttpContext, ApiProblemResults.ConcurrencyConflictCode, error.Message)
         };
-    }
 }

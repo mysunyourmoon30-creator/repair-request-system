@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.Options;
 using RepairRequest.Api.Contracts.MasterData;
 using RepairRequest.Api.Http;
+using RepairRequest.Application.Common;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.Security;
 
@@ -29,20 +30,9 @@ public abstract class MasterDataControllerBase : CommandControllerBase
         [NotNullWhen(false)] out ObjectResult? problem)
     {
         query = null;
-        problem = null;
 
-        var page = request.Page ?? 1;
-        var pageSize = request.PageSize ?? _paging.DefaultPageSize;
-
-        if (page < 1)
+        if (!PageRequests.TryCreate(request.Page, request.PageSize, _paging, HttpContext, out var paging, out problem))
         {
-            problem = ApiProblemResults.BadRequest(HttpContext, "page must be 1 or greater.");
-            return false;
-        }
-
-        if (pageSize < 1)
-        {
-            problem = ApiProblemResults.BadRequest(HttpContext, "pageSize must be 1 or greater.");
             return false;
         }
 
@@ -58,7 +48,7 @@ public abstract class MasterDataControllerBase : CommandControllerBase
             status = parsed;
         }
 
-        query = new MasterDataListQuery(new PageRequest(page, Math.Min(pageSize, _paging.MaxPageSize)), status);
+        query = new MasterDataListQuery(paging, status);
         return true;
     }
 

@@ -1,14 +1,10 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Domain.MasterData;
 
 namespace RepairRequest.Application.MasterData;
 
-/// <summary>A bounded page request. Values are validated and clamped by the API before reaching the Application layer.</summary>
-public sealed record PageRequest(int Page, int PageSize);
-
 /// <summary>List query: paging plus an optional status filter (inactive masters stay listable, RR-DBD-001 section 6).</summary>
 public sealed record MasterDataListQuery(PageRequest Paging, MasterDataStatus? Status);
-
-public sealed record PagedResult<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
 
 public sealed record CustomerDto(Guid Id, string CustomerCode, MasterDataStatus Status, string? DeactivateReason, byte[] RowVersion);
 

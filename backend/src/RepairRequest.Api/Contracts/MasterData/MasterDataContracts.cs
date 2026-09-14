@@ -31,8 +31,6 @@ public sealed record SiteResponse(Guid Id, Guid CustomerId, string SiteCode, str
 
 public sealed record EquipmentResponse(Guid Id, Guid SiteId, string EquipmentCode, string Status, string? DeactivateReason, string RowVersion);
 
-public sealed record PagedResponse<T>(IReadOnlyList<T> Items, int Page, int PageSize, int TotalCount);
-
 /// <summary>Focused response projections; EF entities are never serialized.</summary>
 public static class MasterDataResponses
 {

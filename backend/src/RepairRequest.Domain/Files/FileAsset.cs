@@ -79,4 +79,20 @@ public sealed class FileAsset
 
     /// <summary>FAS-010. UTC; immutable.</summary>
     public DateTime UploadedAt { get; private set; }
+
+    /// <summary>PENDING -> CLEAN: the file may be served and used as evidence (RR-ARCH-001 section 11).</summary>
+    public void MarkClean() => CompleteScan(MalwareScanStatus.Clean);
+
+    /// <summary>PENDING -> FAILED: the file is rejected and never usable (RR-UI-001 section 1 "FAILED rejected").</summary>
+    public void MarkFailed() => CompleteScan(MalwareScanStatus.Failed);
+
+    private void CompleteScan(MalwareScanStatus result)
+    {
+        if (MalwareScanStatus != MalwareScanStatus.Pending)
+        {
+            throw new DomainRuleViolationException("Only a PENDING file can receive a malware scan result.");
+        }
+
+        MalwareScanStatus = result;
+    }
 }
