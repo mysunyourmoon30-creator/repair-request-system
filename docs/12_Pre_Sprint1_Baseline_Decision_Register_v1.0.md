@@ -9,10 +9,12 @@ Portfolio Implementation Decisions + Cross-Reference + Required Baseline Updates
 | Field | Value |
 |---|---|
 | Document ID | RR-DEC-001 |
-| Version | 1.1 – Baseline Approved (Round 2) |
+| Version | 1.2 – Sprint 1 Implementation Decisions + Pre-S1-007 Resolution |
 | Status | Approved for Portfolio Development |
-| Revision Date | 13 September 2026 |
-| Supersedes | RR-DEC-001 v1.0 — extends with DEC-PS1-013..016 (Round 2 closure) |
+| Revision Date | 14 September 2026 |
+| Supersedes | RR-DEC-001 v1.1 — v1.2 adds Sections 6–10 (S1-004 D1–D4, S1-005 E1–E3, S1-006 F1–F4 + storage-key and attachment-listing decisions, Pre-S1-007 decisions DEC-PRE-S1-007-01..12, deferred/non-blocking register, traceability). No v1.1 decision is removed or changed. |
+| Revision History | v1.0 — Round 1 (DEC-PS1-001..005). v1.1 — Round 2 (DEC-PS1-013..016, PERF-DEC-01). v1.2 — 14 September 2026, documentation reconciliation before S1-007. |
+| Companion Documents (v1.2) | RR-API-001-ADD v1.0 (`13_Repair_Request_API_Contract_Addendum_v1.0.md`) — implemented endpoints missing from RR-API-001 v1.2, plus approved-but-not-implemented S1-007 contract amendments |
 | Extends | RR-REV-001 v1.2, RR-REQ-001 v1.6, BR-RR-BASELINE v1.6, RR-STS-001 v1.6, UC-RR-001 v1.7, RR-DD-001 v1.4, RR-DBD-001 v1.2, RR-API-001 v1.2, RR-UI-001 v1.2, RR-TC-001 v1.3, RR-ARCH-001 v1.1, RR-PERF-001 v1.0 |
 | Approval | Portfolio Project Owner — Approved for Portfolio Development |
 | Approval Type | Portfolio Project Owner Approval |
@@ -262,7 +264,7 @@ This closes the item that was carried forward unchanged from Round 1. The 8 docu
 | 10 | Exact CORS origins / rate-limit thresholds | **INFORMATIONAL** | Unchanged |
 | 11 | Backup/RTO/RPO, alert thresholds, on-call procedure | **INFORMATIONAL** | Unchanged |
 | 12 | Exact report/export format & max page size | **INFORMATIONAL** | Unchanged |
-| 13 | Whether Customer/Site deactivation guard should also check for *open/active transactional records* (e.g. in-progress Repair Requests under a Site), beyond just active child master-data rows | **OPEN — not decided; does not block Sprint 1 start** | DEC-PS1-013 explicitly guards on active **Site**/active **Equipment** counts only; it does not address in-flight Repair Requests/Work Orders. Not assumed here — flagged for a future decision if needed |
+| 13 | Whether Customer/Site deactivation guard should also check for *open/active transactional records* (e.g. in-progress Repair Requests under a Site), beyond just active child master-data rows | **OPEN — not decided; does not block Sprint 1 start** | DEC-PS1-013 explicitly guards on active **Site**/active **Equipment** counts only; it does not address in-flight Repair Requests/Work Orders. Not assumed here — flagged for a future decision if needed. **v1.2:** the Sprint 1 implementation state is recorded as DEC-S1-004-D4 (§6.1): no open-Repair-Request guard is implemented, and this item remains OPEN/DEFERRED |
 
 ---
 
@@ -280,3 +282,354 @@ Recommended sequencing (unchanged from Round 1, now with fewer open questions):
 - **Required before claiming architecture compliance (not before coding):** amend RR-ARCH-001 (ARCH-05, PERF-DEC-01 status) to match the now-approved decisions.
 
 No blocker in this register is a reason to halt Sprint 1.
+
+---
+
+## 6. Sprint 1 Implementation Decisions (v1.2)
+
+**v1.2 revision rule:** Sections 6–10 record decisions the Portfolio Project Owner already approved during S1-004, S1-005, S1-006 and the Pre-S1-007 requirement-resolution session (14 September 2026).
+- They are written down here for traceability. This revision creates no new business rule.
+- No PDF baseline document is modified. The implementation evidence is the committed code and tests on `feature/s1-006-attachment-upload` (c03c4c4, 46f12a6, ce69f6e).
+- Original ticket-local IDs are kept inside the register IDs: `DEC-S1-004-D1` is S1-004 decision D1.
+
+**Status vocabulary:**
+
+| Status | Meaning |
+|---|---|
+| APPROVED – IMPLEMENTED | Approved and present in committed code/tests |
+| APPROVED – NOT YET IMPLEMENTED | Approved; implementation belongs to the named ticket |
+| SUPERSEDED | Replaced by a later decision; kept for history, never deleted |
+| DEFERRED | Explicitly out of the current scope; not an approved requirement |
+| OPEN | Not decided |
+
+### 6.1 S1-004 — Customer / Site / Equipment Master (commit c03c4c4)
+
+#### DEC-S1-004-D1 — Reactivation clears the deactivate reason
+> A successful reactivation (INACTIVE → ACTIVE) clears the stored `deactivate_reason`. The historical reason remains in audit history.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Applies to:** Customer, Site, Equipment
+- **Evidence:** `MasterDataEntity.Activate()` ("The stored deactivate reason is cleared (S1-004 decision D1); the previous reason remains in the deactivation audit record"). The activation audit also captures the previous reason.
+- **Tests:** CustomerEndpointsTests, CustomerServiceTests.
+- **Relation:** Extends DEC-PS1-014 (reason required on deactivate) and the BR-04 reason/audit convention. It does not change either.
+
+#### DEC-S1-004-D2 — Activation requires an active parent
+> A Site cannot be activated while its Customer is inactive. Equipment cannot be activated while its Site is inactive.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:** Checked in the same SERIALIZABLE transaction as the change. Failure → `422 VALIDATION_FAILED` on the parent field. Already-active → `409 STATE_CONFLICT`.
+- **Evidence:** `MasterDataCommandSteps.ActivateAsync`, `SiteService.ActivateAsync`, `EquipmentService.ActivateAsync`.
+- **Tests:** SiteAndEquipmentServiceTests, SiteAndEquipmentEndpointsTests.
+- **Relation:** Mirrors the active-parent guard on create (DEC-PS1-002/003) for the Activate transition. The DEC-PS1-013 no-cascade rule is unchanged: activating a parent never activates children.
+
+#### DEC-S1-004-D3 — Update never re-parents
+> A normal Update does not move a Site to another Customer or Equipment to another Site. The code is the only editable field (Customer, Site, Equipment).
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:** PATCH bodies carry only the code. Parent ids in the body are ignored. An unchanged code writes and audits nothing.
+- **Evidence:** `Site.cs` / `Equipment.cs` ("owning Customer/Site never changes after creation (S1-004 decision D3)"); `MasterDataEntity.ValidCode` ("code is the only editable field").
+- **Tests:** SiteAndEquipmentServiceTests, CustomerServiceTests.
+- **Relation:** Consistent with the DEC-PS1-013 hierarchy and DEC-PS1-015 code uniqueness within the parent.
+
+#### DEC-S1-004-D4 — No open-Repair-Request deactivation guard
+> No open-Repair-Request deactivation guard is implemented. The broader transactional-record decision remains deferred/open.
+
+- **Status:** APPROVED – IMPLEMENTED (absence of guard). The underlying question stays **OPEN / DEFERRED** (Section 4, item 13).
+- **Behaviour:** Customer/Site deactivation guards count only active child master rows (DEC-PS1-013). No Repair Request or Work Order query is made.
+- **Evidence:** `MasterDataCommandSteps.DeactivateAsync` and the `CountActive*` guards. No code comment carries the label "D4"; the evidence is the guard implementation.
+- **Relation:** Does not answer Section 4 item 13. A future transactional-record guard needs a separate decision.
+
+### 6.2 S1-005 — Repair Request Draft Create / Edit (commit 46f12a6)
+
+#### DEC-S1-005-E1 — Category, Priority, Location and Contact not accepted in the Draft (original)
+> Category, priority, location and contact are not accepted/editable until their masters are defined.
+
+- **Status:** **SUPERSEDED** (v1.2)
+  - For **Category and Priority** by DEC-PRE-S1-007-01/-02.
+  - For **Contact** by DEC-PRE-S1-007-04.
+  - For **Location** by DEC-PRE-S1-007-05, which keeps `locationId` not accepted, now as an explicit Sprint 1 deferral rather than "until the master exists".
+- **Implementation state:** The S1-006 code still implements E1: `RepairRequestDraftFields`, `RepairRequestDraftRequest`, `RepairRequest.EditDraft`. The replacing decisions are APPROVED – NOT YET IMPLEMENTED and take effect in S1-007.
+- **Evidence:** Code comments "S1-005 decision E1".
+- **History:** Original text kept verbatim above. Not deleted.
+
+#### DEC-S1-005-E2 — Whole-Draft revalidation on every save
+> The complete resulting Draft is validated on every save.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:** Create and PATCH run the same validation over the resulting Draft: Site in business scope and ACTIVE, Equipment ACTIVE and belonging to the Site, description ≤2000, preferred end ≥ start. Submit-only requirements (Y@Submit) are not applied while DRAFT.
+- **Related contract behaviour:** The PATCH body carries the complete S1-005 editable field set; an omitted field is saved as empty (`RepairRequestDraftRequest`).
+- **Evidence:** `RepairRequestDraftService.UpdateAsync` ("Decision E2").
+- **Tests:** RepairRequestDraftServiceTests, RepairRequestDraftEndpointsTests.
+
+#### DEC-S1-005-E3 — Detail follows the approved Repair Request scope
+> Repair Request detail is returned within the caller's approved Repair Request scope (S1-003). A site-wide role may view the Draft but is never its owner.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:**
+  - RR-API-004 uses `IDataScope.RepairRequests` (S1-003).
+  - Only the owner (`created_by`) may edit (RR-API-002) or upload attachments (FILE-API-001).
+  - Out-of-scope and nonexistent ids both return 404.
+- **Evidence:** `IRepairRequestDraftStore.GetAsync` ("S1-005 decision E3").
+- **Tests:** RepairRequestDraftStoreTests ("Decision E3: a site-wide role may view the Draft but is never its owner"), RepairRequestDraftEndpointsTests.
+
+### 6.3 S1-006 — Secure Attachment Upload (commit ce69f6e)
+
+#### DEC-S1-006-F1 — No business attachment-count limit
+> There is no business attachment-count limit.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:** The metadata list is bounded only by technical paging (DEC-S1-006-PG). Per-file rules stay PDF/JPG/JPEG/PNG and ≤10 MB (RR-REQ-001 §9).
+- **Evidence:** `RepairRequestAttachmentsController` ("there is no business attachment-count limit (decision F1)").
+
+#### DEC-S1-006-F2 — Scanner unavailable or error leaves the file PENDING
+> If the scanner is unavailable or errors, the attachment stays PENDING and unusable.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:**
+  - Clean → CLEAN; Infected → FAILED. Each result is persisted and audited only while the file is still PENDING (`FILE_ASSET_SCAN_CLEAN` / `FILE_ASSET_SCAN_FAILED`).
+  - Unavailable or failing scanner/storage → still PENDING, retry later.
+  - The default `NotConfiguredMalwareScanner` always reports Unavailable and never claims protection (DEC-PS1-005).
+  - PENDING/FAILED files are never served (download → 409).
+- **Evidence:** `FileScanService`, `FileScanResult.StillPending` ("decision F2").
+- **Tests:** FileScanServiceTests.
+- **Note:** No background scan runner exists; see DEFERRED items in Section 8.
+
+#### DEC-S1-006-F3 — Attachment removal not supported
+> Attachment removal is not supported in S1-006.
+
+- **Status:** APPROVED – IMPLEMENTED (no removal capability). Removal as a feature is **DEFERRED** (Section 8).
+- **Behaviour:** No DELETE endpoint exists. `IFileStorage.DeleteAsync` is used only to compensate a failed upload (a binary must not outlive failed metadata). It is never a business operation.
+- **Evidence:** Route catalog of `RepairRequestAttachmentsController` and `FilesController`. No code comment carries the label "F3".
+
+#### DEC-S1-006-F4 — access_scope_code is a policy identifier, not a grant
+> `access_scope_code = REPAIR_REQUEST` is a server-controlled policy identifier, not an authorization grant.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:**
+  - The value is set by the server (RR-DD-001 ATT-014 "Role/site policy key"). It is never client input.
+  - Attachment access derives entirely from the Repair Request's own scope:
+    - list → RepairRequest.Read scope;
+    - upload → owner + DRAFT;
+    - download → Repair Request scope + CLEAN.
+- **Evidence:** `AttachmentFileRules.AccessScopeCode` ("Decision F4: attachment access derives entirely from the Repair Request's own scope").
+
+#### DEC-S1-006-SK — Server-generated opaque storage key
+> Storage keys are opaque and generated by the server, never derived from client input. The client filename is sanitized display metadata only and never influences storage. The storage reference is never returned by any API.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:** Key = tenant partition + 128-bit random identifier (`AttachmentFileRules.NewStorageKey`). Storage never overwrites. Public URLs are prohibited (RR-DD-001 FAS-007; RR-ARCH-001 §11).
+- **Evidence:** `AttachmentFileRules`, `IFileStorage`.
+- **ID note:** No letter-number ID was assigned during S1-006. `SK` is a register label only.
+
+#### DEC-S1-006-PG — Bounded, paged attachment metadata listing
+> Attachment metadata is listed through a bounded, paged endpoint: `GET /api/v1/repair-requests/{id}/attachments`.
+
+- **Status:** APPROVED – IMPLEMENTED
+- **Behaviour:**
+  - `page`/`pageSize` follow the shared paging conventions (default/max from configuration; invalid → 400).
+  - Scope check, count and one SQL page: three bounded commands, whatever the attachment count.
+  - Upload order. Metadata only, including scan status. Out of scope → 404.
+- **Evidence:** `RepairRequestAttachmentsController.List`, `AttachmentStore.ListAsync`.
+- **API:** RR-API-001-ADD FILE-API-003.
+- **ID note:** `PG` is a register label only.
+
+---
+
+## 7. Pre-S1-007 Requirement-Resolution Decisions (v1.2)
+
+**Source:** Pre-S1-007 requirement-resolution session, 14 September 2026, Portfolio Project Owner answers.
+
+- **Status of every decision below:** APPROVED – NOT YET IMPLEMENTED (S1-007).
+- **Session item IDs** are prefixed `RES-`, e.g. `RES-M3`. This avoids confusion with the unrelated S1-002 code labels "decision M1/M2/M3/M6/B4".
+- **[BASE]** marks content already in the approved baseline. Everything else is the recorded portfolio decision.
+
+#### DEC-PRE-S1-007-01 — Category is tenant-scoped seeded lookup data (RES-B1)
+> Category is stored as tenant-scoped lookup data (tenant_id, code, name, ACTIVE/INACTIVE), seeded. Management UI is deferred. The Draft accepts `requestCategoryCode`; Submit requires an ACTIVE code of the same tenant.
+
+- [BASE] `request_category_code` varchar(30), Y@Submit, "Active Category" (RR-DD-001 RR-008).
+- [BASE] One category per request; editable only while DRAFT (ST-RR-001).
+- [BASE] Master deactivation blocks future selection but keeps history (RR-DBD-001 §6).
+- [BASE] Drives approval routing (ARC-003). No SLA effect (BR-12).
+- Supersedes DEC-S1-005-E1 for Category.
+
+#### DEC-PRE-S1-007-02 — Priority is tenant-scoped seeded lookup data (RES-B1)
+> Priority is stored as tenant-scoped lookup data (code ≤20, name, ACTIVE/INACTIVE), seeded. Management UI is deferred. The Draft accepts `priorityCode`; Submit requires an ACTIVE code of the same tenant.
+
+- [BASE] Requester-selected (FR-01), Y@Submit, "Active Priority" (RR-DD-001 RR-010).
+- [BASE] Priority has no SLA effect under BR-12: one Resolution SLA policy covers all requests. No separate "SLA priority" concept exists or is created.
+- SLA values and calculation are outside S1-007 (DEC-PRE-S1-007-12).
+- Supersedes DEC-S1-005-E1 for Priority.
+
+#### DEC-PRE-S1-007-03 — Portfolio placeholder seed values (RES-M8)
+> Placeholder seed values:
+> - Priority: LOW, MEDIUM, HIGH, URGENT
+> - Category: ELECTRICAL, MECHANICAL, PLUMBING, HVAC, IT, OTHER
+>
+> These are **demo/reference data only**, not an approved business catalog, and can be replaced as data without a code change.
+
+#### DEC-PRE-S1-007-04 — request_contact_id references an active user in the selected-Site scope (RES-B2, RES-M9)
+> `request_contact_id` references an active user of the same tenant, of any role (the Requester included), who has site-wide or selected-Site scope (S1-003).
+
+- It is an FK reference, not a snapshot.
+- No Contact master is created.
+- No contact name, phone or email fields are added to the Repair Request.
+- The contact may differ from the Requester.
+- [BASE] Y@Submit, "Active contact in selected Site" (RR-DD-001 RR-018).
+- Supersedes DEC-S1-005-E1 for Contact.
+
+#### DEC-PRE-S1-007-05 — Location is not in Sprint 1 (RES-M1)
+> Location is not in Sprint 1:
+> - `locationId` is not accepted; `location_id` stays null.
+> - No Location table is created.
+> - The category-conditional Equipment/Location rule is deferred; no category makes Equipment or Location mandatory in Sprint 1.
+> - Equipment stays optional (if present: ACTIVE and belongs to the Site).
+
+- [BASE] Location is a sub-location that belongs to a Site (RR-DD-001 RR-007). This decision does not remove it from the baseline; it defers it.
+- Replaces DEC-S1-005-E1's "until masters exist" rationale for Location.
+
+#### DEC-PRE-S1-007-06 — At least one CLEAN image is required at Submit (RES-M2, RES-M7)
+> Submit requires at least one attachment whose validated type is JPG/JPEG/PNG (`image/jpeg` or `image/png`) **and** whose `malware_scan_status` is `CLEAN`. A PDF does not count.
+>
+> PENDING attachments do not satisfy this mandatory evidence. FAILED attachments do not satisfy this mandatory evidence.
+
+- This is a **portfolio rule added beyond the baseline**. The baseline has no attachment minimum at Submit.
+- Requiring CLEAN follows from [BASE] RR-REQ-001 §9: "only CLEAN file can satisfy mandatory evidence".
+
+#### DEC-PRE-S1-007-07 — PENDING attachments do not block Submit (RES-M2)
+> Once the CLEAN-image requirement is met, additional PENDING attachments do not block Submit.
+
+- **Not decided:** whether an additional **FAILED** attachment blocks Submit.
+  - This is **not** part of DEC-PRE-S1-007-06/-07 and is not APPROVED.
+  - Status: **MUST RESOLVE AT S1-007 START** (Section 9, NB-5).
+  - Context: attachment removal is not supported (DEC-S1-006-F3).
+
+#### DEC-PRE-S1-007-08 — Dev/Test-only fake malware scanner (RES-M6)
+> A Development/Test-only fake scanner that marks files CLEAN, plus an in-process scan runner, may be added as **test infrastructure only**.
+
+- Application startup must refuse it outside Development/Test.
+- Production keeps `NotConfiguredMalwareScanner`.
+- It must never be described as malware protection. DEC-PS1-005 is unchanged.
+- Production scanning provider and background scan Worker remain DEFERRED.
+
+#### DEC-PRE-S1-007-09 — Duplicate matching when Equipment/Location is empty (RES-H1)
+> BR-14 duplicate matching uses exact key equality on tenant + Site + Category + Equipment:
+> - Empty Equipment matches only active requests at the same Site + Category that also have no Equipment.
+> - With Equipment, only the same Equipment matches.
+> - Location is always empty in Sprint 1 (DEC-PRE-S1-007-05).
+> - No fuzzy matching.
+
+- [BASE] BR-14 / D-12 active set: SUBMITTED, UNDER_REVIEW, APPROVED, and CONVERTED while its Work Order is not CLOSED/CANCELLED. DRAFT/REJECTED/CANCELLED are excluded.
+- [BASE] Within 24h. Warning, not hard block. A continuation reason is required to proceed, persisted in RR-011 and audited.
+
+#### DEC-PRE-S1-007-10 — Duplicate Submit response (RES-M4)
+> A BR-14 match submitted without a continuation reason returns `422 VALIDATION_FAILED` with an error on `duplicateContinuationReason` and a `duplicateCount`. No identifiers of other requests are returned. The request stays DRAFT.
+
+#### DEC-PRE-S1-007-11 — Request No format and scope (RES-M3)
+> Request No has the format `RR-{yyyy}-{000000}`, using the UTC year of Submit, with one counter per tenant per year.
+> - The counter is incremented inside the Submit transaction, so a failed or rolled-back Submit uses no number (no gaps).
+> - Uniqueness is `(tenant_id, request_no)`, replacing the current global filtered unique index.
+
+- [BASE] Generated only at SUBMITTED; unique; immutable; varchar(30); never client input (BR-01, RR-DD-001 RR-003).
+
+#### DEC-PRE-S1-007-12 — Submit and SLA-start scope (RES-M5; revised by the Portfolio Project Owner, 14 September 2026)
+> S1-007 Submit is one atomic transaction covering:
+> 1. DRAFT → SUBMITTED with `submitted_by` / `submitted_at`.
+> 2. Duplicate check with continuation reason.
+> 3. Request No.
+> 4. Audit.
+>
+> Approved S1-007 scope: **Submit + SLA start.** A successful Submit records the SLA start timestamp (start marker).
+>
+> This is not approval of an SLA calculation engine. S1-007 Submit does **not**:
+> - calculate or store an SLA due time;
+> - calculate or store a risk threshold;
+> - evaluate breach;
+> - escalate;
+> - route (ST-RR-003) or notify (NTF-SUBMITTED);
+> - apply an SLA calendar or working hours.
+>
+> These remain deferred to the approved SLA Policy / Monitoring scope.
+>
+> Until routing exists the request stays SUBMITTED, which the baseline allows ("routing failure stays SUBMITTED").
+
+- **SLA start marker in S1-007:** `repair_request.submitted_at` (RR-DD-001 RR-014, "SLA start"; RR-013/014 derived on Submit), set in the Submit transaction.
+  - No `sla_record` row is written in S1-007: SLA-004 `sla_policy_version` and SLA-006 `original_due_at` are required (Y) fields of that table and belong to the deferred SLA Policy / Monitoring scope.
+- **Baseline SLA values (not introduced by this session):**
+  - The approved baseline already defines the Resolution SLA duration and risk threshold, independently of this requirement resolution:
+    - BR-12 / FR-08 "Resolution SLA = 24h 24/7 from SUBMITTED"; UC-SLA-001 "MVP policy 24h 24/7"; EV-SLA-001; RR-DD-001 SLA-006.
+    - D-13 / BR-17 "risk at effective_due_at − 4 hours"; EV-SLA-001/002; RR-DD-001 SLA-008.
+  - These baseline rules are retained unchanged. This decision neither invents nor alters them, and S1-007 does not calculate, persist or lock them. They are applied in the SLA Policy / Monitoring scope.
+- **Revision history:**
+  - The first session answer (RES-M5) described Submit as also creating `sla_record` with calculated due and risk values.
+  - That calculation scope was **withdrawn** by the Portfolio Project Owner before any implementation.
+  - The approved scope is Submit + SLA start marker only, as stated above.
+- **Duplicate window unaffected:** The BR-14 24-hour duplicate window (DEC-PRE-S1-007-09) is a duplicate-detection rule, not an SLA value.
+
+---
+
+## 8. Deferred Items (not approved requirements)
+
+| Item | Status | Source |
+|---|---|---|
+| Category-specific evidence rules (category-required CLEAN evidence at Check-out) | DEFERRED — Work Order scope | BR-06, TC-WO-007 |
+| Location master and the category-conditional Equipment/Location rule | DEFERRED | DEC-PRE-S1-007-05 |
+| Contact name / phone / email snapshot fields on the Repair Request | DEFERRED — not in baseline, not approved | DEC-PRE-S1-007-04 |
+| Category / Priority management screens (CRUD UI) | DEFERRED | DEC-PRE-S1-007-01/-02 |
+| Approval routing engine (ST-RR-003) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
+| Submitted notification / outbox implementation (NTF-SUBMITTED) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
+| Production malware scanning provider | DEFERRED — Security Hardening / Deployment | DEC-PS1-005 |
+| Background malware-scan Worker | DEFERRED | DEC-S1-006-F2; DEC-PRE-S1-007-08 (Dev/Test runner is test infrastructure only) |
+| Attachment removal | DEFERRED | DEC-S1-006-F3 |
+| Upload rate limiting | DEFERRED | Section 4 item 10 (CORS/rate-limit INFORMATIONAL) |
+| Sprint 2 team / assignment scope (Work Order, Visit, Session policies) | DEFERRED — Sprint 2 | `AuthorizationPolicies` note; RR-REQ-001 §13 |
+| Transactional-record deactivation guard | OPEN / DEFERRED | Section 4 item 13; DEC-S1-004-D4 |
+| SLA due-time calculation, risk threshold, breach evaluation, working-hours/calendar calculation and escalation (incl. `sla_record` creation, EV-SLA-001..005 calculations, NTF-SLA-RISK / NTF-SLA-BREACH, SLA Override) | DEFERRED — SLA Policy/Monitoring scope | DEC-PRE-S1-007-12 |
+
+---
+
+## 9. Non-Blocking Notes and Open Items (v1.2)
+
+| # | Item | Classification |
+|---|---|---|
+| NB-1 | 24-hour duplicate window: an existing request counts when its `submitted_at` ≥ the current Submit time − 24h. `submitted_at` is the only timestamp available for the BR-14 comparison | NON-BLOCKING (interpretation to confirm in S1-007 tests) |
+| NB-2 | CONVERTED counts as active only "while its linked Work Order is not CLOSED/CANCELLED" (D-12). No Work Orders exist in Sprint 1, so every CONVERTED request counts until Work Order implementation | NON-BLOCKING |
+| NB-3 | Resubmit after Return for Correction: Request No stays unchanged (BR-01 immutable). SLA restart/continuation semantics on resubmit are not decided | NON-BLOCKING — decide in the Return-for-Correction ticket |
+| NB-4 | Documentation previously missing from RR-DEC-001: S1-004 D4 and S1-006 F3 are now recorded (Section 6). The PDF baseline wording lag (Section 2/4) is unchanged | NON-BLOCKING (documentation lag) |
+| NB-5 | Whether an **additional FAILED attachment** blocks Submit is not decided. Approved and unchanged: at least one CLEAN JPG/JPEG/PNG is required; PENDING and FAILED attachments do not satisfy mandatory evidence; PENDING attachments do not block Submit (DEC-PRE-S1-007-06/-07). Because removal is not supported (DEC-S1-006-F3), the answer matters for S1-007. Not APPROVED | **MUST RESOLVE AT S1-007 START** (does not block this documentation commit) |
+| NB-6 | Read-only lookup endpoints for Category, Priority and eligible contacts are not designed or decided. No endpoint exists | OPEN — S1-007 design item |
+| NB-7 | TC-CUST-\*, TC-SITE-\*, TC-EQP-\*, TC-AUTH-\* and the ST-CUST/SITE/EQP transition tables (Section 2) are still not authored into RR-TC-001 / RR-STS-001. Automated tests exist | NON-BLOCKING (documentation lag) |
+| NB-8 | S1-002 decision labels (M1, M2, M3, M6, B4) and S1-003 decisions 1–4 exist only as code comments and are not recorded in this register | NON-BLOCKING (outside v1.2 scope) |
+| NB-9 | **SLA values for the SLA Policy / Monitoring scope.** The approved baseline defines the Resolution SLA duration (BR-12 / FR-08 "24h 24/7 from SUBMITTED"; EV-SLA-001; SLA-006) and risk threshold (D-13 / BR-17 "effective_due_at − 4 hours"; SLA-008), independently of the Pre-S1-007 session. They are retained unchanged and not applied in S1-007 (DEC-PRE-S1-007-12). Notes for that later scope: (a) the baseline PDFs still carry "approval pending" wording, which DEC-PS1-016 supersedes for governance classification; (b) a working-hours/calendar model would differ from BR-12 "24/7" and would need a Change Request if adopted; (c) escalation beyond NTF-SLA-RISK / NTF-SLA-BREACH is not defined in the baseline | NON-BLOCKING for S1-007 — confirm at the SLA Policy / Monitoring scope |
+
+---
+
+## 10. Decision Traceability (v1.2)
+
+| Decision | Business Rule / Baseline | State Transition | API (RR-API-001 / RR-API-001-ADD) | Test Case (RR-TC-001) | Automated evidence |
+|---|---|---|---|---|---|
+| DEC-S1-004-D1 | BR-04 reason/audit convention; DEC-PS1-014 | ST-CUST/SITE/EQP INACTIVE→ACTIVE (register-required, not authored) | CUST/SITE/EQP-API-005 | TC-CUST/SITE/EQP-\* (not authored) | CustomerEndpointsTests, CustomerServiceTests |
+| DEC-S1-004-D2 | DEC-PS1-002/003/013 | ST-SITE/EQP activate guard | SITE-API-005, EQP-API-005 | TC-SITE/EQP-\* (not authored) | SiteAndEquipmentServiceTests, SiteAndEquipmentEndpointsTests |
+| DEC-S1-004-D3 | DEC-PS1-013/015 | — | CUST/SITE/EQP-API-004 | TC-CUST/SITE/EQP-\* (not authored) | SiteAndEquipmentServiceTests, CustomerServiceTests |
+| DEC-S1-004-D4 | DEC-PS1-013; Section 4 item 13 | ST-CUST/SITE deactivate guard | CUST-API-006, SITE-API-006 | TC-CUST/SITE-\* (not authored) | Master-data deactivation tests |
+| DEC-S1-005-E1 (SUPERSEDED) | FR-01; RR-DD-001 RR-007/008/010/018 | ST-RR-001 | RR-API-001/002 | TC-RR-001 | RepairRequestDraftEndpointsTests |
+| DEC-S1-005-E2 | BR-03; FR-01 | ST-RR-001 | RR-API-001/002 | TC-RR-001; TC-SEC-002 | RepairRequestDraftServiceTests, RepairRequestDraftEndpointsTests |
+| DEC-S1-005-E3 | BR-16; D-11; S1-003 scope | ST-RR-001 | RR-API-002/004 | TC-SEC-001 | RepairRequestDraftStoreTests, RepairRequestDraftEndpointsTests |
+| DEC-S1-006-F1 | RR-REQ-001 §9 File NFR | — | FILE-API-001/003 | TC-RR-002 | AttachmentEndpointsTests |
+| DEC-S1-006-F2 | DEC-PS1-005; RR-REQ-001 §9 | FileAsset PENDING→CLEAN/FAILED (DEC-PS1-005 optional table) | FILE-API-002 (non-CLEAN → 409) | TC-RR-002 | FileScanServiceTests |
+| DEC-S1-006-F3 | — (capability absent) | — | none (no removal endpoint) | — | Route catalog |
+| DEC-S1-006-F4 | RR-DD-001 ATT-014; BR-16 | — | FILE-API-001/002/003 | TC-RR-002; TC-SEC-001 | RepairRequestAttachmentServiceTests, AttachmentEndpointsTests |
+| DEC-S1-006-SK | RR-DD-001 FAS-007; RR-ARCH-001 §11 | — | FILE-API-001 | TC-RR-002 | RepairRequestAttachmentServiceTests |
+| DEC-S1-006-PG | RR-API-001 §7/§9 | — | FILE-API-003 | TC-RR-002; TC-SEC-001 | AttachmentEndpointsTests |
+| DEC-PRE-S1-007-01/-02/-03 | FR-01/02; RR-DD-001 RR-008/010, §2; BR-03 | ST-RR-001/002 | RR-API-001/002/005 (ADD §5) | TC-RR-003 | — (S1-007) |
+| DEC-PRE-S1-007-04 | RR-DD-001 RR-018; BR-16 | ST-RR-001/002 | RR-API-001/002/005 (ADD §5) | TC-RR-003; TC-SEC-001 | — (S1-007) |
+| DEC-PRE-S1-007-05 | RR-DD-001 RR-007; RR-REQ-001 §12 | ST-RR-001 | RR-API-001/002 (ADD §5) | TC-RR-003 | — (S1-007) |
+| DEC-PRE-S1-007-06/-07 | RR-REQ-001 §9 (CLEAN only) + portfolio rule | ST-RR-002 guard | RR-API-005 (ADD §5) | TC-RR-003 | — (S1-007) |
+| DEC-PRE-S1-007-08 | DEC-PS1-005 | — | — | TC-RR-002 support | — (S1-007) |
+| DEC-PRE-S1-007-09/-10 | BR-14; D-12 | ST-RR-002 guard | RR-API-005 (ADD §5) | TC-RR-004 | — (S1-007) |
+| DEC-PRE-S1-007-11 | BR-01; RR-DD-001 RR-003 | ST-RR-002 side effect | RR-API-005 (ADD §5) | TC-RR-003; TC-SEC-002 | — (S1-007) |
+| DEC-PRE-S1-007-12 | FR-02; RR-DD-001 RR-014 ("SLA start"); BR-18 | ST-RR-002 (SLA start timestamp only); SLA calculation / EV-SLA-001..005 and ST-RR-003 deferred | RR-API-005 (ADD §5) | TC-RR-003/004 (TC-SLA-001..003 deferred) | — (S1-007) |
+
+**v1.2 conclusion:**
+- This revision records existing approved decisions only. No locked business semantics (State, Role, Guard, SLA, Permission, Notification Recipient) is changed.
+- DEC-S1-005-E1 is marked SUPERSEDED, not deleted.
+- Deferred items stay deferred (Section 8). Open items are listed in Section 9.
