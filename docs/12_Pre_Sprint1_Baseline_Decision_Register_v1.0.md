@@ -13,7 +13,7 @@ Portfolio Implementation Decisions + Cross-Reference + Required Baseline Updates
 | Status | Approved for Portfolio Development |
 | Revision Date | 14 September 2026 |
 | Supersedes | RR-DEC-001 v1.1 — v1.2 adds Sections 6–10 (S1-004 D1–D4, S1-005 E1–E3, S1-006 F1–F4 + storage-key and attachment-listing decisions, Pre-S1-007 decisions DEC-PRE-S1-007-01..12, deferred/non-blocking register, traceability). No v1.1 decision is removed or changed. |
-| Revision History | v1.0 — Round 1 (DEC-PS1-001..005). v1.1 — Round 2 (DEC-PS1-013..016, PERF-DEC-01). v1.2 — 14 September 2026, documentation reconciliation before S1-007. |
+| Revision History | v1.0 — Round 1 (DEC-PS1-001..005). v1.1 — Round 2 (DEC-PS1-013..016, PERF-DEC-01). v1.2 — 14 September 2026, documentation reconciliation before S1-007 (commit a10cab8). v1.2 amendment — 14 September 2026: final S1-007-start decision — FAILED attachments do not block Submit (DEC-PRE-S1-007-07); NB-5 resolved. |
 | Companion Documents (v1.2) | RR-API-001-ADD v1.0 (`13_Repair_Request_API_Contract_Addendum_v1.0.md`) — implemented endpoints missing from RR-API-001 v1.2, plus approved-but-not-implemented S1-007 contract amendments |
 | Extends | RR-REV-001 v1.2, RR-REQ-001 v1.6, BR-RR-BASELINE v1.6, RR-STS-001 v1.6, UC-RR-001 v1.7, RR-DD-001 v1.4, RR-DBD-001 v1.2, RR-API-001 v1.2, RR-UI-001 v1.2, RR-TC-001 v1.3, RR-ARCH-001 v1.1, RR-PERF-001 v1.0 |
 | Approval | Portfolio Project Owner — Approved for Portfolio Development |
@@ -490,18 +490,44 @@ No blocker in this register is a reason to halt Sprint 1.
 #### DEC-PRE-S1-007-06 — At least one CLEAN image is required at Submit (RES-M2, RES-M7)
 > Submit requires at least one attachment whose validated type is JPG/JPEG/PNG (`image/jpeg` or `image/png`) **and** whose `malware_scan_status` is `CLEAN`. A PDF does not count.
 >
-> PENDING attachments do not satisfy this mandatory evidence. FAILED attachments do not satisfy this mandatory evidence.
+> Submit validation counts **only** CLEAN JPG/JPEG/PNG attachments.
+>
+> - At least one CLEAN JPG/JPEG/PNG attachment is required.
+> - CLEAN JPG/JPEG/PNG satisfies mandatory photo evidence.
+> - PENDING attachments do not satisfy mandatory evidence.
+> - FAILED attachments do not satisfy mandatory evidence.
+>
+> If no qualifying CLEAN image exists, Submit fails:
+> - the approved `422 VALIDATION_FAILED` response is returned;
+> - state stays DRAFT;
+> - `request_no` stays null (no Request No is generated);
+> - the SLA does not start (no SLA start marker is recorded; DEC-PRE-S1-007-12);
+> - no Submit transition and no Submit success audit occurs.
 
 - This is a **portfolio rule added beyond the baseline**. The baseline has no attachment minimum at Submit.
 - Requiring CLEAN follows from [BASE] RR-REQ-001 §9: "only CLEAN file can satisfy mandatory evidence".
 
-#### DEC-PRE-S1-007-07 — PENDING attachments do not block Submit (RES-M2)
-> Once the CLEAN-image requirement is met, additional PENDING attachments do not block Submit.
+#### DEC-PRE-S1-007-07 — PENDING and FAILED attachments do not block Submit — FINAL S1-007-START DECISION (RES-M2; approved by the Portfolio Project Owner, 14 September 2026)
+> An additional FAILED attachment does NOT block Repair Request Submit.
+>
+> - PENDING attachments do not block Submit.
+> - FAILED attachments do not block Submit.
+> - FAILED attachments remain unusable and must not be downloadable or treated as evidence.
+> - Only CLEAN files are downloadable or usable.
+>
+> **Reason:** S1-006 does not support attachment removal yet. Making FAILED attachments block Submit could permanently trap an otherwise valid Draft after the user has uploaded a replacement CLEAN image.
+>
+> **Security remains fail-closed for the failed file itself:**
+> - it cannot be consumed;
+> - it cannot be downloaded;
+> - it cannot satisfy evidence;
+> - it cannot participate in downstream file processing.
 
-- **Not decided:** whether an additional **FAILED** attachment blocks Submit.
-  - This is **not** part of DEC-PRE-S1-007-06/-07 and is not APPROVED.
-  - Status: **MUST RESOLVE AT S1-007 START** (Section 9, NB-5).
-  - Context: attachment removal is not supported (DEC-S1-006-F3).
+- **Consistent with implemented S1-006 behaviour:**
+  - FILE-API-002 serves only CLEAN files; PENDING and FAILED return `409 STATE_CONFLICT` (`RepairRequestAttachmentService.DownloadAsync`; DEC-S1-006-F2).
+  - The scan service processes only PENDING files (`AttachmentStore.FindPendingFileAsync`).
+  - Attachment removal remains not supported (DEC-S1-006-F3).
+- **History:** The earlier v1.2 wording (commit a10cab8) recorded "whether an additional FAILED attachment blocks Submit" as **MUST RESOLVE AT S1-007 START** (NB-5). The Portfolio Project Owner has now decided it: FAILED attachments do not block Submit.
 
 #### DEC-PRE-S1-007-08 — Dev/Test-only fake malware scanner (RES-M6)
 > A Development/Test-only fake scanner that marks files CLEAN, plus an in-process scan runner, may be added as **test infrastructure only**.
@@ -595,7 +621,7 @@ No blocker in this register is a reason to halt Sprint 1.
 | NB-2 | CONVERTED counts as active only "while its linked Work Order is not CLOSED/CANCELLED" (D-12). No Work Orders exist in Sprint 1, so every CONVERTED request counts until Work Order implementation | NON-BLOCKING |
 | NB-3 | Resubmit after Return for Correction: Request No stays unchanged (BR-01 immutable). SLA restart/continuation semantics on resubmit are not decided | NON-BLOCKING — decide in the Return-for-Correction ticket |
 | NB-4 | Documentation previously missing from RR-DEC-001: S1-004 D4 and S1-006 F3 are now recorded (Section 6). The PDF baseline wording lag (Section 2/4) is unchanged | NON-BLOCKING (documentation lag) |
-| NB-5 | Whether an **additional FAILED attachment** blocks Submit is not decided. Approved and unchanged: at least one CLEAN JPG/JPEG/PNG is required; PENDING and FAILED attachments do not satisfy mandatory evidence; PENDING attachments do not block Submit (DEC-PRE-S1-007-06/-07). Because removal is not supported (DEC-S1-006-F3), the answer matters for S1-007. Not APPROVED | **MUST RESOLVE AT S1-007 START** (does not block this documentation commit) |
+| NB-5 | Whether an **additional FAILED attachment** blocks Submit. Previously MUST RESOLVE AT S1-007 START (commit a10cab8). **Final S1-007-start decision** by the Portfolio Project Owner (14 September 2026): FAILED attachments do not block Submit; they do not satisfy mandatory evidence, are not usable and cannot be downloaded (DEC-PRE-S1-007-07) | **RESOLVED** |
 | NB-6 | Read-only lookup endpoints for Category, Priority and eligible contacts are not designed or decided. No endpoint exists | OPEN — S1-007 design item |
 | NB-7 | TC-CUST-\*, TC-SITE-\*, TC-EQP-\*, TC-AUTH-\* and the ST-CUST/SITE/EQP transition tables (Section 2) are still not authored into RR-TC-001 / RR-STS-001. Automated tests exist | NON-BLOCKING (documentation lag) |
 | NB-8 | S1-002 decision labels (M1, M2, M3, M6, B4) and S1-003 decisions 1–4 exist only as code comments and are not recorded in this register | NON-BLOCKING (outside v1.2 scope) |
@@ -623,7 +649,7 @@ No blocker in this register is a reason to halt Sprint 1.
 | DEC-PRE-S1-007-01/-02/-03 | FR-01/02; RR-DD-001 RR-008/010, §2; BR-03 | ST-RR-001/002 | RR-API-001/002/005 (ADD §5) | TC-RR-003 | — (S1-007) |
 | DEC-PRE-S1-007-04 | RR-DD-001 RR-018; BR-16 | ST-RR-001/002 | RR-API-001/002/005 (ADD §5) | TC-RR-003; TC-SEC-001 | — (S1-007) |
 | DEC-PRE-S1-007-05 | RR-DD-001 RR-007; RR-REQ-001 §12 | ST-RR-001 | RR-API-001/002 (ADD §5) | TC-RR-003 | — (S1-007) |
-| DEC-PRE-S1-007-06/-07 | RR-REQ-001 §9 (CLEAN only) + portfolio rule | ST-RR-002 guard | RR-API-005 (ADD §5) | TC-RR-003 | — (S1-007) |
+| DEC-PRE-S1-007-06/-07 | RR-REQ-001 §9 (CLEAN only) + portfolio rule; DEC-S1-006-F2 | ST-RR-002 guard (failure: stays DRAFT, no Request No, no SLA start) | RR-API-005 (ADD §5); FILE-API-002 (CLEAN only) | TC-RR-002; TC-RR-003 | FILE-API-002 behaviour: AttachmentEndpointsTests; Submit guard — (S1-007) |
 | DEC-PRE-S1-007-08 | DEC-PS1-005 | — | — | TC-RR-002 support | — (S1-007) |
 | DEC-PRE-S1-007-09/-10 | BR-14; D-12 | ST-RR-002 guard | RR-API-005 (ADD §5) | TC-RR-004 | — (S1-007) |
 | DEC-PRE-S1-007-11 | BR-01; RR-DD-001 RR-003 | ST-RR-002 side effect | RR-API-005 (ADD §5) | TC-RR-003; TC-SEC-002 | — (S1-007) |
