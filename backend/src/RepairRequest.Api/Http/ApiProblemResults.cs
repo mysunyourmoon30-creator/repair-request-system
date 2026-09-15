@@ -42,11 +42,19 @@ public static class ApiProblemResults
     public static ObjectResult BadRequest(HttpContext httpContext, string detail) =>
         ToResult(Create(StatusCodes.Status400BadRequest, CorrelationIdResolver.Resolve(httpContext), detail: detail));
 
-    /// <summary>422 VALIDATION_FAILED with a field -> messages map.</summary>
-    public static ObjectResult ValidationFailed(HttpContext httpContext, IReadOnlyDictionary<string, string[]> errors, string? detail)
+    /// <summary>
+    /// 422 VALIDATION_FAILED with a field -> messages map. A BR-14 duplicate warning adds <c>duplicateCount</c> only; no
+    /// identifier of another Repair Request is ever returned (DEC-PRE-S1-007-10).
+    /// </summary>
+    public static ObjectResult ValidationFailed(HttpContext httpContext, IReadOnlyDictionary<string, string[]> errors, string? detail, int? duplicateCount = null)
     {
         var problem = Create(StatusCodes.Status422UnprocessableEntity, CorrelationIdResolver.Resolve(httpContext), detail: detail);
         problem.Extensions["errors"] = errors;
+        if (duplicateCount is not null)
+        {
+            problem.Extensions["duplicateCount"] = duplicateCount;
+        }
+
         return ToResult(problem);
     }
 

@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 using RepairRequest.Api.Contracts.RepairRequests;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
@@ -7,9 +8,9 @@ using RepairRequest.Application.Security;
 namespace RepairRequest.Api.Controllers;
 
 /// <summary>
-/// Repair Request Draft endpoints (RR-API-001 / RR-API-002 / RR-API-004; UC-RR-001). Create and edit use the
-/// RepairRequest.Draft policy (REQUESTER); detail uses RepairRequest.Read within the S1-003 scope. Submit, list,
-/// attachments and review actions are later tickets.
+/// Repair Request endpoints (RR-API-001 / RR-API-002 / RR-API-004 / RR-API-005; UC-RR-001/002). Create, edit and submit use
+/// the RepairRequest.Draft policy (REQUESTER); detail uses RepairRequest.Read within the S1-003 scope. List, review and
+/// cancel actions are later tickets.
 /// </summary>
 [ApiController]
 [Route("api/v1/repair-requests")]
@@ -18,11 +19,16 @@ public sealed class RepairRequestsController : CommandControllerBase
     private const string ResourceType = "RepairRequest";
 
     private readonly RepairRequestDraftService _drafts;
+    private readonly RepairRequestSubmitService _submits;
 
-    public RepairRequestsController(RepairRequestDraftService drafts, ICurrentUserAccessor currentUserAccessor)
+    public RepairRequestsController(
+        RepairRequestDraftService drafts,
+        RepairRequestSubmitService submits,
+        ICurrentUserAccessor currentUserAccessor)
         : base(currentUserAccessor)
     {
         _drafts = drafts;
+        _submits = submits;
     }
 
     [HttpPost]
@@ -55,6 +61,28 @@ public sealed class RepairRequestsController : CommandControllerBase
 
         var result = await _drafts.UpdateAsync(
             await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request.ToFields(), cancellationToken);
+        return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// RR-API-005 Submit (ST-RR-002). If-Match is required. A BR-14 duplicate without a continuation reason returns 422 with a
+    /// <c>duplicateCount</c> only; success returns the SUBMITTED request with its Request No and a fresh ETag.
+    /// </summary>
+    [HttpPost("{repairRequestId:guid}/submit")]
+    [Authorize(Policy = AuthorizationPolicies.RepairRequestDraft)]
+    [ProducesResponseType<RepairRequestDraftResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Submit(
+        Guid repairRequestId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] SubmitRepairRequestRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var result = await _submits.SubmitAsync(
+            await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request?.DuplicateContinuationReason, cancellationToken);
         return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
     }
 }

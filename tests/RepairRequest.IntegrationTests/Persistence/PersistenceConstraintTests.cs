@@ -102,6 +102,7 @@ public class PersistenceConstraintTests
         Assert.Contains(applied, id => id.EndsWith("_InitialCreate"));
         Assert.Contains(applied, id => id.EndsWith("_AddDomainAndIdentityFoundation"));
         Assert.Contains(applied, id => id.EndsWith("_AddRefreshTokenAndRoleSeed"));
+        Assert.Contains(applied, id => id.EndsWith("_AddRepairRequestSubmit"));
         Assert.Empty(await context.Database.GetPendingMigrationsAsync());
     }
 
@@ -402,20 +403,73 @@ public class PersistenceConstraintTests
     }
 
     [Fact]
-    public async Task RequestNo_IsUniqueOnceAssigned_WhileDraftsHaveNone()
+    public async Task RepairRequest_CategoryOrPriorityNotInTheTenantLookup_IsRejected()
     {
         var seed = await SeedHierarchyAsync();
+        var otherTenant = await SeedHierarchyAsync();
+
+        await using (var seedContext = _database.CreateContext())
+        {
+            seedContext.RequestCategories.Add(new RequestCategory(otherTenant.TenantId, "ONLY-OTHER", "Other tenant"));
+            seedContext.RequestPriorities.Add(new RequestPriority(otherTenant.TenantId, "ONLY-OTHER", "Other tenant"));
+            await seedContext.SaveChangesAsync();
+        }
+
+        await using (var categoryContext = _database.CreateContext())
+        {
+            AddDraft(categoryContext, seed.TenantId, seed.User.Id, entry => entry.Property(r => r.RequestCategoryCode).CurrentValue = "ONLY-OTHER");
+            await AssertSaveRejectedAsync(categoryContext, ConstraintViolation, "FK_repair_request_request_category");
+        }
+
+        await using var priorityContext = _database.CreateContext();
+        AddDraft(priorityContext, seed.TenantId, seed.User.Id, entry => entry.Property(r => r.PriorityCode).CurrentValue = "ONLY-OTHER");
+        await AssertSaveRejectedAsync(priorityContext, ConstraintViolation, "FK_repair_request_request_priority");
+    }
+
+    [Fact]
+    public async Task RepairRequest_ContactFromAnotherTenant_IsRejected()
+    {
+        var seed = await SeedHierarchyAsync();
+        var otherTenant = await SeedHierarchyAsync();
+        await using var context = _database.CreateContext();
+
+        AddDraft(context, seed.TenantId, seed.User.Id, entry =>
+        {
+            entry.Property(r => r.SiteId).CurrentValue = seed.Site.Id;
+            entry.Property(r => r.RequestContactId).CurrentValue = otherTenant.User.Id;
+        });
+
+        await AssertSaveRejectedAsync(context, ConstraintViolation, "FK_repair_request_request_contact_user");
+    }
+
+    [Fact]
+    public async Task RepairRequest_ContactWithoutSite_IsRejected()
+    {
+        var seed = await SeedHierarchyAsync();
+        await using var context = _database.CreateContext();
+
+        AddDraft(context, seed.TenantId, seed.User.Id, entry => entry.Property(r => r.RequestContactId).CurrentValue = seed.User.Id);
+
+        await AssertSaveRejectedAsync(context, ConstraintViolation, "CK_repair_request_contact_requires_site");
+    }
+
+    [Fact]
+    public async Task RequestNo_IsUniqueWithinTenantOnceAssigned_WhileDraftsHaveNone()
+    {
+        var seed = await SeedHierarchyAsync();
+        var otherTenant = await SeedHierarchyAsync();
         var requestNo = $"RR-{Guid.NewGuid():N}"[..RepairRequestAggregate.RequestNoMaxLength];
         await using var context = _database.CreateContext();
 
         AddDraft(context, seed.TenantId, seed.User.Id);
         AddDraft(context, seed.TenantId, seed.User.Id);
         AddDraft(context, seed.TenantId, seed.User.Id, entry => entry.Property(r => r.RequestNo).CurrentValue = requestNo);
-        Assert.Equal(3, await context.SaveChangesAsync());
+        AddDraft(context, otherTenant.TenantId, otherTenant.User.Id, entry => entry.Property(r => r.RequestNo).CurrentValue = requestNo);
+        Assert.Equal(4, await context.SaveChangesAsync());
 
         AddDraft(context, seed.TenantId, seed.User.Id, entry => entry.Property(r => r.RequestNo).CurrentValue = requestNo);
 
-        await AssertSaveRejectedAsync(context, UniqueIndexViolation, "UQ_repair_request_request_no");
+        await AssertSaveRejectedAsync(context, UniqueIndexViolation, "UQ_repair_request_tenant_id_request_no");
     }
 
     [Fact]

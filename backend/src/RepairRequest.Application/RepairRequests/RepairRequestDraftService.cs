@@ -1,6 +1,5 @@
 using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
-using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
@@ -9,7 +8,8 @@ namespace RepairRequest.Application.RepairRequests;
 /// <summary>
 /// UC-RR-001 Create / Edit Repair Request Draft (ST-RR-001; FR-01; BR-02/03/16; D-11). Role capability (REQUESTER)
 /// is enforced by the API policy before these run. The requester is always the caller and the tenant is always the
-/// caller's tenant; only the owner may edit, and only while DRAFT. Submit-only requirements are not applied here.
+/// caller's tenant; only the owner may edit, and only while DRAFT. Selected values are validated when present
+/// (decision E2); Submit-only requirements are applied by <see cref="RepairRequestSubmitService"/>.
 /// </summary>
 public sealed class RepairRequestDraftService
 {
@@ -94,7 +94,7 @@ public sealed class RepairRequestDraftService
         if (newValues.Count == 0)
         {
             // No change: nothing is written and nothing is audited.
-            return CommandResult<RepairRequestDraftDto>.Success(ToDto(draft));
+            return CommandResult<RepairRequestDraftDto>.Success(RepairRequestDraftDto.From(draft));
         }
 
         _store.AddAudit(RepairRequestAudit.DraftUpdated(context, draft, oldValues, newValues, UtcNow()));
@@ -140,37 +140,37 @@ public sealed class RepairRequestDraftService
             errors[RepairRequestFields.EquipmentId] = ["Equipment requires a selected Site."];
         }
 
+        var category = RepairRequestSelectionRules.Code(
+            fields.RequestCategoryCode, RepairRequestAggregate.RequestCategoryCodeMaxLength, RepairRequestFields.RequestCategoryCode, errors);
+        var priority = RepairRequestSelectionRules.Code(
+            fields.PriorityCode, RepairRequestAggregate.PriorityCodeMaxLength, RepairRequestFields.PriorityCode, errors);
+
+        if (fields.RequestContactId == Guid.Empty)
+        {
+            errors[RepairRequestFields.RequestContactId] = ["The request contact identifier is invalid."];
+        }
+        else if (fields.RequestContactId is not null && fields.SiteId is null)
+        {
+            errors[RepairRequestFields.RequestContactId] = ["The request contact requires a selected Site."];
+        }
+
         if (errors.Count > 0)
         {
             return (null, CommandError.Validation(errors));
         }
 
-        if (fields.SiteId is { } siteId)
+        var query = new DraftSelectionQuery(fields.SiteId, fields.EquipmentId, category, priority, fields.RequestContactId);
+        if (!query.IsEmpty)
         {
-            var selection = await _store.GetSiteSelectionAsync(user, siteId, fields.EquipmentId, cancellationToken);
+            var selection = await _store.GetDraftSelectionAsync(user, query, cancellationToken);
 
             // A Site outside the caller's scope is indistinguishable from a nonexistent one (S1-003 decision 3).
-            if (selection is null)
+            if (query.SiteId is not null && selection.SiteStatus is null)
             {
                 return (null, CommandError.NotFound);
             }
 
-            if (selection.SiteStatus != MasterDataStatus.Active)
-            {
-                errors[RepairRequestFields.SiteId] = ["The Site is inactive."];
-            }
-
-            if (fields.EquipmentId is not null)
-            {
-                if (selection.EquipmentStatus is null)
-                {
-                    errors[RepairRequestFields.EquipmentId] = ["The Equipment does not belong to the selected Site."];
-                }
-                else if (selection.EquipmentStatus != MasterDataStatus.Active)
-                {
-                    errors[RepairRequestFields.EquipmentId] = ["The Equipment is inactive."];
-                }
-            }
+            (category, priority) = RepairRequestSelectionRules.Check(query, selection, errors);
 
             if (errors.Count > 0)
             {
@@ -178,7 +178,7 @@ public sealed class RepairRequestDraftService
             }
         }
 
-        return (new DraftValues(fields.SiteId, fields.EquipmentId, description, start, end), null);
+        return (new DraftValues(fields.SiteId, fields.EquipmentId, category, priority, fields.RequestContactId, description, start, end), null);
     }
 
     private async Task<CommandResult<RepairRequestDraftDto>> SaveAsync(
@@ -189,12 +189,20 @@ public sealed class RepairRequestDraftService
         var outcome = await _store.SaveChangesAsync(draft, expectedRowVersion, cancellationToken);
 
         return outcome == RepairRequestSaveOutcome.Saved
-            ? CommandResult<RepairRequestDraftDto>.Success(ToDto(draft))
+            ? CommandResult<RepairRequestDraftDto>.Success(RepairRequestDraftDto.From(draft))
             : CommandError.ConcurrencyConflict;
     }
 
     private static void Apply(RepairRequestAggregate draft, DraftValues values) =>
-        draft.EditDraft(values.SiteId, values.EquipmentId, values.Description, values.PreferredStartAt, values.PreferredEndAt);
+        draft.EditDraft(
+            values.SiteId,
+            values.EquipmentId,
+            values.RequestCategoryCode,
+            values.PriorityCode,
+            values.RequestContactId,
+            values.Description,
+            values.PreferredStartAt,
+            values.PreferredEndAt);
 
     /// <summary>UTC truncated to the datetime2(3) precision used by persisted timestamps.</summary>
     private static DateTime? ToUtc(DateTimeOffset? value)
@@ -210,18 +218,13 @@ public sealed class RepairRequestDraftService
 
     private DateTime UtcNow() => ToUtc(_clock.GetUtcNow())!.Value;
 
-    private static RepairRequestDraftDto ToDto(RepairRequestAggregate draft) =>
-        new(
-            draft.Id,
-            draft.Status,
-            draft.RequestNo,
-            draft.SiteId,
-            draft.EquipmentId,
-            draft.Description,
-            draft.PreferredStartAt,
-            draft.PreferredEndAt,
-            draft.CreatedBy,
-            draft.RowVersion);
-
-    private sealed record DraftValues(Guid? SiteId, Guid? EquipmentId, string? Description, DateTime? PreferredStartAt, DateTime? PreferredEndAt);
+    private sealed record DraftValues(
+        Guid? SiteId,
+        Guid? EquipmentId,
+        string? RequestCategoryCode,
+        string? PriorityCode,
+        Guid? RequestContactId,
+        string? Description,
+        DateTime? PreferredStartAt,
+        DateTime? PreferredEndAt);
 }

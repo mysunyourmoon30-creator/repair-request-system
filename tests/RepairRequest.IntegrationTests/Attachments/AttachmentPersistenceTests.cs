@@ -102,7 +102,7 @@ public sealed class AttachmentPersistenceTests : IAsyncLifetime
     {
         await using var scope = _host.CreateScope();
         var result = await scope.ServiceProvider.GetRequiredService<RepairRequestDraftService>()
-            .CreateAsync(new CommandContext(owner, Guid.NewGuid()), new RepairRequestDraftFields(site.Id, null, "Leak", null, null), CancellationToken.None);
+            .CreateAsync(new CommandContext(owner, Guid.NewGuid()), new RepairRequestDraftFields(site.Id, null, null, null, null, "Leak", null, null), CancellationToken.None);
         return result.Value!.Id;
     }
 

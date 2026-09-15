@@ -6,6 +6,7 @@ using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence.Conversions;
+using RepairRequest.Infrastructure.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
 namespace RepairRequest.Infrastructure.Persistence;
@@ -41,6 +42,12 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
     public DbSet<UserSiteScope> UserSiteScopes => Set<UserSiteScope>();
 
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+
+    public DbSet<RequestCategory> RequestCategories => Set<RequestCategory>();
+
+    public DbSet<RequestPriority> RequestPriorities => Set<RequestPriority>();
+
+    public DbSet<RequestNumberCounter> RequestNumberCounters => Set<RequestNumberCounter>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

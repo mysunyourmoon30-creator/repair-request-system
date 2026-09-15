@@ -22,11 +22,16 @@ public static class AttachmentFileRules
 
     public const string FileField = "file";
 
+    /// <summary>Canonical photo types; only these can satisfy the mandatory Submit photo evidence (DEC-PRE-S1-007-06).</summary>
+    public const string JpegMimeType = "image/jpeg";
+
+    public const string PngMimeType = "image/png";
+
     private const int MaxFileNameLength = Domain.Files.FileAsset.FileNameMaxLength;
 
     private static readonly AttachmentFileType Pdf = new("application/pdf", "%PDF-"u8.ToArray());
-    private static readonly AttachmentFileType Jpeg = new("image/jpeg", [0xFF, 0xD8, 0xFF]);
-    private static readonly AttachmentFileType Png = new("image/png", [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    private static readonly AttachmentFileType Jpeg = new(JpegMimeType, [0xFF, 0xD8, 0xFF]);
+    private static readonly AttachmentFileType Png = new(PngMimeType, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
 
     private static readonly Dictionary<string, AttachmentFileType> TypesByExtension = new(StringComparer.OrdinalIgnoreCase)
     {

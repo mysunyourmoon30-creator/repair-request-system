@@ -55,6 +55,11 @@ public static class InfrastructureServiceCollectionExtensions
         // S1-005: Repair Request Draft persistence port.
         services.AddScoped<IRepairRequestDraftStore, RepairRequestDraftStore>();
 
+        // S1-007: Submit persistence port and idempotent Category/Priority lookup seeding.
+        services.AddSingleton(new RepairRequestDuplicateLockOptions());
+        services.AddScoped<IRepairRequestSubmitStore, RepairRequestSubmitStore>();
+        services.AddScoped<RequestLookupSeeder>();
+
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();
         services.AddOptions<FileStorageOptions>()

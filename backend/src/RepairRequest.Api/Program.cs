@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.Extensions.Options;
 using RepairRequest.Api.Authorization;
+using RepairRequest.Api.DevelopmentScanning;
+using RepairRequest.Api.Hosting;
 using RepairRequest.Api.Http;
 using RepairRequest.Api.Middleware;
 using RepairRequest.Application.DependencyInjection;
@@ -51,6 +53,11 @@ try
     builder.Services.AddRepairRequestAuthorization();
     // S1-004: bounded list paging (RR-API-001 sections 7/9), validated on start.
     builder.Services.AddApiPaging(builder.Configuration);
+    // S1-007: idempotent, non-fatal Category/Priority lookup seeding for existing tenants (DEC-PRE-S1-007-03).
+    builder.Services.AddHostedService<RequestLookupSeedingHostedService>();
+    // S1-007: opt-in Development/Testing-only FAKE malware scanning (DEC-PRE-S1-007-08). Registered after the
+    // Infrastructure default; refuses every other environment. Production keeps NotConfiguredMalwareScanner.
+    builder.AddDevelopmentOnlyMalwareScanning();
     // S1-006: private attachment storage root; a relative configured path is resolved against the content root.
     builder.Services.PostConfigure<FileStorageOptions>(options =>
     {

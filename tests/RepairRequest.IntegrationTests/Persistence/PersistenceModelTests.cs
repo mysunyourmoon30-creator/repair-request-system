@@ -7,6 +7,7 @@ using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence;
+using RepairRequest.Infrastructure.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
 namespace RepairRequest.IntegrationTests.Persistence;
@@ -21,7 +22,7 @@ public class PersistenceModelTests
     [
         typeof(Customer), typeof(Site), typeof(Equipment), typeof(RepairRequestAggregate),
         typeof(RepairRequestAttachment), typeof(FileAsset), typeof(AuditHistory), typeof(UserSiteScope),
-        typeof(RefreshToken)
+        typeof(RefreshToken), typeof(RequestCategory), typeof(RequestPriority), typeof(RequestNumberCounter)
     ];
 
     private static RepairRequestDbContext CreateContext() =>
@@ -52,6 +53,9 @@ public class PersistenceModelTests
     [InlineData(typeof(AuditHistory), "audit_history")]
     [InlineData(typeof(UserSiteScope), "user_site_scope")]
     [InlineData(typeof(RefreshToken), "refresh_token")]
+    [InlineData(typeof(RequestCategory), "request_category")]
+    [InlineData(typeof(RequestPriority), "request_priority")]
+    [InlineData(typeof(RequestNumberCounter), "request_no_counter")]
     public void BusinessEntities_MapToBaselineTableNames(Type clrType, string tableName)
     {
         using var context = CreateContext();
@@ -138,7 +142,7 @@ public class PersistenceModelTests
     [InlineData(typeof(Customer), "UQ_customer_tenant_id_customer_code", new[] { "tenant_id", "customer_code" })]
     [InlineData(typeof(Site), "UQ_site_customer_id_site_code", new[] { "customer_id", "site_code" })]
     [InlineData(typeof(Equipment), "UQ_equipment_site_id_equipment_code", new[] { "site_id", "equipment_code" })]
-    [InlineData(typeof(RepairRequestAggregate), "UQ_repair_request_request_no", new[] { "request_no" })]
+    [InlineData(typeof(RepairRequestAggregate), "UQ_repair_request_tenant_id_request_no", new[] { "tenant_id", "request_no" })]
     public void UniqueIndexes_MatchBaselineScope(Type clrType, string indexName, string[] columns)
     {
         using var context = CreateContext();

@@ -11,7 +11,8 @@ namespace RepairRequest.Application.Tests.RepairRequests;
 
 /// <summary>
 /// In-memory Draft port for Application-rule tests. Site scope is modelled as an explicit set of Sites the caller may
-/// select; SQL scope behaviour is covered by the integration and API tests.
+/// select, lookups as case-insensitive code dictionaries and contact eligibility as (contact, Site) pairs; SQL scope
+/// behaviour is covered by the integration and API tests.
 /// </summary>
 internal sealed class FakeRepairRequestDraftStore : IRepairRequestDraftStore
 {
@@ -29,6 +30,12 @@ internal sealed class FakeRepairRequestDraftStore : IRepairRequestDraftStore
 
     /// <summary>Equipment id -> (Site id, status).</summary>
     public Dictionary<Guid, (Guid SiteId, MasterDataStatus Status)> Equipment { get; } = new();
+
+    public Dictionary<string, MasterDataStatus> Categories { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public Dictionary<string, MasterDataStatus> Priorities { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    public HashSet<(Guid ContactId, Guid SiteId)> EligibleContacts { get; } = [];
 
     public int SaveCount { get; private set; }
 
@@ -53,10 +60,26 @@ internal sealed class FakeRepairRequestDraftStore : IRepairRequestDraftStore
         return equipmentId;
     }
 
-    public RepairRequestAggregate SeedDraft(CommandContext owner, Guid? siteId = null, Guid? equipmentId = null, string? description = null)
+    public Guid AddEligibleContact(Guid siteId)
+    {
+        var contactId = Guid.NewGuid();
+        EligibleContacts.Add((contactId, siteId));
+        return contactId;
+    }
+
+    public RepairRequestAggregate SeedDraft(
+        CommandContext owner,
+        Guid? siteId = null,
+        Guid? equipmentId = null,
+        string? description = null,
+        string? categoryCode = null,
+        string? priorityCode = null,
+        Guid? contactId = null,
+        DateTime? preferredStartAt = null,
+        DateTime? preferredEndAt = null)
     {
         var draft = RepairRequestAggregate.CreateDraft(owner.User.TenantId, owner.User.UserId);
-        draft.EditDraft(siteId, equipmentId, description, null, null);
+        draft.EditDraft(siteId, equipmentId, categoryCode, priorityCode, contactId, description, preferredStartAt, preferredEndAt);
         Set(draft, nameof(RepairRequestAggregate.Id), Guid.NewGuid());
         Set(draft, nameof(RepairRequestAggregate.RowVersion), InitialRowVersion);
         Requests.Add(draft);
@@ -66,33 +89,40 @@ internal sealed class FakeRepairRequestDraftStore : IRepairRequestDraftStore
     public static void ForceStatus(RepairRequestAggregate request, RepairRequestStatus status) =>
         Set(request, nameof(RepairRequestAggregate.Status), status);
 
+    public static void ForceRowVersion(RepairRequestAggregate request, byte[] rowVersion) =>
+        Set(request, nameof(RepairRequestAggregate.RowVersion), rowVersion);
+
     public Task<RepairRequestDraftDto?> GetAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken) =>
         Task.FromResult(Requests
             .Where(request => request.Id == repairRequestId && request.TenantId == user.TenantId)
-            .Select(request => new RepairRequestDraftDto(
-                request.Id, request.Status, request.RequestNo, request.SiteId, request.EquipmentId, request.Description,
-                request.PreferredStartAt, request.PreferredEndAt, request.CreatedBy, request.RowVersion))
+            .Select(RepairRequestDraftDto.From)
             .SingleOrDefault());
 
     public Task<RepairRequestAggregate?> FindOwnAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken) =>
         Task.FromResult(Requests.SingleOrDefault(request =>
             request.Id == repairRequestId && request.TenantId == user.TenantId && request.CreatedBy == user.UserId));
 
-    public Task<DraftSiteSelection?> GetSiteSelectionAsync(CurrentUser user, Guid siteId, Guid? equipmentId, CancellationToken cancellationToken)
+    public Task<DraftSelection> GetDraftSelectionAsync(CurrentUser user, DraftSelectionQuery query, CancellationToken cancellationToken)
     {
         SelectionQueries++;
 
-        if (!SitesInScope.TryGetValue(siteId, out var siteStatus))
-        {
-            return Task.FromResult<DraftSiteSelection?>(null);
-        }
+        MasterDataStatus? siteStatus = query.SiteId is { } siteId && SitesInScope.TryGetValue(siteId, out var status) ? status : null;
 
         MasterDataStatus? equipmentStatus =
-            equipmentId is { } id && Equipment.TryGetValue(id, out var equipment) && equipment.SiteId == siteId
+            query.EquipmentId is { } equipmentId && Equipment.TryGetValue(equipmentId, out var equipment) && equipment.SiteId == query.SiteId
                 ? equipment.Status
                 : null;
 
-        return Task.FromResult<DraftSiteSelection?>(new DraftSiteSelection(siteStatus, equipmentStatus));
+        var contactEligible = query.RequestContactId is { } contactId
+                              && query.SiteId is { } contactSite
+                              && EligibleContacts.Contains((contactId, contactSite));
+
+        return Task.FromResult(new DraftSelection(
+            siteStatus,
+            equipmentStatus,
+            Lookup(Categories, query.RequestCategoryCode),
+            Lookup(Priorities, query.PriorityCode),
+            contactEligible));
     }
 
     public void Add(RepairRequestAggregate repairRequest)
@@ -129,6 +159,17 @@ internal sealed class FakeRepairRequestDraftStore : IRepairRequestDraftStore
         _pending.Clear();
         _pendingAudits.Clear();
         return Task.FromResult(RepairRequestSaveOutcome.Saved);
+    }
+
+    private static LookupSelection? Lookup(Dictionary<string, MasterDataStatus> lookups, string? code)
+    {
+        if (code is null || !lookups.TryGetValue(code, out var status))
+        {
+            return null;
+        }
+
+        var canonical = lookups.Keys.First(key => string.Equals(key, code, StringComparison.OrdinalIgnoreCase));
+        return new LookupSelection(canonical, status);
     }
 
     private static void Set(RepairRequestAggregate request, string property, object value) =>

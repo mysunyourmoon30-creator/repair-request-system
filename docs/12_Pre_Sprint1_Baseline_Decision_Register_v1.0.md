@@ -11,9 +11,9 @@ Portfolio Implementation Decisions + Cross-Reference + Required Baseline Updates
 | Document ID | RR-DEC-001 |
 | Version | 1.2 – Sprint 1 Implementation Decisions + Pre-S1-007 Resolution |
 | Status | Approved for Portfolio Development |
-| Revision Date | 14 September 2026 |
+| Revision Date | 15 September 2026 |
 | Supersedes | RR-DEC-001 v1.1 — v1.2 adds Sections 6–10 (S1-004 D1–D4, S1-005 E1–E3, S1-006 F1–F4 + storage-key and attachment-listing decisions, Pre-S1-007 decisions DEC-PRE-S1-007-01..12, deferred/non-blocking register, traceability). No v1.1 decision is removed or changed. |
-| Revision History | v1.0 — Round 1 (DEC-PS1-001..005). v1.1 — Round 2 (DEC-PS1-013..016, PERF-DEC-01). v1.2 — 14 September 2026, documentation reconciliation before S1-007 (commit a10cab8). v1.2 amendment — 14 September 2026: final S1-007-start decision — FAILED attachments do not block Submit (DEC-PRE-S1-007-07); NB-5 resolved. |
+| Revision History | v1.0 — Round 1 (DEC-PS1-001..005). v1.1 — Round 2 (DEC-PS1-013..016, PERF-DEC-01). v1.2 — 14 September 2026, documentation reconciliation before S1-007 (commit a10cab8). v1.2 amendment — 14 September 2026: final S1-007-start decision — FAILED attachments do not block Submit (DEC-PRE-S1-007-07); NB-5 resolved. v1.2 amendment — 14 September 2026 (S1-007 pre-commit review): ACTIVE contact portion recorded as DEFERRED with the enforced contact rules (DEC-PRE-S1-007-04, NB-10); DEC-PRE-S1-007-08 implemented as Development/Testing-only test infrastructure; DEC-S1-006-F2 clarified. v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, Portfolio Project Owner): RR-018 request-contact ACTIVE-user check formally deferred, existence + tenant + Site-scope validation remains mandatory (DEC-PRE-S1-007-04, NB-10); follow-up requirement REQ-FU-USR-001 User lifecycle/status added (Section 8.1). v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, documentation reconciliation): REQ-FU-USR-001 wording made explicit; S1-007 automated evidence recorded in Section 10; RR-API-001-ADD reconciled with the implemented S1-007 contract. No decision changed. v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, MUST FIX): the BR-14 duplicate check made concurrency-safe. The duplicate count and Submit now run in one transaction, serialized per duplicate key by a SQL Server application lock (implementation note under DEC-PRE-S1-007-09). Business behaviour is unchanged. |
 | Companion Documents (v1.2) | RR-API-001-ADD v1.0 (`13_Repair_Request_API_Contract_Addendum_v1.0.md`) — implemented endpoints missing from RR-API-001 v1.2, plus approved-but-not-implemented S1-007 contract amendments |
 | Extends | RR-REV-001 v1.2, RR-REQ-001 v1.6, BR-RR-BASELINE v1.6, RR-STS-001 v1.6, UC-RR-001 v1.7, RR-DD-001 v1.4, RR-DBD-001 v1.2, RR-API-001 v1.2, RR-UI-001 v1.2, RR-TC-001 v1.3, RR-ARCH-001 v1.1, RR-PERF-001 v1.0 |
 | Approval | Portfolio Project Owner — Approved for Portfolio Development |
@@ -393,6 +393,11 @@ No blocker in this register is a reason to halt Sprint 1.
 - **Evidence:** `FileScanService`, `FileScanResult.StillPending` ("decision F2").
 - **Tests:** FileScanServiceTests.
 - **Note:** No background scan runner exists; see DEFERRED items in Section 8.
+- **Clarification (Portfolio Project Owner, 14 September 2026, S1-007 pre-commit review):**
+  - F2's "no runner" applies to the S1-006 production/background scanning scope.
+  - The opt-in Development/Testing-only fake scanner and PENDING scan runner of DEC-PRE-S1-007-08 are test and development infrastructure for exercising the CLEAN-dependent Submit flow.
+  - They do not satisfy or replace the deferred production background Worker.
+  - They never change Production, which keeps `NotConfiguredMalwareScanner`; files there stay PENDING and unusable.
 
 #### DEC-S1-006-F3 — Attachment removal not supported
 > Attachment removal is not supported in S1-006.
@@ -476,6 +481,25 @@ No blocker in this register is a reason to halt Sprint 1.
 - The contact may differ from the Requester.
 - [BASE] Y@Submit, "Active contact in selected Site" (RR-DD-001 RR-018).
 - Supersedes DEC-S1-005-E1 for Contact.
+- **S1-007 implementation decisions** (approved by the Portfolio Project Owner in the S1-007 pre-implementation session, 14 September 2026):
+  - **Enforced** at Draft save and at Submit:
+    - the user exists and belongs to the same tenant;
+    - the user holds at least one non-ADMINISTRATOR role;
+    - the user is assigned (user_site_scope) to the selected Site — S1-003 business Site scope.
+  - ADMINISTRATOR-only users are not eligible.
+- **Formal deferral of the ACTIVE portion** (Portfolio Project Owner, 15 September 2026, S1-007 pre-commit review):
+  > RR-018 (request contact) ACTIVE-user validation is temporarily deferred because the current User model has no authoritative business lifecycle/status. Existence + tenant + Site-scope validation remains mandatory.
+  - Only the ACTIVE/inactive user-state portion is deferred. S1-007 still **enforces**, at Draft save and again at Submit:
+    - `request_contact_id` references an existing user;
+    - the user belongs to the same tenant;
+    - the user has business Site scope on the selected Site (a non-ADMINISTRATOR role and a user_site_scope assignment);
+    - a cross-tenant contact cannot be selected;
+    - an out-of-scope contact cannot be selected;
+    - a client-provided contact id never bypasses backend validation (Submit re-validates the stored contact).
+  - ASP.NET Core Identity lockout is temporary brute-force protection. It is **not** business active/inactive status and is not used for this rule.
+  - No IsActive/UserStatus column or table is added in S1-007.
+  - The ACTIVE check must not be described as enforced until REQ-FU-USR-001 is delivered (Section 8.1; Section 9 NB-10).
+  - **ID note:** the Project Owner's instruction referred to "CAC-005". In RR-DD-001, CAC-005 is `customer_acceptance_contact.user_id` (Work Order acceptance contact; with CAC-009 `is_active` "Must be active at acceptance"). The rule deferred here is RR-018. CAC-005/CAC-009 are unchanged and outside S1-007 scope.
 
 #### DEC-PRE-S1-007-05 — Location is not in Sprint 1 (RES-M1)
 > Location is not in Sprint 1:
@@ -536,6 +560,21 @@ No blocker in this register is a reason to halt Sprint 1.
 - Production keeps `NotConfiguredMalwareScanner`.
 - It must never be described as malware protection. DEC-PS1-005 is unchanged.
 - Production scanning provider and background scan Worker remain DEFERRED.
+- **Status: APPROVED – IMPLEMENTED in S1-007 (uncommitted)**, as decided by the Portfolio Project Owner during the S1-007 pre-commit review (14 September 2026). It replaces the earlier S1-007 pre-implementation choice to exclude it, which was never recorded here.
+  - **Opt-in:**
+    - setting `DevelopmentMalwareScanning:Enabled` (default `false`);
+    - the committed `appsettings.Development.json.example` enables it for local Development;
+    - the Testing environment enables it only in tests that ask for it.
+  - **Allowed environments:** Development and Testing only.
+    - With it enabled in any other environment, including Production, the API refuses to start.
+    - The check runs at registration and again as start-time options validation.
+  - **Behaviour** (deterministic test infrastructure; no malware detection, no malware protection):
+    - `DevelopmentOnlyFakeMalwareScanner` reports content containing the ASCII marker `RR-DEV-FAKE-SCAN-FAILED` as infected (file becomes FAILED), and everything else as clean (file becomes CLEAN).
+    - `DevelopmentOnlyPendingScanRunner` polls PENDING files in bounded batches and calls the existing `FileScanService`, so S1-006 transition, audit and "only while PENDING" rules are unchanged.
+  - **Production:** nothing is registered.
+    - `NotConfiguredMalwareScanner` stays the scanner.
+    - Files stay PENDING and unusable (fail-closed, unchanged).
+  - **Relation to DEC-S1-006-F2:** F2's "no runner" applies to the S1-006 production/background scanning scope. This runner is development/test infrastructure only and does not satisfy or replace the deferred production Worker.
 
 #### DEC-PRE-S1-007-09 — Duplicate matching when Equipment/Location is empty (RES-H1)
 > BR-14 duplicate matching uses exact key equality on tenant + Site + Category + Equipment:
@@ -546,6 +585,14 @@ No blocker in this register is a reason to halt Sprint 1.
 
 - [BASE] BR-14 / D-12 active set: SUBMITTED, UNDER_REVIEW, APPROVED, and CONVERTED while its Work Order is not CLOSED/CANCELLED. DRAFT/REJECTED/CANCELLED are excluded.
 - [BASE] Within 24h. Warning, not hard block. A continuation reason is required to proceed, persisted in RR-011 and audited.
+- **Implementation — concurrency** (S1-007 pre-commit review, 15 September 2026; implementation only, the rule above is unchanged):
+  - The duplicate count, the continuation-reason decision, Request No allocation, the DRAFT → SUBMITTED transition and the audit run in **one** Submit transaction.
+  - That transaction first takes a transaction-owned SQL Server application lock (`sp_getapplock`, Exclusive) on the duplicate key: tenant + Site + Category + Equipment, with "no Equipment" as its own key.
+  - Two concurrent Submits of different matching Drafts are therefore serialized. The later one counts the committed earlier one and, without a continuation reason, receives the duplicate warning. It stays DRAFT, with no Request No, no SLA start and no audit.
+  - The lock is held by SQL Server, so it is correct across API instances. It is released on commit, rollback or connection loss.
+  - Submits with a different duplicate key do not wait on it. Lock order is always duplicate key → Request No counter row → repair_request row.
+  - Lock wait timeout (10 s) or deadlock → 409 CONCURRENCY_CONFLICT with nothing written. There is no automatic retry.
+  - When Location enters the duplicate match (DEC-PRE-S1-007-05), it must be added to the lock key.
 
 #### DEC-PRE-S1-007-10 — Duplicate Submit response (RES-M4)
 > A BR-14 match submitted without a continuation reason returns `422 VALIDATION_FAILED` with an error on `duplicateContinuationReason` and a `duplicateCount`. No identifiers of other requests are returned. The request stays DRAFT.
@@ -604,12 +651,19 @@ No blocker in this register is a reason to halt Sprint 1.
 | Approval routing engine (ST-RR-003) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
 | Submitted notification / outbox implementation (NTF-SUBMITTED) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
 | Production malware scanning provider | DEFERRED — Security Hardening / Deployment | DEC-PS1-005 |
-| Background malware-scan Worker | DEFERRED | DEC-S1-006-F2; DEC-PRE-S1-007-08 (Dev/Test runner is test infrastructure only) |
+| Production background malware-scan Worker | DEFERRED — the Development/Testing-only runner of DEC-PRE-S1-007-08 does not satisfy or replace it | DEC-S1-006-F2 (clarified 14 September 2026); DEC-PRE-S1-007-08 |
+| ACTIVE/inactive user-state check for the request contact (RR-018) — only this portion; existence, tenant and Site-scope validation remain enforced | DEFERRED until REQ-FU-USR-001 (Section 8.1) — the User model has no authoritative business lifecycle/status; Identity lockout is not business status | DEC-PRE-S1-007-04 (formal deferral, 15 September 2026) |
 | Attachment removal | DEFERRED | DEC-S1-006-F3 |
 | Upload rate limiting | DEFERRED | Section 4 item 10 (CORS/rate-limit INFORMATIONAL) |
 | Sprint 2 team / assignment scope (Work Order, Visit, Session policies) | DEFERRED — Sprint 2 | `AuthorizationPolicies` note; RR-REQ-001 §13 |
 | Transactional-record deactivation guard | OPEN / DEFERRED | Section 4 item 13; DEC-S1-004-D4 |
 | SLA due-time calculation, risk threshold, breach evaluation, working-hours/calendar calculation and escalation (incl. `sla_record` creation, EV-SLA-001..005 calculations, NTF-SLA-RISK / NTF-SLA-BREACH, SLA Override) | DEFERRED — SLA Policy/Monitoring scope | DEC-PRE-S1-007-12 |
+
+### 8.1 Follow-up Requirements
+
+| ID | Requirement | Due | Status | Source |
+|---|---|---|---|---|
+| REQ-FU-USR-001 | **User lifecycle/status.** The system needs an authoritative User business lifecycle/status model before ACTIVE-contact validation (RR-018, DEC-PRE-S1-007-04) can be enforced. The model must be separate from ASP.NET Core Identity lockout. IsActive/UserStatus is **not** implemented in S1-007; this remains a formal follow-up requirement. **To be decided by an approved decision (not decided here):** states and transitions, who may change a user's status, reason and audit, and the effect on existing references. **Enforcement points to evaluate:** request-contact eligibility at Draft save and Submit (RR-018, closing the DEC-PRE-S1-007-04 deferral), authentication and token refresh, and the Work Order acceptance contact (CAC-005/CAC-009, Sprint 2). Automated tests are required | Before final Sprint 1 security/UAT readiness or production readiness, whichever comes first | OPEN — not in S1-007 | DEC-PRE-S1-007-04 (formal deferral, 15 September 2026); NB-10 |
 
 ---
 
@@ -626,6 +680,7 @@ No blocker in this register is a reason to halt Sprint 1.
 | NB-7 | TC-CUST-\*, TC-SITE-\*, TC-EQP-\*, TC-AUTH-\* and the ST-CUST/SITE/EQP transition tables (Section 2) are still not authored into RR-TC-001 / RR-STS-001. Automated tests exist | NON-BLOCKING (documentation lag) |
 | NB-8 | S1-002 decision labels (M1, M2, M3, M6, B4) and S1-003 decisions 1–4 exist only as code comments and are not recorded in this register | NON-BLOCKING (outside v1.2 scope) |
 | NB-9 | **SLA values for the SLA Policy / Monitoring scope.** The approved baseline defines the Resolution SLA duration (BR-12 / FR-08 "24h 24/7 from SUBMITTED"; EV-SLA-001; SLA-006) and risk threshold (D-13 / BR-17 "effective_due_at − 4 hours"; SLA-008), independently of the Pre-S1-007 session. They are retained unchanged and not applied in S1-007 (DEC-PRE-S1-007-12). Notes for that later scope: (a) the baseline PDFs still carry "approval pending" wording, which DEC-PS1-016 supersedes for governance classification; (b) a working-hours/calendar model would differ from BR-12 "24/7" and would need a Change Request if adopted; (c) escalation beyond NTF-SLA-RISK / NTF-SLA-BREACH is not defined in the baseline | NON-BLOCKING for S1-007 — confirm at the SLA Policy / Monitoring scope |
+| NB-10 | **ACTIVE request contact — formally deferred** (Portfolio Project Owner, 15 September 2026). Baseline RR-018 "Active contact in selected Site" requires an active user, but the User model has no authoritative business lifecycle/status, and Identity lockout is not one. S1-007 enforces, at Draft save and at Submit: existing user, same tenant, and business Site scope on the selected Site (non-ADMINISTRATOR role + user_site_scope). Cross-tenant and out-of-scope contacts are rejected, and the client-provided id never bypasses backend validation. Only the ACTIVE/inactive user-state check is deferred. It must not be reported as enforced until REQ-FU-USR-001 is delivered. No IsActive/UserStatus column is added in S1-007 | DEFERRED — DEC-PRE-S1-007-04; follow-up REQ-FU-USR-001 (Section 8.1) |
 
 ---
 
@@ -646,14 +701,14 @@ No blocker in this register is a reason to halt Sprint 1.
 | DEC-S1-006-F4 | RR-DD-001 ATT-014; BR-16 | — | FILE-API-001/002/003 | TC-RR-002; TC-SEC-001 | RepairRequestAttachmentServiceTests, AttachmentEndpointsTests |
 | DEC-S1-006-SK | RR-DD-001 FAS-007; RR-ARCH-001 §11 | — | FILE-API-001 | TC-RR-002 | RepairRequestAttachmentServiceTests |
 | DEC-S1-006-PG | RR-API-001 §7/§9 | — | FILE-API-003 | TC-RR-002; TC-SEC-001 | AttachmentEndpointsTests |
-| DEC-PRE-S1-007-01/-02/-03 | FR-01/02; RR-DD-001 RR-008/010, §2; BR-03 | ST-RR-001/002 | RR-API-001/002/005 (ADD §5) | TC-RR-003 | — (S1-007) |
-| DEC-PRE-S1-007-04 | RR-DD-001 RR-018; BR-16 | ST-RR-001/002 | RR-API-001/002/005 (ADD §5) | TC-RR-003; TC-SEC-001 | — (S1-007) |
-| DEC-PRE-S1-007-05 | RR-DD-001 RR-007; RR-REQ-001 §12 | ST-RR-001 | RR-API-001/002 (ADD §5) | TC-RR-003 | — (S1-007) |
-| DEC-PRE-S1-007-06/-07 | RR-REQ-001 §9 (CLEAN only) + portfolio rule; DEC-S1-006-F2 | ST-RR-002 guard (failure: stays DRAFT, no Request No, no SLA start) | RR-API-005 (ADD §5); FILE-API-002 (CLEAN only) | TC-RR-002; TC-RR-003 | FILE-API-002 behaviour: AttachmentEndpointsTests; Submit guard — (S1-007) |
-| DEC-PRE-S1-007-08 | DEC-PS1-005 | — | — | TC-RR-002 support | — (S1-007) |
-| DEC-PRE-S1-007-09/-10 | BR-14; D-12 | ST-RR-002 guard | RR-API-005 (ADD §5) | TC-RR-004 | — (S1-007) |
-| DEC-PRE-S1-007-11 | BR-01; RR-DD-001 RR-003 | ST-RR-002 side effect | RR-API-005 (ADD §5) | TC-RR-003; TC-SEC-002 | — (S1-007) |
-| DEC-PRE-S1-007-12 | FR-02; RR-DD-001 RR-014 ("SLA start"); BR-18 | ST-RR-002 (SLA start timestamp only); SLA calculation / EV-SLA-001..005 and ST-RR-003 deferred | RR-API-005 (ADD §5) | TC-RR-003/004 (TC-SLA-001..003 deferred) | — (S1-007) |
+| DEC-PRE-S1-007-01/-02/-03 | FR-01/02; RR-DD-001 RR-008/010, §2; BR-03 | ST-RR-001/002 | RR-API-001/002/005 (ADD §4.1, §5) | TC-RR-003 | RequestNumberAndLookupTests (Lookups_AreTenantScopedAndActiveByDefault, Lookups_RejectInvalidValues); MigrationSeedTests.UpgradingAnExistingDatabase_SeedsLookupsOncePerTenantWithUsers; RepairRequestSubmitStoreTests.LookupSeeding_IsIdempotent_ConcurrencySafe_AndCoversTenantsWithUsers; RepairRequestSubmitEndpointsTests (Draft_AcceptsLookupsAndContact_StoresCanonicalCodes_AndRejectsInvalidSelections, Submit_WhenLookupsBecameInactive_OrContactLostSiteAssignment_Returns422) |
+| DEC-PRE-S1-007-04 | RR-DD-001 RR-018; BR-16 (ACTIVE portion formally deferred → REQ-FU-USR-001) | ST-RR-001/002 | RR-API-001/002/005 (ADD §5) | TC-RR-003; TC-SEC-001 | Existence/tenant/Site scope: RepairRequestDraftStoreTests.DraftSelection_ContactMustHoldABusinessRoleAndBeAssignedToTheSelectedSite; RepairRequestSubmitEndpointsTests (Draft_AcceptsLookupsAndContact_StoresCanonicalCodes_AndRejectsInvalidSelections, Draft_ContactFromAnotherTenant_IsRejected_IdenticallyToUnknown_AndNothingIsCreated, Submit_WhenLookupsBecameInactive_OrContactLostSiteAssignment_Returns422); PersistenceConstraintTests.RepairRequest_ContactFromAnotherTenant_IsRejected. ACTIVE status: none (deferred) |
+| DEC-PRE-S1-007-05 | RR-DD-001 RR-007; RR-REQ-001 §12 | ST-RR-001 | RR-API-001/002 (ADD §5) | TC-RR-003 | No dedicated test: `RepairRequestDraftRequest` has no `locationId` member and no command sets `location_id`; duplicate matching requires `location_id` null (RepairRequestSubmitStoreTests.DuplicateCount_MatchesSiteCategoryAndExactEquipment_InTheActiveSetWithinTheInclusiveWindow) |
+| DEC-PRE-S1-007-06/-07 | RR-REQ-001 §9 (CLEAN only) + portfolio rule; DEC-S1-006-F2 | ST-RR-002 guard (failure: stays DRAFT, no Request No, no SLA start) | RR-API-005 (ADD §4.1, §5); FILE-API-002 (CLEAN only) | TC-RR-002; TC-RR-003 | FILE-API-002 behaviour: AttachmentEndpointsTests; Submit guard: RepairRequestSubmitEndpointsTests (Submit_WithoutCleanPhoto_Returns422OnAttachments_AndStaysDraft, Submit_CleanPhotoWithAnAdditionalPendingOrFailedAttachment_Succeeds); RepairRequestSubmitStoreTests.CleanPhoto_OnlyCleanJpegOrPngOfTheRequestTenantCounts; RepairRequestSubmitServiceTests.Submit_WithoutCleanPhoto_Returns422OnAttachments_WithoutDuplicateQuery |
+| DEC-PRE-S1-007-08 | DEC-PS1-005; DEC-S1-006-F2 (clarified) | FileAsset PENDING→CLEAN/FAILED (Development/Testing only) | FILE-API-001/002; RR-API-005 | TC-RR-002 support | DevelopmentMalwareScanningTestingTests, DevelopmentMalwareScanningDevelopmentTests, DevelopmentMalwareScanningProductionTests |
+| DEC-PRE-S1-007-09/-10 | BR-14; D-12 | ST-RR-002 guard | RR-API-005 (ADD §4.1, §5) | TC-RR-004 | Concurrency: RepairRequestSubmitStoreTests (ConcurrentSubmitsOfDifferentDraftsWithTheSameDuplicateKey_ExactlyOneSucceeds_TheOtherGetsTheDuplicateWarning, ConcurrentSubmitsOfNonMatchingDrafts_DoNotWaitOnEachOthersDuplicateLock, DuplicateKeyLockTimeout_Returns409_WritesNothing_AndTheDraftCanBeSubmittedAfterwards, FailureInsideTheTransaction_RollsBackAllocationTransitionAndAudit_AndReleasesTheDuplicateLock, DuplicateLockResource_IsTheExactDuplicateKey_AndEmptyEquipmentNeverSharesAKeyWithSelectedEquipment); RepairRequestSubmitEndpointsTests (Submit_Duplicate_WithoutReason_Returns422CountOnly_ThenWithReasonSucceeds_AndAuditsTheReason, Submit_EmptyEquipmentMatchesOnlyEmptyEquipment_AndNullIsNeverAWildcard, Submit_RejectedOrCancelledRequestsAndOtherTenantsDoNotCount_ButUnderReviewDoes); RepairRequestSubmitStoreTests.DuplicateCount_MatchesSiteCategoryAndExactEquipment_InTheActiveSetWithinTheInclusiveWindow; RepairRequestSubmitServiceTests (Submit_DuplicateWithoutReason_Returns422WithCountOnly_AndStaysDraftWithoutNumberOrSlaStart, Submit_DuplicateWithReason_Succeeds_StoresAndAuditsTheTrimmedReasonAndCount, Submit_ReasonWithoutDuplicate_Succeeds_AndTheReasonIsIgnored, Submit_ContinuationReasonLongerThanLimit_Returns422_WithoutDuplicateQuery) |
+| DEC-PRE-S1-007-11 | BR-01; RR-DD-001 RR-003 | ST-RR-002 side effect | RR-API-005 (ADD §4.1, §5) | TC-RR-003; TC-SEC-002 | RepairRequestSubmitStoreTests (Allocation_ConcurrentSubmitsInOneTenantYear_ProduceUniqueGaplessNumbers, Allocation_SequencesAreSeparatePerTenantAndPerYear, StaleSecondSubmitOfTheSameDraft_Returns409_AndRollsBackItsAllocation, FailureInsideTheTransaction_RollsBackAllocationTransitionAndAudit); RepairRequestSubmitEndpointsTests (Submit_NumbersAreSequentialPerTenant_AndAnotherTenantStartsAtOne, Submit_TwoConcurrentRequestsWithTheSameETag_ExactlyOneSucceeds_WithOneNumberAndOneAudit, Submit_AlreadySubmitted_Returns409StateConflict_AndKeepsTheOriginalNumber); RequestNumberAndLookupTests (Format_UsesYearAndSixDigitSequence, Format_RejectsOutOfRangeInput_AndFailsClosedWhenSequenceIsExhausted); RepairRequestSubmitTests.Submit_WhenRequestNoAlreadyAssigned_IsRejected_RequestNoIsImmutable |
+| DEC-PRE-S1-007-12 | FR-02; RR-DD-001 RR-014 ("SLA start"); BR-18 | ST-RR-002 (SLA start timestamp only); SLA calculation / EV-SLA-001..005 and ST-RR-003 deferred | RR-API-005 (ADD §4.1, §5) | TC-RR-003/004 (TC-SLA-001..003 deferred) | RepairRequestSubmitEndpointsTests.Submit_ValidDraft_Returns200Submitted_WithRequestNo_SlaStartMarker_ETag_AndAudit; RepairRequestSubmitServiceTests.Submit_ValidDraft_GeneratesRequestNo_SetsSubmittedAndSlaStartMarker_AndAuditsOnce; RepairRequestSubmitTests.Submit_CompleteDraft_BecomesSubmittedWithNumberActorAndSlaStartMarker; RepairRequestSubmitStoreTests.SubmitService_EndToEnd_IsBounded_AndFailedValidationLeavesNoTrace (no Request No / SLA start on failure) |
 
 **v1.2 conclusion:**
 - This revision records existing approved decisions only. No locked business semantics (State, Role, Guard, SLA, Permission, Notification Recipient) is changed.

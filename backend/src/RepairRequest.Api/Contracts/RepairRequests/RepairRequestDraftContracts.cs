@@ -7,20 +7,27 @@ using RepairRequest.Application.RepairRequests;
 namespace RepairRequest.Api.Contracts.RepairRequests;
 
 /// <summary>
-/// Create and edit body of a Repair Request Draft (RR-API-001 section 4). The edit (PATCH) carries the complete S1-005
-/// editable field set, as saved by the Draft form: an omitted field is saved as empty. Tenant, requester, status and
-/// Request No are never accepted; unknown members are ignored. Category, priority, location and contact are not
-/// accepted until their masters exist (S1-005 decision E1). Timestamps must state an explicit UTC offset.
+/// Create and edit body of a Repair Request Draft (RR-API-001 section 4). The edit (PATCH) carries the complete editable
+/// field set, as saved by the Draft form: an omitted field is saved as empty. Category and Priority are tenant lookup codes
+/// and the request contact is a user id (DEC-PRE-S1-007-01/02/04). Tenant, requester, status, Request No and Location are
+/// never accepted; unknown members are ignored. Timestamps must state an explicit UTC offset.
 /// </summary>
 public sealed record RepairRequestDraftRequest(
     Guid? SiteId,
     Guid? EquipmentId,
+    string? RequestCategoryCode,
+    string? PriorityCode,
+    Guid? RequestContactId,
     string? Description,
     [property: JsonConverter(typeof(ExplicitOffsetDateTimeOffsetConverter))] DateTimeOffset? PreferredStartAt,
     [property: JsonConverter(typeof(ExplicitOffsetDateTimeOffsetConverter))] DateTimeOffset? PreferredEndAt)
 {
-    public RepairRequestDraftFields ToFields() => new(SiteId, EquipmentId, Description, PreferredStartAt, PreferredEndAt);
+    public RepairRequestDraftFields ToFields() =>
+        new(SiteId, EquipmentId, RequestCategoryCode, PriorityCode, RequestContactId, Description, PreferredStartAt, PreferredEndAt);
 }
+
+/// <summary>RR-API-005 Submit body. The body itself may be omitted when no continuation reason is needed.</summary>
+public sealed record SubmitRepairRequestRequest(string? DuplicateContinuationReason);
 
 public sealed record RepairRequestDraftResponse(
     Guid Id,
@@ -28,10 +35,14 @@ public sealed record RepairRequestDraftResponse(
     string? RequestNo,
     Guid? SiteId,
     Guid? EquipmentId,
+    string? RequestCategoryCode,
+    string? PriorityCode,
+    Guid? RequestContactId,
     string? Description,
     DateTime? PreferredStartAt,
     DateTime? PreferredEndAt,
     Guid CreatedBy,
+    DateTime? SubmittedAt,
     string RowVersion);
 
 /// <summary>Focused response projection; the EF entity is never serialized.</summary>
@@ -44,10 +55,14 @@ public static class RepairRequestResponses
             dto.RequestNo,
             dto.SiteId,
             dto.EquipmentId,
+            dto.RequestCategoryCode,
+            dto.PriorityCode,
+            dto.RequestContactId,
             dto.Description,
             AsUtc(dto.PreferredStartAt),
             AsUtc(dto.PreferredEndAt),
             dto.CreatedBy,
+            AsUtc(dto.SubmittedAt),
             Convert.ToBase64String(dto.RowVersion));
 
     private static DateTime? AsUtc(DateTime? value) =>

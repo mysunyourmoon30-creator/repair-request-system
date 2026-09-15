@@ -27,12 +27,14 @@ public sealed class CommandError
         CommandFailure failure,
         string? message = null,
         IReadOnlyDictionary<string, string[]>? errors = null,
-        int? activeChildCount = null)
+        int? activeChildCount = null,
+        int? duplicateCount = null)
     {
         Failure = failure;
         Message = message;
         Errors = errors ?? new Dictionary<string, string[]>();
         ActiveChildCount = activeChildCount;
+        DuplicateCount = duplicateCount;
     }
 
     public CommandFailure Failure { get; }
@@ -44,6 +46,9 @@ public sealed class CommandError
     /// <summary>Number of active children that blocked a master-data deactivation (RR-DEC-001 DEC-PS1-013 UI note).</summary>
     public int? ActiveChildCount { get; }
 
+    /// <summary>Number of matching active Repair Requests behind a BR-14 duplicate warning (DEC-PRE-S1-007-10); count only.</summary>
+    public int? DuplicateCount { get; }
+
     public static CommandError NotFound { get; } = new(CommandFailure.NotFound);
 
     public static CommandError ConcurrencyConflict { get; } =
@@ -54,6 +59,14 @@ public sealed class CommandError
 
     public static CommandError Validation(string field, string message) =>
         Validation(new Dictionary<string, string[]> { [field] = [message] });
+
+    /// <summary>422 VALIDATION_FAILED for a BR-14 duplicate warning without a continuation reason.</summary>
+    public static CommandError DuplicateWarning(string field, string message, int duplicateCount) =>
+        new(
+            CommandFailure.ValidationFailed,
+            "A continuation reason is required to submit a possible duplicate.",
+            new Dictionary<string, string[]> { [field] = [message] },
+            duplicateCount: duplicateCount);
 
     public static CommandError StateConflict(string message, int? activeChildCount = null) =>
         new(CommandFailure.StateConflict, message, activeChildCount: activeChildCount);

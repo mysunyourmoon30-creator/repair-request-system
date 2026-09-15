@@ -25,10 +25,10 @@ public interface IRepairRequestDraftStore
     Task<RepairRequestAggregate?> FindOwnAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Site status within the caller's Site scope plus the status of <paramref name="equipmentId"/> when it belongs to
-    /// that Site, in one query. Null when the Site is not in scope or does not exist.
+    /// Site status within the caller's business Site scope, Equipment of that Site, tenant Category/Priority lookups and
+    /// request-contact eligibility, in one query (see <see cref="DraftSelection"/>).
     /// </summary>
-    Task<DraftSiteSelection?> GetSiteSelectionAsync(CurrentUser user, Guid siteId, Guid? equipmentId, CancellationToken cancellationToken);
+    Task<DraftSelection> GetDraftSelectionAsync(CurrentUser user, DraftSelectionQuery query, CancellationToken cancellationToken);
 
     void Add(RepairRequestAggregate repairRequest);
 

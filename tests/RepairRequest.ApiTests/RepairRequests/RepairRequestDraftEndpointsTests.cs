@@ -71,8 +71,8 @@ public sealed class RepairRequestDraftEndpointsTests : IClassFixture<RepairReque
             createdBy = Guid.NewGuid(),
             status = "APPROVED",
             requestNo = "RR-SPOOF",
-            requestCategoryCode = "SPOOF",
-            priorityCode = "P1"
+            submittedAt = "2026-09-14T10:00:00Z",
+            locationId = Guid.NewGuid()
         }, correlationId: correlationId);
 
         Assert.Equal(HttpStatusCode.Created, response.StatusCode);
@@ -92,6 +92,8 @@ public sealed class RepairRequestDraftEndpointsTests : IClassFixture<RepairReque
         Assert.Null(stored.RequestNo);
         Assert.Null(stored.RequestCategoryCode);
         Assert.Null(stored.PriorityCode);
+        Assert.Null(stored.LocationId);
+        Assert.Null(stored.SubmittedAt);
 
         var audit = Assert.Single(await AuditsAsync(id));
         Assert.Equal("REPAIR_REQUEST", audit.EntityType);

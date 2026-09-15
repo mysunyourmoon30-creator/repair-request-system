@@ -80,7 +80,7 @@ public abstract class CommandControllerBase : ControllerBase
         error.Failure switch
         {
             CommandFailure.NotFound => ApiProblemResults.ResourceNotFound(HttpContext, resourceType),
-            CommandFailure.ValidationFailed => ApiProblemResults.ValidationFailed(HttpContext, error.Errors, error.Message),
+            CommandFailure.ValidationFailed => ApiProblemResults.ValidationFailed(HttpContext, error.Errors, error.Message, error.DuplicateCount),
             CommandFailure.StateConflict => ApiProblemResults.Conflict(HttpContext, ApiProblemResults.StateConflictCode, error.Message, error.ActiveChildCount),
             _ => ApiProblemResults.Conflict(HttpContext, ApiProblemResults.ConcurrencyConflictCode, error.Message)
         };

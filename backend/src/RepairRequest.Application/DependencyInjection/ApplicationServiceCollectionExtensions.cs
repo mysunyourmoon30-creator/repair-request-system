@@ -28,6 +28,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<RepairRequestAttachmentService>();
         services.AddScoped<FileScanService>();
 
+        // S1-007: Repair Request Submit (ST-RR-002).
+        services.AddScoped<RepairRequestSubmitService>();
+
         return services;
     }
 }

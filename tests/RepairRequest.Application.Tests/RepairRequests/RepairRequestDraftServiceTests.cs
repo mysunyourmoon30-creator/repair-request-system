@@ -31,8 +31,11 @@ public class RepairRequestDraftServiceTests
         Guid? equipmentId = null,
         string? description = null,
         DateTimeOffset? start = null,
-        DateTimeOffset? end = null) =>
-        new(siteId, equipmentId, description, start, end);
+        DateTimeOffset? end = null,
+        string? category = null,
+        string? priority = null,
+        Guid? contactId = null) =>
+        new(siteId, equipmentId, category, priority, contactId, description, start, end);
 
     // ---------------- Create ----------------
 
@@ -284,5 +287,80 @@ public class RepairRequestDraftServiceTests
 
         Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error?.Failure);
         Assert.Empty(_store.Audits);
+    }
+
+    // ---------------- Category / Priority / Contact (DEC-PRE-S1-007-01/02/04) ----------------
+
+    [Fact]
+    public async Task Create_WithLookupsAndContact_StoresCanonicalCodes_AndAuditsThem()
+    {
+        var siteId = _store.AddSite();
+        var contactId = _store.AddEligibleContact(siteId);
+        _store.Categories["ELECTRICAL"] = MasterDataStatus.Active;
+        _store.Priorities["HIGH"] = MasterDataStatus.Active;
+
+        var result = await _service.CreateAsync(
+            Requester(), Fields(siteId, category: " electrical ", priority: "High", contactId: contactId), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("ELECTRICAL", result.Value!.RequestCategoryCode);
+        Assert.Equal("HIGH", result.Value.PriorityCode);
+        Assert.Equal(contactId, result.Value.RequestContactId);
+        Assert.Equal(1, _store.SelectionQueries);
+        var audit = Assert.Single(_store.Audits);
+        Assert.Contains("\"requestCategoryCode\":\"ELECTRICAL\"", audit.NewValueJson);
+        Assert.Contains("\"priorityCode\":\"HIGH\"", audit.NewValueJson);
+    }
+
+    [Fact]
+    public async Task Create_WithLookupsOnly_QueriesWithoutSite()
+    {
+        _store.Categories["IT"] = MasterDataStatus.Active;
+
+        var result = await _service.CreateAsync(Requester(), Fields(category: "IT"), CancellationToken.None);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal("IT", result.Value!.RequestCategoryCode);
+        Assert.Equal(1, _store.SelectionQueries);
+    }
+
+    [Fact]
+    public async Task Create_UnknownOrInactiveLookups_Return422()
+    {
+        _store.Priorities["LOW"] = MasterDataStatus.Inactive;
+
+        var result = await _service.CreateAsync(Requester(), Fields(category: "NOPE", priority: "LOW"), CancellationToken.None);
+
+        Assert.Equal(new[] { "The Category is not valid." }, result.Error!.Errors[RepairRequestFields.RequestCategoryCode]);
+        Assert.Equal(new[] { "The Priority is inactive." }, result.Error.Errors[RepairRequestFields.PriorityCode]);
+        Assert.Empty(_store.Requests);
+    }
+
+    [Fact]
+    public async Task Create_InvalidCodeFormat_OrContactWithoutSite_Returns422BeforeAnyQuery()
+    {
+        var result = await _service.CreateAsync(
+            Requester(),
+            Fields(category: new string('C', 31), priority: "HIGHé", contactId: Guid.NewGuid()),
+            CancellationToken.None);
+
+        Assert.True(result.Error!.Errors.ContainsKey(RepairRequestFields.RequestCategoryCode));
+        Assert.True(result.Error.Errors.ContainsKey(RepairRequestFields.PriorityCode));
+        Assert.Equal(new[] { "The request contact requires a selected Site." }, result.Error.Errors[RepairRequestFields.RequestContactId]);
+        Assert.Equal(0, _store.SelectionQueries);
+    }
+
+    [Fact]
+    public async Task Create_ContactNotEligibleForTheSite_Returns422WithoutRevealingTheUser()
+    {
+        var siteA = _store.AddSite();
+        var siteB = _store.AddSite();
+        var contactOfB = _store.AddEligibleContact(siteB);
+
+        var otherSite = await _service.CreateAsync(Requester(), Fields(siteA, contactId: contactOfB), CancellationToken.None);
+        var unknown = await _service.CreateAsync(Requester(), Fields(siteA, contactId: Guid.NewGuid()), CancellationToken.None);
+
+        Assert.Equal(otherSite.Error!.Errors[RepairRequestFields.RequestContactId], unknown.Error!.Errors[RepairRequestFields.RequestContactId]);
+        Assert.Empty(_store.Requests);
     }
 }

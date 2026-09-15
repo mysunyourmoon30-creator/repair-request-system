@@ -3,8 +3,10 @@ namespace RepairRequest.Application.Attachments;
 /// <summary>
 /// Applies a malware scan to one PENDING file (DEC-PS1-005; RR-ARCH-001 section 11 and failure table; decision F2).
 /// Clean -> CLEAN and Infected -> FAILED, each audited and persisted only while the file is still PENDING. An unavailable
-/// or failing scanner leaves the file PENDING (unusable) for a later retry. No background runner exists yet; a Worker
-/// will invoke this service when the scanning provider and runner are introduced.
+/// or failing scanner leaves the file PENDING (unusable) for a later retry. No production background runner exists yet
+/// (decision F2 covers the S1-006 production/background scope); a Worker will invoke this service when the production
+/// scanning provider and runner are introduced. In Development/Testing only, the opt-in fake scanning runner of
+/// DEC-PRE-S1-007-08 invokes it as test infrastructure; that runner does not replace the deferred production Worker.
 /// </summary>
 public sealed class FileScanService
 {

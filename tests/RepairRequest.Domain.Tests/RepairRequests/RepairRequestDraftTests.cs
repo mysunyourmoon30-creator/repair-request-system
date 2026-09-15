@@ -11,37 +11,54 @@ public class RepairRequestDraftTests
 
     private static RepairRequestAggregate NewDraft() => RepairRequestAggregate.CreateDraft(Guid.NewGuid(), Guid.NewGuid());
 
+    private static void Edit(
+        RepairRequestAggregate draft,
+        Guid? siteId = null,
+        Guid? equipmentId = null,
+        string? category = null,
+        string? priority = null,
+        Guid? contactId = null,
+        string? description = null,
+        DateTime? start = null,
+        DateTime? end = null) =>
+        draft.EditDraft(siteId, equipmentId, category, priority, contactId, description, start, end);
+
     [Fact]
     public void EditDraft_SetsDraftFields_AndLeavesSubmitDataEmpty()
     {
         var draft = NewDraft();
         var siteId = Guid.NewGuid();
         var equipmentId = Guid.NewGuid();
+        var contactId = Guid.NewGuid();
 
-        draft.EditDraft(siteId, equipmentId, "Pump leaking", Start, Start.AddHours(2));
+        Edit(draft, siteId, equipmentId, "ELECTRICAL", "HIGH", contactId, "Pump leaking", Start, Start.AddHours(2));
 
         Assert.Equal(RepairRequestStatus.Draft, draft.Status);
         Assert.Equal(siteId, draft.SiteId);
         Assert.Equal(equipmentId, draft.EquipmentId);
+        Assert.Equal("ELECTRICAL", draft.RequestCategoryCode);
+        Assert.Equal("HIGH", draft.PriorityCode);
+        Assert.Equal(contactId, draft.RequestContactId);
         Assert.Equal("Pump leaking", draft.Description);
         Assert.Equal(Start, draft.PreferredStartAt);
         Assert.Equal(Start.AddHours(2), draft.PreferredEndAt);
         Assert.Null(draft.RequestNo);
-        Assert.Null(draft.RequestCategoryCode);
-        Assert.Null(draft.PriorityCode);
         Assert.Null(draft.LocationId);
-        Assert.Null(draft.RequestContactId);
+        Assert.Null(draft.SubmittedAt);
     }
 
     [Fact]
     public void EditDraft_WithEverythingEmpty_IsAValidWorkInProgressDraft()
     {
         var draft = NewDraft();
-        draft.EditDraft(Guid.NewGuid(), null, "Text", Start, null);
+        Edit(draft, Guid.NewGuid(), category: "IT", priority: "LOW", contactId: Guid.NewGuid(), description: "Text", start: Start);
 
-        draft.EditDraft(null, null, null, null, null);
+        Edit(draft);
 
         Assert.Null(draft.SiteId);
+        Assert.Null(draft.RequestCategoryCode);
+        Assert.Null(draft.PriorityCode);
+        Assert.Null(draft.RequestContactId);
         Assert.Null(draft.Description);
         Assert.Null(draft.PreferredStartAt);
         Assert.Equal(RepairRequestStatus.Draft, draft.Status);
@@ -52,8 +69,38 @@ public class RepairRequestDraftTests
     {
         var draft = NewDraft();
 
-        Assert.Throws<ArgumentException>(() => draft.EditDraft(null, Guid.NewGuid(), null, null, null));
+        Assert.Throws<ArgumentException>(() => Edit(draft, equipmentId: Guid.NewGuid()));
         Assert.Null(draft.EquipmentId);
+    }
+
+    [Fact]
+    public void EditDraft_ContactWithoutSite_IsRejected()
+    {
+        var draft = NewDraft();
+
+        Assert.Throws<ArgumentException>(() => Edit(draft, contactId: Guid.NewGuid(), description: "Text"));
+        Assert.Null(draft.RequestContactId);
+        Assert.Null(draft.Description);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void EditDraft_BlankCodes_AreRejected(string blank)
+    {
+        var draft = NewDraft();
+
+        Assert.Throws<ArgumentException>(() => Edit(draft, category: blank));
+        Assert.Throws<ArgumentException>(() => Edit(draft, priority: blank));
+    }
+
+    [Fact]
+    public void EditDraft_CodesLongerThanLimit_AreRejected()
+    {
+        var draft = NewDraft();
+
+        Assert.Throws<ArgumentException>(() => Edit(draft, category: new string('C', RepairRequestAggregate.RequestCategoryCodeMaxLength + 1)));
+        Assert.Throws<ArgumentException>(() => Edit(draft, priority: new string('P', RepairRequestAggregate.PriorityCodeMaxLength + 1)));
     }
 
     [Fact]
@@ -61,7 +108,7 @@ public class RepairRequestDraftTests
     {
         var draft = NewDraft();
 
-        Assert.Throws<ArgumentException>(() => draft.EditDraft(null, null, null, Start, Start.AddMinutes(-1)));
+        Assert.Throws<ArgumentException>(() => Edit(draft, start: Start, end: Start.AddMinutes(-1)));
         Assert.Null(draft.PreferredStartAt);
     }
 
@@ -70,7 +117,7 @@ public class RepairRequestDraftTests
     {
         var draft = NewDraft();
 
-        draft.EditDraft(null, null, null, Start, Start);
+        Edit(draft, start: Start, end: Start);
 
         Assert.Equal(draft.PreferredStartAt, draft.PreferredEndAt);
     }
@@ -80,8 +127,8 @@ public class RepairRequestDraftTests
     {
         var draft = NewDraft();
 
-        Assert.Throws<ArgumentException>(() => draft.EditDraft(null, null, null, DateTime.SpecifyKind(Start, DateTimeKind.Local), null));
-        Assert.Throws<ArgumentException>(() => draft.EditDraft(null, null, null, null, DateTime.SpecifyKind(Start, DateTimeKind.Unspecified)));
+        Assert.Throws<ArgumentException>(() => Edit(draft, start: DateTime.SpecifyKind(Start, DateTimeKind.Local)));
+        Assert.Throws<ArgumentException>(() => Edit(draft, end: DateTime.SpecifyKind(Start, DateTimeKind.Unspecified)));
     }
 
     [Fact]
@@ -89,8 +136,7 @@ public class RepairRequestDraftTests
     {
         var draft = NewDraft();
 
-        Assert.Throws<ArgumentException>(() =>
-            draft.EditDraft(null, null, new string('d', RepairRequestAggregate.DescriptionMaxLength + 1), null, null));
+        Assert.Throws<ArgumentException>(() => Edit(draft, description: new string('d', RepairRequestAggregate.DescriptionMaxLength + 1)));
     }
 
     [Fact]
@@ -98,8 +144,9 @@ public class RepairRequestDraftTests
     {
         var draft = NewDraft();
 
-        Assert.Throws<ArgumentException>(() => draft.EditDraft(Guid.Empty, null, null, null, null));
-        Assert.Throws<ArgumentException>(() => draft.EditDraft(Guid.NewGuid(), Guid.Empty, null, null, null));
+        Assert.Throws<ArgumentException>(() => Edit(draft, Guid.Empty));
+        Assert.Throws<ArgumentException>(() => Edit(draft, Guid.NewGuid(), Guid.Empty));
+        Assert.Throws<ArgumentException>(() => Edit(draft, Guid.NewGuid(), contactId: Guid.Empty));
     }
 
     [Theory]
@@ -114,7 +161,7 @@ public class RepairRequestDraftTests
         var draft = NewDraft();
         typeof(RepairRequestAggregate).GetProperty(nameof(RepairRequestAggregate.Status))!.SetValue(draft, status);
 
-        Assert.Throws<DomainRuleViolationException>(() => draft.EditDraft(null, null, "Changed", null, null));
+        Assert.Throws<DomainRuleViolationException>(() => Edit(draft, description: "Changed"));
         Assert.Null(draft.Description);
     }
 }
