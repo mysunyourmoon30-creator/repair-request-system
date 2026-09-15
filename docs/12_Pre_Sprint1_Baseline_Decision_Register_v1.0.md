@@ -14,7 +14,7 @@ Portfolio Implementation Decisions + Cross-Reference + Required Baseline Updates
 | Revision Date | 15 September 2026 |
 | Supersedes | RR-DEC-001 v1.1 — v1.2 adds Sections 6–10 (S1-004 D1–D4, S1-005 E1–E3, S1-006 F1–F4 + storage-key and attachment-listing decisions, Pre-S1-007 decisions DEC-PRE-S1-007-01..12, deferred/non-blocking register, traceability). No v1.1 decision is removed or changed. |
 | Revision History | v1.0 — Round 1 (DEC-PS1-001..005). v1.1 — Round 2 (DEC-PS1-013..016, PERF-DEC-01). v1.2 — 14 September 2026, documentation reconciliation before S1-007 (commit a10cab8). v1.2 amendment — 14 September 2026: final S1-007-start decision — FAILED attachments do not block Submit (DEC-PRE-S1-007-07); NB-5 resolved. v1.2 amendment — 14 September 2026 (S1-007 pre-commit review): ACTIVE contact portion recorded as DEFERRED with the enforced contact rules (DEC-PRE-S1-007-04, NB-10); DEC-PRE-S1-007-08 implemented as Development/Testing-only test infrastructure; DEC-S1-006-F2 clarified. v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, Portfolio Project Owner): RR-018 request-contact ACTIVE-user check formally deferred, existence + tenant + Site-scope validation remains mandatory (DEC-PRE-S1-007-04, NB-10); follow-up requirement REQ-FU-USR-001 User lifecycle/status added (Section 8.1). v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, documentation reconciliation): REQ-FU-USR-001 wording made explicit; S1-007 automated evidence recorded in Section 10; RR-API-001-ADD reconciled with the implemented S1-007 contract. No decision changed. v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, MUST FIX): the BR-14 duplicate check made concurrency-safe. The duplicate count and Submit now run in one transaction, serialized per duplicate key by a SQL Server application lock (implementation note under DEC-PRE-S1-007-09). Business behaviour is unchanged. |
-| Companion Documents (v1.2) | RR-API-001-ADD v1.0 (`13_Repair_Request_API_Contract_Addendum_v1.0.md`) — implemented endpoints missing from RR-API-001 v1.2, plus approved-but-not-implemented S1-007 contract amendments |
+| Companion Documents (v1.2) | RR-API-001-ADD v1.0 (`13_Repair_Request_API_Contract_Addendum_v1.0.md`) — implemented endpoints missing from RR-API-001 v1.2, plus the Pre-S1-007 contract amendments, implemented in S1-007 (commit 36ffc6a) |
 | Extends | RR-REV-001 v1.2, RR-REQ-001 v1.6, BR-RR-BASELINE v1.6, RR-STS-001 v1.6, UC-RR-001 v1.7, RR-DD-001 v1.4, RR-DBD-001 v1.2, RR-API-001 v1.2, RR-UI-001 v1.2, RR-TC-001 v1.3, RR-ARCH-001 v1.1, RR-PERF-001 v1.0 |
 | Approval | Portfolio Project Owner — Approved for Portfolio Development |
 | Approval Type | Portfolio Project Owner Approval |
@@ -348,7 +348,7 @@ No blocker in this register is a reason to halt Sprint 1.
   - For **Category and Priority** by DEC-PRE-S1-007-01/-02.
   - For **Contact** by DEC-PRE-S1-007-04.
   - For **Location** by DEC-PRE-S1-007-05, which keeps `locationId` not accepted, now as an explicit Sprint 1 deferral rather than "until the master exists".
-- **Implementation state:** The S1-006 code still implements E1: `RepairRequestDraftFields`, `RepairRequestDraftRequest`, `RepairRequest.EditDraft`. The replacing decisions are APPROVED – NOT YET IMPLEMENTED and take effect in S1-007.
+- **Implementation state:** The S1-006 code (ce69f6e) implemented E1: `RepairRequestDraftFields`, `RepairRequestDraftRequest`, `RepairRequest.EditDraft`. The replacing decisions are APPROVED – IMPLEMENTED in S1-007 (commit 36ffc6a).
 - **Evidence:** Code comments "S1-005 decision E1".
 - **History:** Original text kept verbatim above. Not deleted.
 
@@ -444,7 +444,7 @@ No blocker in this register is a reason to halt Sprint 1.
 
 **Source:** Pre-S1-007 requirement-resolution session, 14 September 2026, Portfolio Project Owner answers.
 
-- **Status of every decision below:** APPROVED – NOT YET IMPLEMENTED (S1-007).
+- **Status of every decision below:** APPROVED – IMPLEMENTED in S1-007 (commit 36ffc6a), except the portions explicitly DEFERRED in Section 8 (for example the ACTIVE request-contact check, REQ-FU-USR-001).
 - **Session item IDs** are prefixed `RES-`, e.g. `RES-M3`. This avoids confusion with the unrelated S1-002 code labels "decision M1/M2/M3/M6/B4".
 - **[BASE]** marks content already in the approved baseline. Everything else is the recorded portfolio decision.
 
@@ -560,7 +560,7 @@ No blocker in this register is a reason to halt Sprint 1.
 - Production keeps `NotConfiguredMalwareScanner`.
 - It must never be described as malware protection. DEC-PS1-005 is unchanged.
 - Production scanning provider and background scan Worker remain DEFERRED.
-- **Status: APPROVED – IMPLEMENTED in S1-007 (uncommitted)**, as decided by the Portfolio Project Owner during the S1-007 pre-commit review (14 September 2026). It replaces the earlier S1-007 pre-implementation choice to exclude it, which was never recorded here.
+- **Status: APPROVED – IMPLEMENTED in S1-007 (commit 36ffc6a)**, as decided by the Portfolio Project Owner during the S1-007 pre-commit review (14 September 2026). It replaces the earlier S1-007 pre-implementation choice to exclude it, which was never recorded here.
   - **Opt-in:**
     - setting `DevelopmentMalwareScanning:Enabled` (default `false`);
     - the committed `appsettings.Development.json.example` enables it for local Development;
