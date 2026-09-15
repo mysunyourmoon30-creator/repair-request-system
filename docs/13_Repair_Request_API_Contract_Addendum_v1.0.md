@@ -14,7 +14,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Revision Date | 15 September 2026 — reconciled with the S1-007 implementation (Submit, Category/Priority/contact) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
 | Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`) |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (uncommitted; commit hash to be recorded at commit) |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -273,7 +273,7 @@ These responses come from ASP.NET Core before application code runs. Their bodie
 
 ## 5. Approved Contract Amendments from the Pre-S1-007 Resolution — IMPLEMENTED (S1-007)
 
-These come from the Pre-S1-007 requirement resolution (RR-DEC-001 §7). **All of them are implemented in S1-007** (uncommitted at the time of this revision). The table is kept as the decision trace; the implemented behaviour is described in §4.1.
+These come from the Pre-S1-007 requirement resolution (RR-DEC-001 §7). **All of them are implemented in S1-007** (commit 36ffc6a). The table is kept as the decision trace; the implemented behaviour is described in §4.1.
 
 | Endpoint | Amendment | Decision |
 |---|---|---|
