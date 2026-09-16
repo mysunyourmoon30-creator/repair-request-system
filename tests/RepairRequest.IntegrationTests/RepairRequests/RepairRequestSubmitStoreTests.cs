@@ -642,8 +642,11 @@ public sealed class RepairRequestSubmitStoreTests : IAsyncLifetime
         Assert.True(accepted.Result.Succeeded);
         Assert.Equal(RequestNumber.Format(year, 1), accepted.Result.Value!.RequestNo);
 
-        // Owned load, selection, CLEAN photo, duplicate-key lock, duplicate COUNT, counter MERGE, UPDATE + audit INSERT.
-        Assert.InRange(accepted.Commands, 1, 7);
+        // Submit: owned load, selection, CLEAN photo, duplicate-key lock, duplicate COUNT, counter MERGE, UPDATE + audit INSERT (7).
+        // Routing after the commit (DEC-PRE-S1-007R-01): routing-key application lock, request row lock, tracked reload, step
+        // approval lookup, active route lookup, routing audit INSERT (6). No route is configured here, so routing records
+        // ROUTE_NOT_FOUND.
+        Assert.InRange(accepted.Commands, 1, 13);
         Assert.Equal(1, await CounterAsync(world.TenantId, year));
         var audit = Assert.Single(await SubmittedAuditsAsync(valid));
         Assert.Equal("SUBMITTED", audit.ToState);

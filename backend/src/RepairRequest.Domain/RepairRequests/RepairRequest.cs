@@ -220,6 +220,21 @@ public sealed class RepairRequest
         Status = RepairRequestStatus.Submitted;
     }
 
+    /// <summary>
+    /// ST-RR-003 Route for Review (SUBMITTED -> UNDER_REVIEW), performed by System routing once exactly one eligible
+    /// approver is assigned (DEC-PRE-S1-007R-01/02). Request No, submitted_at and every other field stay unchanged; a
+    /// routing failure never calls this and the request stays SUBMITTED.
+    /// </summary>
+    public void RouteForReview()
+    {
+        if (Status != RepairRequestStatus.Submitted || !RepairRequestStatusTransitions.IsAllowed(Status, RepairRequestStatus.UnderReview))
+        {
+            throw new DomainRuleViolationException("Only a SUBMITTED Repair Request can be routed for review.");
+        }
+
+        Status = RepairRequestStatus.UnderReview;
+    }
+
     private static string? OptionalCode(string? value, int maxLength, string paramName) =>
         value is null ? null : DomainGuard.RequiredText(value, maxLength, paramName);
 }

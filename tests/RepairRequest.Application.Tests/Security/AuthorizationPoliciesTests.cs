@@ -3,7 +3,7 @@ using RepairRequest.Domain.Security;
 
 namespace RepairRequest.Application.Tests.Security;
 
-/// <summary>Role-capability catalog must match RR-REQ-001 sections 3/13 and S1-003 decision 2.</summary>
+/// <summary>Role-capability catalog must match RR-REQ-001 sections 3/13, S1-003 decision 2 and DEC-PRE-S1-007R-07/10.</summary>
 public class AuthorizationPoliciesTests
 {
     public static TheoryData<string, string[]> ExpectedPolicies => new()
@@ -15,7 +15,8 @@ public class AuthorizationPoliciesTests
             [RoleCodes.Requester, RoleCodes.Approver, RoleCodes.Coordinator, RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor]
         },
         { AuthorizationPolicies.RepairRequestDraft, [RoleCodes.Requester] },
-        { AuthorizationPolicies.RepairRequestReview, [RoleCodes.Approver] }
+        { AuthorizationPolicies.RepairRequestReview, [RoleCodes.Approver] },
+        { AuthorizationPolicies.RoutingRecovery, [RoleCodes.Administrator] }
     };
 
     [Theory]
@@ -26,9 +27,9 @@ public class AuthorizationPoliciesTests
     }
 
     [Fact]
-    public void Catalog_DefinesOnlyTheSprintOnePolicies()
+    public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(5, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(6, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -38,6 +39,13 @@ public class AuthorizationPoliciesTests
     public void Administrator_IsNotGrantedRepairRequestCapabilities(string policyName)
     {
         Assert.DoesNotContain(RoleCodes.Administrator, AuthorizationPolicies.AllowedRoles[policyName]);
+    }
+
+    [Fact]
+    public void RoutingRecovery_IsAdministratorOnly_AndNoBusinessRoleGetsIt()
+    {
+        Assert.Equal([RoleCodes.Administrator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.RoutingRecovery]);
+        Assert.DoesNotContain(RoleCodes.Approver, AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.RoutingRecovery]);
     }
 
     [Fact]

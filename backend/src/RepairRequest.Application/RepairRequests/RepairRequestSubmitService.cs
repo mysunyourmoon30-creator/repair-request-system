@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging;
+using RepairRequest.Application.Approvals;
 using RepairRequest.Application.Common;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
@@ -12,8 +14,10 @@ namespace RepairRequest.Application.RepairRequests;
 /// duplicate key: duplicate warning (422 with count only) or Request No + transition + audit (409 on concurrency or lock
 /// timeout). The duplicate query never runs for an invalid request, and concurrent Submits of different matching Drafts
 /// cannot both pass it without a continuation reason.
-/// Successful Submit records <c>submitted_at</c> as the SLA start marker only; no routing, notification or SLA
-/// calculation happens here.
+/// Successful Submit records <c>submitted_at</c> as the SLA start marker only; no notification or SLA calculation happens
+/// here. Right after the Submit commit, System routing (ST-RR-003, S1-007R) runs in its own transaction: the response
+/// reflects the final state, UNDER_REVIEW when an approver was assigned or SUBMITTED otherwise
+/// (DEC-PRE-S1-007R-01). A routing failure or error never rolls back or fails the committed Submit.
 /// </summary>
 public sealed class RepairRequestSubmitService
 {
@@ -22,13 +26,22 @@ public sealed class RepairRequestSubmitService
 
     private readonly IRepairRequestDraftStore _drafts;
     private readonly IRepairRequestSubmitStore _submits;
+    private readonly ISubmittedRequestRouter _router;
     private readonly TimeProvider _clock;
+    private readonly ILogger<RepairRequestSubmitService> _logger;
 
-    public RepairRequestSubmitService(IRepairRequestDraftStore drafts, IRepairRequestSubmitStore submits, TimeProvider clock)
+    public RepairRequestSubmitService(
+        IRepairRequestDraftStore drafts,
+        IRepairRequestSubmitStore submits,
+        ISubmittedRequestRouter router,
+        TimeProvider clock,
+        ILogger<RepairRequestSubmitService> logger)
     {
         _drafts = drafts;
         _submits = submits;
+        _router = router;
         _clock = clock;
+        _logger = logger;
     }
 
     public async Task<CommandResult<RepairRequestDraftDto>> SubmitAsync(
@@ -104,15 +117,65 @@ public sealed class RepairRequestSubmitService
             },
             cancellationToken);
 
-        return outcome.Status switch
+        if (outcome.Status == RepairRequestSubmitStatus.Saved)
         {
-            RepairRequestSubmitStatus.Saved => CommandResult<RepairRequestDraftDto>.Success(RepairRequestDraftDto.From(request)),
-            RepairRequestSubmitStatus.DuplicateWarning => CommandError.DuplicateWarning(
+            return CommandResult<RepairRequestDraftDto>.Success(await RouteAfterSubmitAsync(context, request, cancellationToken));
+        }
+
+        return outcome.Status == RepairRequestSubmitStatus.DuplicateWarning
+            ? CommandError.DuplicateWarning(
                 RepairRequestFields.DuplicateContinuationReason,
                 "An active Repair Request for the same Site, Category and Equipment was submitted within the last 24 hours. A continuation reason is required to submit.",
-                outcome.DuplicateCount),
-            _ => CommandError.ConcurrencyConflict
-        };
+                outcome.DuplicateCount)
+            : CommandError.ConcurrencyConflict;
+    }
+
+    /// <summary>
+    /// DEC-PRE-S1-007R-01: route the committed request in its own transaction. A recorded routing failure is a normal
+    /// result (SUBMITTED). An unexpected routing error or conflict leaves the committed Submit untouched: pending routing
+    /// changes are discarded and the committed state is read back. If that cleanup or read-back fails too, the known
+    /// committed Submit state (SUBMITTED, Request No, submitted_at and the Submit row version) is returned: a committed
+    /// Submit is never reported as failed, and UNDER_REVIEW is only returned from a successful routing result. Recovery
+    /// is the ADMINISTRATOR Retry Routing command.
+    /// </summary>
+    private async Task<RepairRequestDraftDto> RouteAfterSubmitAsync(CommandContext context, RepairRequestAggregate request, CancellationToken cancellationToken)
+    {
+        var submitted = RepairRequestDraftDto.From(request);
+
+        try
+        {
+            var routed = await _router.RouteSubmittedAsync(context, request.Id, request.RowVersion, cancellationToken);
+            if (routed.Succeeded)
+            {
+                return submitted with { Status = routed.Value!.Status, RowVersion = routed.Value.RowVersion };
+            }
+
+            _logger.LogWarning(
+                "Routing after Submit did not complete ({RoutingFailure}); the Repair Request stays SUBMITTED. CorrelationId: {CorrelationId}",
+                routed.Error!.Failure,
+                context.CorrelationId);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogError(
+                exception,
+                "Routing after Submit failed; the Repair Request stays SUBMITTED. CorrelationId: {CorrelationId}",
+                context.CorrelationId);
+        }
+
+        try
+        {
+            _router.DiscardPendingChanges();
+            return await _drafts.GetAsync(context.User, request.Id, cancellationToken) ?? submitted;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                exception,
+                "Reading the final state after Submit failed; returning the committed Submit state. CorrelationId: {CorrelationId}",
+                context.CorrelationId);
+            return submitted;
+        }
     }
 
     private static string? ContinuationReason(string? value, IDictionary<string, string[]> errors)

@@ -24,6 +24,12 @@ public static class AuthorizationPolicies
     /// <summary>Approve / reject / return for correction (RR-REQ-001 section 13: Approver).</summary>
     public const string RepairRequestReview = "RepairRequest.Review";
 
+    /// <summary>
+    /// Routing recovery only: list routing issues and Retry Routing (DEC-PRE-S1-007R-07/10). ADMINISTRATOR configuration
+    /// scope; it never grants Repair Request detail, Approve or Reject.
+    /// </summary>
+    public const string RoutingRecovery = "Routing.Recovery";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -39,7 +45,8 @@ public static class AuthorizationPolicies
                 RoleCodes.Supervisor
             ],
             [RepairRequestDraft] = [RoleCodes.Requester],
-            [RepairRequestReview] = [RoleCodes.Approver]
+            [RepairRequestReview] = [RoleCodes.Approver],
+            [RoutingRecovery] = [RoleCodes.Administrator]
         };
 }
 

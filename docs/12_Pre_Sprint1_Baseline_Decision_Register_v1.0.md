@@ -13,7 +13,7 @@ Portfolio Implementation Decisions + Cross-Reference + Required Baseline Updates
 | Status | Approved for Portfolio Development |
 | Revision Date | 15 September 2026 |
 | Supersedes | RR-DEC-001 v1.1 — v1.2 adds Sections 6–10 (S1-004 D1–D4, S1-005 E1–E3, S1-006 F1–F4 + storage-key and attachment-listing decisions, Pre-S1-007 decisions DEC-PRE-S1-007-01..12, deferred/non-blocking register, traceability). No v1.1 decision is removed or changed. |
-| Revision History | v1.0 — Round 1 (DEC-PS1-001..005). v1.1 — Round 2 (DEC-PS1-013..016, PERF-DEC-01). v1.2 — 14 September 2026, documentation reconciliation before S1-007 (commit a10cab8). v1.2 amendment — 14 September 2026: final S1-007-start decision — FAILED attachments do not block Submit (DEC-PRE-S1-007-07); NB-5 resolved. v1.2 amendment — 14 September 2026 (S1-007 pre-commit review): ACTIVE contact portion recorded as DEFERRED with the enforced contact rules (DEC-PRE-S1-007-04, NB-10); DEC-PRE-S1-007-08 implemented as Development/Testing-only test infrastructure; DEC-S1-006-F2 clarified. v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, Portfolio Project Owner): RR-018 request-contact ACTIVE-user check formally deferred, existence + tenant + Site-scope validation remains mandatory (DEC-PRE-S1-007-04, NB-10); follow-up requirement REQ-FU-USR-001 User lifecycle/status added (Section 8.1). v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, documentation reconciliation): REQ-FU-USR-001 wording made explicit; S1-007 automated evidence recorded in Section 10; RR-API-001-ADD reconciled with the implemented S1-007 contract. No decision changed. v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, MUST FIX): the BR-14 duplicate check made concurrency-safe. The duplicate count and Submit now run in one transaction, serialized per duplicate key by a SQL Server application lock (implementation note under DEC-PRE-S1-007-09). Business behaviour is unchanged. |
+| Revision History | v1.0 — Round 1 (DEC-PS1-001..005). v1.1 — Round 2 (DEC-PS1-013..016, PERF-DEC-01). v1.2 — 14 September 2026, documentation reconciliation before S1-007 (commit a10cab8). v1.2 amendment — 14 September 2026: final S1-007-start decision — FAILED attachments do not block Submit (DEC-PRE-S1-007-07); NB-5 resolved. v1.2 amendment — 14 September 2026 (S1-007 pre-commit review): ACTIVE contact portion recorded as DEFERRED with the enforced contact rules (DEC-PRE-S1-007-04, NB-10); DEC-PRE-S1-007-08 implemented as Development/Testing-only test infrastructure; DEC-S1-006-F2 clarified. v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, Portfolio Project Owner): RR-018 request-contact ACTIVE-user check formally deferred, existence + tenant + Site-scope validation remains mandatory (DEC-PRE-S1-007-04, NB-10); follow-up requirement REQ-FU-USR-001 User lifecycle/status added (Section 8.1). v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, documentation reconciliation): REQ-FU-USR-001 wording made explicit; S1-007 automated evidence recorded in Section 10; RR-API-001-ADD reconciled with the implemented S1-007 contract. No decision changed. v1.2 amendment — 15 September 2026 (S1-007 pre-commit review, MUST FIX): the BR-14 duplicate check made concurrency-safe. The duplicate count and Submit now run in one transaction, serialized per duplicate key by a SQL Server application lock (implementation note under DEC-PRE-S1-007-09). Business behaviour is unchanged. v1.2 amendment — 15 September 2026 (S1-008 / S1-007R pre-implementation reviews, Portfolio Project Owner): S1-008 blocked on the baseline assigned-approver rule; routing prerequisite S1-007R decided and implemented (Section 7R, DEC-PRE-S1-007R-01..10); segregation-of-duties rule for Approve/Reject approved (DEC-PRE-S1-008-01); Return for Correction confirmed as a separate ticket (DEC-PRE-S1-008-02); Section 8 routing row updated with new deferrals; Section 10 traceability added. v1.2 amendment — 15 September 2026 (S1-007R pre-commit review, Portfolio Project Owner): approval_route_step key and approval → step foreign key made tenant-composite so no redundant foreign-key indexes exist; approval inbox index deferred to the approval inbox ticket (DEC-PRE-S1-007R-06 persistence note, Section 8); two routing tests added (Submit routing vs Admin Retry race, named approver without APPROVER role); ADD §4.1/§4.6 wording reconciled (nullable lastRoutingFailureCode). No business decision changed. v1.2 amendment — 15 September 2026 (S1-007R pre-commit review, Portfolio Project Owner): a committed Submit is never reported as failed when post-commit routing or read-back fails (DEC-PRE-S1-007R-01 post-commit response rule); routing audit actor set to System with the initiating user kept as initiatedBy (DEC-PRE-S1-007R-01 audit actor); a route-level failure removes an earlier unassigned failure row (DEC-PRE-S1-007R-09 current-failure semantics); tenant-composite foreign keys proven by model and database tests; Admin Retry routing lock given a bounded wait that returns 409 instead of an uncontrolled failure (DEC-PRE-S1-007R-07 lock wait). |
 | Companion Documents (v1.2) | RR-API-001-ADD v1.0 (`13_Repair_Request_API_Contract_Addendum_v1.0.md`) — implemented endpoints missing from RR-API-001 v1.2, plus the Pre-S1-007 contract amendments, implemented in S1-007 (commit 36ffc6a) |
 | Extends | RR-REV-001 v1.2, RR-REQ-001 v1.6, BR-RR-BASELINE v1.6, RR-STS-001 v1.6, UC-RR-001 v1.7, RR-DD-001 v1.4, RR-DBD-001 v1.2, RR-API-001 v1.2, RR-UI-001 v1.2, RR-TC-001 v1.3, RR-ARCH-001 v1.1, RR-PERF-001 v1.0 |
 | Approval | Portfolio Project Owner — Approved for Portfolio Development |
@@ -640,6 +640,144 @@ No blocker in this register is a reason to halt Sprint 1.
 
 ---
 
+## 7R. Pre-S1-008 Routing Prerequisite — S1-007R Decisions (v1.2 amendment, 15 September 2026)
+
+**Source:** S1-008 and S1-007R pre-implementation reviews, Portfolio Project Owner answers, 15 September 2026.
+
+- **Why S1-007R exists:**
+  - The baseline lets only the **assigned/authorized Approver** Approve or Reject: UC-RR-003 "Role + route + site scope"; RR-REQ-001 §13 "Assigned/authorized Approver".
+  - Assignment only comes from System routing: ST-RR-003; RR-DD-001 ARC-* and APR-006 assigned_approver_id.
+  - That routing was DEFERRED (DEC-PRE-S1-007-12; Section 8).
+  - The Portfolio Project Owner decided **not** to weaken the rule to "APPROVER + Site". The routing prerequisite ships first as S1-007R, and S1-008 stays blocked until then.
+- **Status of DEC-PRE-S1-007R-01..10:** APPROVED – IMPLEMENTED in S1-007R (uncommitted; commit hash to be recorded at commit).
+- **[BASE] facts used:**
+  - ST-RR-003: SUBMITTED → UNDER_REVIEW, actor System, guard "active approval route / approver", failure stays SUBMITTED.
+  - RR-DD-001 ARC-001..008 and APR-001..011.
+  - RR-DBD-001: approval_route + approval_route_step with UNIQUE(route, step); repair_request_approval with UNIQUE(request, step); approval inbox index.
+  - ERD-DR-02.
+  - TC-RR-005 / UAT-03: no approver → remains SUBMITTED, no auto approve.
+  - RR-UI-001: "authorized staff sees routing issue".
+
+#### DEC-PRE-S1-007R-01 — Routing runs right after the Submit commit
+> Routing (ST-RR-003, actor System) runs in the same HTTP request, immediately after the Submit transaction commits, in its own transaction. Success → UNDER_REVIEW. Failure → the request stays SUBMITTED.
+
+- A routing failure or unexpected routing error never rolls back or fails the committed Submit. It is logged with the correlation id only; recovery is DEC-PRE-S1-007R-07.
+- **Contract change to S1-007 RR-API-005:** the Submit response reflects the final state, `status` = SUBMITTED or UNDER_REVIEW, with the matching ETag.
+- **Post-commit response rule (S1-007R pre-commit review, Portfolio Project Owner, 15 September 2026):** once Submit has committed, a routing or final-state read-back failure never turns the response into a failure. The response is the committed state (SUBMITTED, Request No, submitted_at, committed ETag). UNDER_REVIEW is returned only after a successful routing result, and Submit is never re-run.
+- **Audit actor (same review):** routing audit records carry the System actor (ST-RR-003). The initiating user (requester on Submit, ADMINISTRATOR on retry) is kept only as `initiatedBy` in the audit value document, with the trigger and correlation id. No separate audit mechanism is added.
+
+#### DEC-PRE-S1-007R-02 — Exactly one assigned approver
+> The step's `approver_user_id` is assigned when set and eligible. Otherwise exactly one eligible user is assigned. Zero or several eligible users is a routing failure; no selection algorithm is invented.
+
+#### DEC-PRE-S1-007R-03 — Single-step routes only (MVP)
+> A route is created with exactly one step (step_no 1). A route that does not resolve to exactly one valid step is a routing failure (ROUTE_STEP_INVALID). Sequential multi-step approval is DEFERRED.
+
+#### DEC-PRE-S1-007R-04 — Route configuration by Administrator API
+> Tenant-scoped ADMINISTRATOR endpoints (MasterData.Manage) create, list, get, activate and deactivate routes with their single step. No UI.
+
+- There is no update endpoint: change a route by deactivating it and creating a new one.
+- ARC-008 is a flag only, so no deactivation reason is required.
+- These are addendum endpoints outside the RR-API-001 catalog.
+- Configuration never grants Approve or Reject.
+
+#### DEC-PRE-S1-007R-05 — Approver eligibility
+> The assigned approver must:
+> - hold **APPROVER**;
+> - have **business Site scope** (user_site_scope) on the request's Site;
+> - belong to the same tenant;
+> - **not** be the request's created_by.
+
+- `approver_role_code` may only be APPROVER: rejected at configuration and enforced by CHECK.
+- ADMINISTRATOR-only users never qualify.
+- The "active approver" user-state check is **DEFERRED to REQ-FU-USR-001**. Identity lockout is not business status.
+
+#### DEC-PRE-S1-007R-06 — One active route per key
+> - At most one ACTIVE route per tenant + Category + Site.
+> - At most one ACTIVE tenant-default route (site null) per tenant + Category.
+> - Inactive history may coexist.
+> - Selection: exact active Site route → active tenant-default route → routing failure.
+
+- Enforced by application validation **and** by the filtered unique indexes `UQ_approval_route_active_site` / `UQ_approval_route_active_default`.
+- More than one active route at the chosen level is ROUTE_AMBIGUOUS; the code never picks the first or lowest id.
+- **Persistence note (S1-007R pre-commit review, Portfolio Project Owner, 15 September 2026):**
+  - approval_route_step primary key = (tenant_id, approval_route_id, step_no). RR-DBD-001 UNIQUE(route, step) is preserved, because the tenant-composite route foreign key pins tenant_id to the route's tenant.
+  - The repair_request_approval → approval_route_step foreign key is tenant-composite (tenant_id, approval_route_id, approval_step_no); one index serves both the step and the route foreign keys.
+  - No redundant foreign-key indexes are created.
+  - The RR-DBD-001 approval inbox index is DEFERRED to the approval inbox ticket (Section 8), because no S1-007R query uses it.
+
+#### DEC-PRE-S1-007R-07 — Admin Retry Routing
+> A recovery command for routing failures only. ADMINISTRATOR only, tenant-scoped, If-Match required.
+
+- **Target:** SUBMITTED, with an unresolved routing failure **or** never routed, and no assigned PENDING approval.
+- It re-runs the same server-side rules; the caller never provides a route or an approver.
+- **Success:** the approval row is created or updated with the assigned approver, the failure is cleared, SUBMITTED → UNDER_REVIEW, audit.
+- **Failure:** stays SUBMITTED, the new failure is recorded, no partial assignment, Request No and SLA start unchanged.
+- **Concurrency:** the request row is locked for the attempt, and UNIQUE(request, step) is the backstop, so there is no duplicate assignment or transition.
+- **Lock wait (S1-007R pre-commit review, Portfolio Project Owner, 15 September 2026):** routing is serialized per Repair Request by a transaction-owned SQL Server application lock with a bounded wait (no in-memory lock, no spinning, no retry loop). A lock that is not granted in time writes nothing and returns the existing concurrency conflict (409, the same contract as the Submit duplicate-key lock); no new public status is introduced. Routing of other requests is never blocked, and genuine database failures are never converted into concurrency responses.
+- **Errors:** cross-tenant → 404; wrong role → 403.
+- No bulk re-routing, no background retry Worker.
+- Configuration scope never grants Approve or Reject.
+
+#### DEC-PRE-S1-007R-08 — Existing S1-007 SUBMITTED requests
+> Left unchanged: no data migration, no startup routing, no fabricated routing-failure record. They count as "not yet routed" and are recoverable through DEC-PRE-S1-007R-07.
+
+#### DEC-PRE-S1-007R-09 — Routing failure persistence
+> 1. **No route or no valid route step:** no repair_request_approval row; the request stays SUBMITTED; a `REPAIR_REQUEST_ROUTING_FAILED` audit records the code.
+> 2. **Route and step resolved but no approver assigned:** a repair_request_approval row with the route and step, `assigned_approver_id` null and `routing_failure_code` set; the request stays SUBMITTED.
+
+- **Current-failure semantics (S1-007R pre-commit review, Portfolio Project Owner, 15 September 2026):** when a later attempt ends in a route-level failure, the earlier unassigned approver-level failure row is removed in the same transaction, so the current state never contradicts the latest failure.
+  - Only a PENDING row with no assigned approver and a routing failure can be removed; an assigned or decided approval never is.
+  - History is not lost: every attempt stays in the append-only `REPAIR_REQUEST_ROUTING_FAILED` audit with its code, route and step.
+  - The current failure is the latest routing audit; the approval row, when present, always matches it.
+
+- APR-004 approval_route_id and APR-005 approval_step_no stay NOT NULL. APR-011 is kept.
+- **Codes:**
+  - no approval row: ROUTE_NOT_FOUND, ROUTE_AMBIGUOUS, ROUTE_STEP_INVALID;
+  - with an approval row: APPROVER_NOT_ELIGIBLE, APPROVER_NOT_FOUND, APPROVER_AMBIGUOUS.
+
+#### DEC-PRE-S1-007R-10 — Administrator routing-issue list
+> A **narrowly-scoped exception** to the S1-003 ADMINISTRATOR no-business-read rule, for routing operations only.
+
+- **Returns:** a tenant-scoped, paged list of SUBMITTED requests that have no repair_request_approval yet or have an unresolved routing failure.
+- **Fields returned:** repairRequestId, requestNo, siteId, requestCategoryCode, submittedAt, lastRoutingFailureCode, rowVersion.
+- **Never returned:** description, requester or contact identity, attachments or their metadata, audit history, or other fields.
+- **Query rules:** bounded page size, deterministic sort (submittedAt, id), tenant predicate in SQL, no N+1.
+- Retry still requires If-Match.
+- It is not a general Repair Request read permission and never grants Approve or Reject.
+
+#### DEC-PRE-S1-008-01 — Segregation of duties for Approve/Reject
+> A user must not Approve or Reject a Repair Request they created, even if the user also holds the APPROVER role.
+
+- This is a **portfolio rule added beyond the baseline**; the baseline does not address self-decision.
+- **Enforcement:**
+  - approval routing never assigns created_by as the assigned approver (implemented in S1-007R, DEC-PRE-S1-007R-05);
+  - S1-008 Approve/Reject must independently re-check the rule server-side;
+  - a violation returns **403 ACCESS_DENIED**, recorded through the existing security logging where appropriate;
+  - nothing relies on the frontend hiding actions;
+  - tenant/Site scope behaviour is unchanged.
+- **Tests required in S1-008:**
+  - REQUESTER + APPROVER approving their own request → 403;
+  - REQUESTER + APPROVER rejecting their own request → 403;
+  - the same user approving another assigned request → allowed;
+  - another assigned APPROVER deciding the request → allowed.
+- **Status:** APPROVED. The routing portion is IMPLEMENTED in S1-007R; the Approve/Reject portion is NOT YET IMPLEMENTED (S1-008).
+
+#### DEC-PRE-S1-008-02 — Return for Correction is a separate ticket
+> S1-008 implements Review / Approve / Reject only. Return for Correction (ST-RR-006) and its resubmission semantics are deferred to a dedicated later ticket.
+
+- **Not in S1-008:**
+  - Return for Correction;
+  - reopening edit permissions;
+  - resubmit;
+  - Request No behaviour on resubmit;
+  - SLA restart/resume;
+  - duplicate behaviour on resubmit.
+- REJECTED and Return for Correction are never collapsed into one state or command.
+- **Dependency:** the Return-for-Correction ticket depends on S1-007R routing and S1-008. It decides NB-3. It must also address re-routing after resubmit, because UNIQUE(repair_request_id, approval_step_no) has no cycle dimension today.
+- **Status:** DEFERRED.
+
+---
+
 ## 8. Deferred Items (not approved requirements)
 
 | Item | Status | Source |
@@ -648,7 +786,16 @@ No blocker in this register is a reason to halt Sprint 1.
 | Location master and the category-conditional Equipment/Location rule | DEFERRED | DEC-PRE-S1-007-05 |
 | Contact name / phone / email snapshot fields on the Repair Request | DEFERRED — not in baseline, not approved | DEC-PRE-S1-007-04 |
 | Category / Priority management screens (CRUD UI) | DEFERRED | DEC-PRE-S1-007-01/-02 |
-| Approval routing engine (ST-RR-003) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
+| Approval routing engine (ST-RR-003) | No longer deferred — implemented as the S1-007R prerequisite (single step, exactly one assigned approver, Admin Retry) | DEC-PRE-S1-007-12; DEC-PRE-S1-007R-01..10 |
+| Sequential multi-step approval routing (step_no > 1) | DEFERRED — S1-007R supports a single step only | DEC-PRE-S1-007R-03 |
+| ACTIVE/inactive user-state check for the assigned approver | DEFERRED until REQ-FU-USR-001 (Section 8.1) | DEC-PRE-S1-007R-05 |
+| Approver reassignment / manual approver selection | DEFERRED — not in baseline; the caller never chooses a route or approver | DEC-PRE-S1-007R-07 |
+| Automatic bulk re-routing after configuration changes; background routing retry Worker | DEFERRED — recovery is the Admin Retry Routing command only | DEC-PRE-S1-007R-07 |
+| Routing notifications (NTF-SUBMITTED to assigned approver; routing-failure notification) | DEFERRED — notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-007R-01 |
+| Approval inbox list endpoint for approvers (UI-020) | DEFERRED — S1-008 or list ticket | DEC-PRE-S1-007R-10 |
+| Approval inbox index `IX_repair_request_approval_inbox` (assigned_approver_id, status, routed_at; RR-DBD-001) | DEFERRED — created by the approval inbox ticket together with its query; no S1-007R query uses it (Portfolio Project Owner, S1-007R pre-commit review) | DEC-PRE-S1-007R-06 persistence note |
+| S1-008 Approve / Reject (ST-RR-004/005) | BLOCKED until S1-007R is committed; the segregation-of-duties rule is approved for S1-008 | DEC-PRE-S1-008-01 |
+| Return for Correction (ST-RR-006) and resubmission semantics | DEFERRED — dedicated later ticket; never merged with REJECTED | DEC-PRE-S1-008-02; NB-3 |
 | Submitted notification / outbox implementation (NTF-SUBMITTED) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
 | Production malware scanning provider | DEFERRED — Security Hardening / Deployment | DEC-PS1-005 |
 | Production background malware-scan Worker | DEFERRED — the Development/Testing-only runner of DEC-PRE-S1-007-08 does not satisfy or replace it | DEC-S1-006-F2 (clarified 14 September 2026); DEC-PRE-S1-007-08 |
@@ -709,6 +856,11 @@ No blocker in this register is a reason to halt Sprint 1.
 | DEC-PRE-S1-007-09/-10 | BR-14; D-12 | ST-RR-002 guard | RR-API-005 (ADD §4.1, §5) | TC-RR-004 | Concurrency: RepairRequestSubmitStoreTests (ConcurrentSubmitsOfDifferentDraftsWithTheSameDuplicateKey_ExactlyOneSucceeds_TheOtherGetsTheDuplicateWarning, ConcurrentSubmitsOfNonMatchingDrafts_DoNotWaitOnEachOthersDuplicateLock, DuplicateKeyLockTimeout_Returns409_WritesNothing_AndTheDraftCanBeSubmittedAfterwards, FailureInsideTheTransaction_RollsBackAllocationTransitionAndAudit_AndReleasesTheDuplicateLock, DuplicateLockResource_IsTheExactDuplicateKey_AndEmptyEquipmentNeverSharesAKeyWithSelectedEquipment); RepairRequestSubmitEndpointsTests (Submit_Duplicate_WithoutReason_Returns422CountOnly_ThenWithReasonSucceeds_AndAuditsTheReason, Submit_EmptyEquipmentMatchesOnlyEmptyEquipment_AndNullIsNeverAWildcard, Submit_RejectedOrCancelledRequestsAndOtherTenantsDoNotCount_ButUnderReviewDoes); RepairRequestSubmitStoreTests.DuplicateCount_MatchesSiteCategoryAndExactEquipment_InTheActiveSetWithinTheInclusiveWindow; RepairRequestSubmitServiceTests (Submit_DuplicateWithoutReason_Returns422WithCountOnly_AndStaysDraftWithoutNumberOrSlaStart, Submit_DuplicateWithReason_Succeeds_StoresAndAuditsTheTrimmedReasonAndCount, Submit_ReasonWithoutDuplicate_Succeeds_AndTheReasonIsIgnored, Submit_ContinuationReasonLongerThanLimit_Returns422_WithoutDuplicateQuery) |
 | DEC-PRE-S1-007-11 | BR-01; RR-DD-001 RR-003 | ST-RR-002 side effect | RR-API-005 (ADD §4.1, §5) | TC-RR-003; TC-SEC-002 | RepairRequestSubmitStoreTests (Allocation_ConcurrentSubmitsInOneTenantYear_ProduceUniqueGaplessNumbers, Allocation_SequencesAreSeparatePerTenantAndPerYear, StaleSecondSubmitOfTheSameDraft_Returns409_AndRollsBackItsAllocation, FailureInsideTheTransaction_RollsBackAllocationTransitionAndAudit); RepairRequestSubmitEndpointsTests (Submit_NumbersAreSequentialPerTenant_AndAnotherTenantStartsAtOne, Submit_TwoConcurrentRequestsWithTheSameETag_ExactlyOneSucceeds_WithOneNumberAndOneAudit, Submit_AlreadySubmitted_Returns409StateConflict_AndKeepsTheOriginalNumber); RequestNumberAndLookupTests (Format_UsesYearAndSixDigitSequence, Format_RejectsOutOfRangeInput_AndFailsClosedWhenSequenceIsExhausted); RepairRequestSubmitTests.Submit_WhenRequestNoAlreadyAssigned_IsRejected_RequestNoIsImmutable |
 | DEC-PRE-S1-007-12 | FR-02; RR-DD-001 RR-014 ("SLA start"); BR-18 | ST-RR-002 (SLA start timestamp only); SLA calculation / EV-SLA-001..005 and ST-RR-003 deferred | RR-API-005 (ADD §4.1, §5) | TC-RR-003/004 (TC-SLA-001..003 deferred) | RepairRequestSubmitEndpointsTests.Submit_ValidDraft_Returns200Submitted_WithRequestNo_SlaStartMarker_ETag_AndAudit; RepairRequestSubmitServiceTests.Submit_ValidDraft_GeneratesRequestNo_SetsSubmittedAndSlaStartMarker_AndAuditsOnce; RepairRequestSubmitTests.Submit_CompleteDraft_BecomesSubmittedWithNumberActorAndSlaStartMarker; RepairRequestSubmitStoreTests.SubmitService_EndToEnd_IsBounded_AndFailedValidationLeavesNoTrace (no Request No / SLA start on failure) |
+| DEC-PRE-S1-007R-01/-02/-03 | ST-RR-003; UC-RR-002/003; RR-DD-001 ARC-005..007, APR-006 | ST-RR-003 SUBMITTED→UNDER_REVIEW (System); failure stays SUBMITTED | RR-API-005 response status (ADD §4.1) | TC-RR-005 | ApprovalRoutingRulesTests; RepairRequestRoutingServiceTests; ApprovalRoutingTests (Submit_WithRoleOnlyTenantDefaultRoute_AndOneEligibleApprover_AssignsIt_AndMovesToUnderReview, Submit_RouteResolvedWithTwoEligibleApprovers_WritesAFailureRowWithoutApprover_AndStaysSubmitted); RepairRequestSubmitServiceTests (routing hook, Submit_WhenRoutingAndReadBackBothThrow_ReturnsTheCommittedSubmittedState, Submit_WhenRoutingDoesNotCompleteAndReadBackThrows_NeverClaimsUnderReview); PostSubmitRoutingFailureEndpointsTests.Submit_WhenPostCommitRoutingAndReadBackThrow_Returns200Submitted_AndTheSubmitIsNotRepeated; RepairRequestRoutingServiceTests and ApprovalRoutingTests (System routing actor + initiatedBy); ApprovalRoutingEndpointsTests.Submit_WithAConfiguredRoute_ReturnsUnderReview_WithAFreshETag_AndNeverAssignsTheRequesterApprover |
+| DEC-PRE-S1-007R-04/-06 | RR-DD-001 ARC-001..008; RR-DBD-001 approval_route(_step); ERD-DR-02 | — | ROUTE-API-001..005 (ADD §2, §4.6) | — | ApprovalRouteServiceTests; ApprovalRoutingEndpointsTests (Administrator_CreatesDeactivatesAndActivatesARoute_WithETags, RouteCreate_ValidatesRoleApproverUserAndOneActiveRoutePerKey, RouteOfAnotherTenant_IsNotFound); ApprovalRoutingTests.Database_AllowsOneActiveRoutePerSiteAndPerTenantDefault_ButKeepsInactiveHistory; PersistenceModelTests (ApprovalRoute_FilteredUniqueIndexes_AllowOneActiveRoutePerSiteAndPerTenantDefault, ApprovalRouting_KeysCoverForeignKeys_WithoutRedundantIndexes) |
+| DEC-PRE-S1-007R-05 + DEC-PRE-S1-008-01 (routing portion) | UC-RR-003 "Role + route + site scope"; portfolio SoD rule | ST-RR-003 guard | — | TC-SEC-001 | ApprovalRoutingRulesTests (creator exclusion); ApprovalRoutingTests (SiteRoute_TakesPrecedence_AndItsSpecificApproverWithoutSiteScope_IsNotEligible_NoFallback, RequesterHoldingApprover_IsNeverAssignedTheirOwnRequest_AndRetryAssignsAnotherApprover, SpecificApproverWithoutApproverRole_AtRoutingTime_IsNotEligible_WritesFailureRow_AndStaysSubmitted); ApprovalRoutingDomainTests; S1-008 Approve/Reject SoD tests — (S1-008) |
+| DEC-PRE-S1-007R-07/-08/-09/-10 | RR-UI-001 "authorized staff sees routing issue"; RR-DD-001 APR-011 | ST-RR-003 retry (SUBMITTED only) | ROUTING-API-001/002 (ADD §2, §4.6) | TC-RR-005; TC-SEC-001/002 | RepairRequestRoutingServiceTests (retry cases); ApprovalRoutingTests (RoutingIssues_ListOnlyUnroutedAndFailedSubmittedRequests_OfTheTenant_AndRetryRoutesALegacyRequest, ConcurrentAdminRetries_OfOneRequest_ExactlyOneRoutes_WithOneAssignmentAndOneAudit, SubmitRouting_RacingAdminRetry_ExactlyOneRoutes_WithOneAssignmentAndOneAudit, Retry_AfterRouteDeactivated_RemovesStaleApproverFailureRow_ListShowsRouteNotFound_HistoryKeptInAudit, Database_RejectsInvalidStepsAndApprovalRows incl. cross-tenant route/step); RepairRequestRoutingServiceTests.Retry_RouteLevelFailureAfterApproverFailure_RemovesTheStaleRow_AndAuditsTheNewCode; ApprovalRoutingDomainTests.Approval_OnlyAnUnassignedRoutingFailure_IsDiscardable; ApprovalRoutingEndpointsTests (UnroutedSubmit_IsListedWithMetadataOnly_AndAdminRetryRoutesItAfterConfiguration, BusinessRoles_Get403_OnRouteConfigurationAndRoutingRecovery, Administrator_StillHasNoRepairRequestDetail_OrSubmit) |
+| DEC-PRE-S1-008-02 | UC-RR-003; ST-RR-006; NB-3 | ST-RR-006 (DEFERRED ticket) | RR-API-008 (not implemented) | TC-RR-008 | — (Return-for-Correction ticket) |
 
 **v1.2 conclusion:**
 - This revision records existing approved decisions only. No locked business semantics (State, Role, Guard, SLA, Permission, Notification Recipient) is changed.

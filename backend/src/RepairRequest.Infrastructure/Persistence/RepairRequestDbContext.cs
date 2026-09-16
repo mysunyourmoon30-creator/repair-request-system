@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using RepairRequest.Domain.Approvals;
 using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.Files;
 using RepairRequest.Domain.MasterData;
@@ -48,6 +49,12 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
     public DbSet<RequestPriority> RequestPriorities => Set<RequestPriority>();
 
     public DbSet<RequestNumberCounter> RequestNumberCounters => Set<RequestNumberCounter>();
+
+    public DbSet<ApprovalRoute> ApprovalRoutes => Set<ApprovalRoute>();
+
+    public DbSet<ApprovalRouteStep> ApprovalRouteSteps => Set<ApprovalRouteStep>();
+
+    public DbSet<RepairRequestApproval> RepairRequestApprovals => Set<RepairRequestApproval>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

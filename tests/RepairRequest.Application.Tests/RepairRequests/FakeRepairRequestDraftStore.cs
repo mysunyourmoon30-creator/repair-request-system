@@ -92,8 +92,11 @@ internal sealed class FakeRepairRequestDraftStore : IRepairRequestDraftStore
     public static void ForceRowVersion(RepairRequestAggregate request, byte[] rowVersion) =>
         Set(request, nameof(RepairRequestAggregate.RowVersion), rowVersion);
 
+    /// <summary>When set, <see cref="GetAsync"/> (the final-state read-back) throws it; other reads are unaffected.</summary>
+    public Exception? ThrowOnGet { get; set; }
+
     public Task<RepairRequestDraftDto?> GetAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken) =>
-        Task.FromResult(Requests
+        ThrowOnGet is not null ? Task.FromException<RepairRequestDraftDto?>(ThrowOnGet) : Task.FromResult(Requests
             .Where(request => request.Id == repairRequestId && request.TenantId == user.TenantId)
             .Select(RepairRequestDraftDto.From)
             .SingleOrDefault());

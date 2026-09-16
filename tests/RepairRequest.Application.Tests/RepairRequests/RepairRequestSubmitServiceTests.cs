@@ -1,3 +1,5 @@
+using Microsoft.Extensions.Logging.Abstractions;
+using RepairRequest.Application.Approvals;
 using RepairRequest.Application.Common;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Tests.MasterData;
@@ -10,7 +12,7 @@ namespace RepairRequest.Application.Tests.RepairRequests;
 /// <summary>
 /// UC-RR-002 / ST-RR-002 Submit rules: deterministic validation order, Category/Priority lookups, contact eligibility,
 /// CLEAN-photo evidence, BR-14 duplicate warning with continuation reason, Request No per tenant-year, SLA start marker
-/// and success-only audit (DEC-PRE-S1-007-01..12).
+/// and success-only audit (DEC-PRE-S1-007-01..12), plus the post-commit routing hook (DEC-PRE-S1-007R-01).
 /// </summary>
 public class RepairRequestSubmitServiceTests
 {
@@ -20,15 +22,19 @@ public class RepairRequestSubmitServiceTests
 
     private readonly FakeRepairRequestDraftStore _drafts = new();
     private readonly FakeRepairRequestSubmitStore _submits = new();
+    private readonly FakeSubmittedRequestRouter _router = new();
     private readonly RepairRequestSubmitService _service;
     private readonly Guid _tenantId = Guid.NewGuid();
 
     public RepairRequestSubmitServiceTests()
     {
-        _service = new RepairRequestSubmitService(_drafts, _submits, new FixedClock(Now));
+        _service = CreateService();
         _drafts.Categories["ELECTRICAL"] = MasterDataStatus.Active;
         _drafts.Priorities["HIGH"] = MasterDataStatus.Active;
     }
+
+    private RepairRequestSubmitService CreateService() =>
+        new(_drafts, _submits, _router, new FixedClock(Now), NullLogger<RepairRequestSubmitService>.Instance);
 
     private CommandContext Requester(Guid? userId = null) => FakeRepairRequestDraftStore.RequesterContext(_tenantId, userId);
 
@@ -61,6 +67,7 @@ public class RepairRequestSubmitServiceTests
         Assert.Null(draft.SubmittedBy);
         Assert.Empty(_submits.Audits);
         Assert.Empty(_submits.Counters);
+        Assert.Empty(_router.RoutedRequestIds);
     }
 
     // ---------------- Success ----------------
@@ -97,6 +104,8 @@ public class RepairRequestSubmitServiceTests
         Assert.Null(duplicateQuery.EquipmentId);
         Assert.Equal(draft.Id, duplicateQuery.RepairRequestId);
         Assert.Equal(NowUtc.AddHours(-24), duplicateQuery.WindowStart);
+
+        Assert.Equal([draft.Id], _router.RoutedRequestIds);
     }
 
     [Fact]
@@ -105,7 +114,7 @@ public class RepairRequestSubmitServiceTests
         var owner = Requester();
         var first = CompleteDraft(owner);
         var second = CompleteDraft(owner);
-        var otherTenantService = new RepairRequestSubmitService(_drafts, _submits, new FixedClock(Now));
+        var otherTenantService = CreateService();
         var otherTenantOwner = FakeRepairRequestDraftStore.RequesterContext(Guid.NewGuid());
         var otherTenantDraft = CompleteDraft(otherTenantOwner);
 
@@ -128,6 +137,109 @@ public class RepairRequestSubmitServiceTests
         Assert.True((await SubmitAsync(owner, draft)).Succeeded);
 
         Assert.Equal(equipmentId, Assert.Single(_submits.DuplicateQueries).EquipmentId);
+    }
+
+    // ---------------- Routing after the Submit commit (DEC-PRE-S1-007R-01) ----------------
+
+    [Fact]
+    public async Task Submit_WhenRoutingAssignsAnApprover_ReturnsUnderReview_WithTheRoutedRowVersion()
+    {
+        var owner = Requester();
+        var draft = CompleteDraft(owner);
+        byte[] routedRowVersion = [0, 0, 0, 0, 0, 0, 0, 3];
+        _router.Result = (id, _) => CommandResult<RoutingResultDto>.Success(new RoutingResultDto(id, RepairRequestStatus.UnderReview, null, routedRowVersion));
+
+        var result = await SubmitAsync(owner, draft);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(RepairRequestStatus.UnderReview, result.Value!.Status);
+        Assert.Equal(routedRowVersion, result.Value.RowVersion);
+        Assert.Equal("RR-2026-000001", result.Value.RequestNo);
+        Assert.Equal(0, _router.DiscardCalls);
+    }
+
+    [Fact]
+    public async Task Submit_WhenRoutingRecordsAFailure_StaysSubmitted_AndKeepsTheSubmitRowVersion()
+    {
+        var owner = Requester();
+        var draft = CompleteDraft(owner);
+
+        var result = await SubmitAsync(owner, draft);
+
+        Assert.Equal(RepairRequestStatus.Submitted, result.Value!.Status);
+        Assert.Equal(FakeRepairRequestDraftStore.SavedRowVersion, result.Value.RowVersion);
+        Assert.Equal(0, _router.DiscardCalls);
+    }
+
+    [Fact]
+    public async Task Submit_WhenRoutingThrowsOrConflicts_NeverFailsTheCommittedSubmit_AndReadsTheCommittedStateBack()
+    {
+        var owner = Requester();
+        var throwing = CompleteDraft(owner);
+        var conflicting = CompleteDraft(owner);
+
+        _router.Throw = new InvalidOperationException("Simulated routing failure");
+        var thrown = await SubmitAsync(owner, throwing);
+
+        _router.Throw = null;
+        _router.Result = (_, _) => CommandError.ConcurrencyConflict;
+        var conflicted = await SubmitAsync(owner, conflicting);
+
+        Assert.True(thrown.Succeeded);
+        Assert.Equal(RepairRequestStatus.Submitted, thrown.Value!.Status);
+        Assert.Equal("RR-2026-000001", thrown.Value.RequestNo);
+        Assert.True(conflicted.Succeeded);
+        Assert.Equal(RepairRequestStatus.Submitted, conflicted.Value!.Status);
+        Assert.Equal(2, _router.DiscardCalls);
+        Assert.Equal(2, _submits.Audits.Count);
+    }
+
+    [Fact]
+    public async Task Submit_WhenRoutingAndReadBackBothThrow_ReturnsTheCommittedSubmittedState()
+    {
+        var owner = Requester();
+        var draft = CompleteDraft(owner);
+        _router.Throw = new InvalidOperationException("Simulated routing failure");
+        _drafts.ThrowOnGet = new InvalidOperationException("Simulated read-back failure");
+
+        var result = await SubmitAsync(owner, draft);
+
+        // The Submit transaction committed: the response is that committed state, never a failure and never a second Submit.
+        Assert.True(result.Succeeded);
+        var dto = result.Value!;
+        Assert.Equal(RepairRequestStatus.Submitted, dto.Status);
+        Assert.Equal("RR-2026-000001", dto.RequestNo);
+        Assert.Equal(NowUtc, dto.SubmittedAt);
+        Assert.Equal(FakeRepairRequestDraftStore.SavedRowVersion, dto.RowVersion);
+        Assert.Equal(RepairRequestStatus.Submitted, draft.Status);
+        Assert.Equal(NowUtc, draft.SubmittedAt);
+        Assert.Single(_submits.Audits);
+        Assert.Single(_submits.Counters);
+        Assert.Equal([draft.Id], _router.RoutedRequestIds);
+
+        // A repeated Submit of the committed request is rejected: the first Submit is not repeated.
+        _router.Throw = null;
+        _drafts.ThrowOnGet = null;
+        Assert.Equal(CommandFailure.StateConflict, (await SubmitAsync(owner, draft, rowVersion: dto.RowVersion)).Error?.Failure);
+        Assert.Equal(CommandFailure.ConcurrencyConflict, (await SubmitAsync(owner, draft)).Error?.Failure);
+        Assert.Single(_submits.Audits);
+        Assert.Equal("RR-2026-000001", draft.RequestNo);
+    }
+
+    [Fact]
+    public async Task Submit_WhenRoutingDoesNotCompleteAndReadBackThrows_NeverClaimsUnderReview()
+    {
+        var owner = Requester();
+        var draft = CompleteDraft(owner);
+        _router.Result = (_, _) => CommandError.ConcurrencyConflict;
+        _drafts.ThrowOnGet = new InvalidOperationException("Simulated read-back failure");
+
+        var result = await SubmitAsync(owner, draft);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(RepairRequestStatus.Submitted, result.Value!.Status);
+        Assert.Equal(FakeRepairRequestDraftStore.SavedRowVersion, result.Value.RowVersion);
+        Assert.Equal(1, _router.DiscardCalls);
     }
 
     // ---------------- Ownership / concurrency / state ----------------
@@ -178,6 +290,7 @@ public class RepairRequestSubmitServiceTests
         Assert.Equal(CommandFailure.StateConflict, result.Error?.Failure);
         Assert.Empty(_submits.DuplicateQueries);
         Assert.Equal(0, _submits.SubmitCalls);
+        Assert.Empty(_router.RoutedRequestIds);
     }
 
     [Fact]
@@ -192,6 +305,7 @@ public class RepairRequestSubmitServiceTests
         Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error?.Failure);
         Assert.Empty(_submits.Audits);
         Assert.Empty(_submits.Counters);
+        Assert.Empty(_router.RoutedRequestIds);
     }
 
     // ---------------- Validation ----------------

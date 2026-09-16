@@ -122,6 +122,17 @@ internal sealed class DataScope : IDataScope
                 scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId)));
     }
 
+    public IQueryable<RepairRequestAggregate> RoutingRecoveryRequests(CurrentUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var tenantId = user.TenantId;
+
+        var requests = _db.RepairRequests.Where(request => request.TenantId == tenantId);
+
+        // DEC-PRE-S1-007R-10: routing recovery only, and only for tenant-wide configuration scope (ADMINISTRATOR).
+        return user.HasTenantWideConfigurationScope ? requests : requests.Where(_ => false);
+    }
+
     public Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken) =>
         BusinessSites(user).AnyAsync(site => site.Id == siteId, cancellationToken);
 }

@@ -3,11 +3,13 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
+using RepairRequest.Application.Approvals;
 using RepairRequest.Application.Attachments;
 using RepairRequest.Application.Authentication;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
+using RepairRequest.Infrastructure.Approvals;
 using RepairRequest.Infrastructure.Attachments;
 using RepairRequest.Infrastructure.Authentication;
 using RepairRequest.Infrastructure.Authorization;
@@ -59,6 +61,11 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddSingleton(new RepairRequestDuplicateLockOptions());
         services.AddScoped<IRepairRequestSubmitStore, RepairRequestSubmitStore>();
         services.AddScoped<RequestLookupSeeder>();
+
+        // S1-007R: approval route configuration and routing persistence ports.
+        services.AddSingleton(new RepairRequestRoutingLockOptions());
+        services.AddScoped<IApprovalRouteStore, ApprovalRouteStore>();
+        services.AddScoped<IApprovalRoutingStore, ApprovalRoutingStore>();
 
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();

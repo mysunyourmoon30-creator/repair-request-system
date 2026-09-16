@@ -38,6 +38,14 @@ public interface IDataScope
     /// </summary>
     IQueryable<RepairRequestAggregate> RepairRequests(CurrentUser user);
 
+    /// <summary>
+    /// Narrow routing-operations exception (DEC-PRE-S1-007R-10): every Repair Request of the caller's tenant, but only for a
+    /// caller with tenant-wide configuration scope (ADMINISTRATOR); empty for everyone else. Use only for routing recovery
+    /// (routing-issue list and Retry Routing) with routing metadata projections. It is never a business read scope and never
+    /// grants detail, Approve or Reject.
+    /// </summary>
+    IQueryable<RepairRequestAggregate> RoutingRecoveryRequests(CurrentUser user);
+
     /// <summary>Validates a client-supplied Site id against the caller's <see cref="BusinessSites"/> scope in a single query.</summary>
     Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken);
 }
