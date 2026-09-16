@@ -20,6 +20,7 @@ public static class RepairRequestAudit
     public const string SubmittedAction = "REPAIR_REQUEST_SUBMITTED";
     public const string ApprovedAction = "REPAIR_REQUEST_APPROVED";
     public const string RejectedAction = "REPAIR_REQUEST_REJECTED";
+    public const string CancelledAction = "REPAIR_REQUEST_CANCELLED";
 
     public const string ApprovalIdField = "approvalId";
     public const string ApprovalStepNoField = "approvalStepNo";
@@ -112,6 +113,25 @@ public static class RepairRequestAudit
     /// <summary>ST-RR-005 success: UNDER_REVIEW -> REJECTED with the required reason as the audit reason (AUD-010).</summary>
     public static AuditHistory Rejected(CommandContext context, RepairRequestAggregate request, RepairRequestApproval approval, DateTime occurredAt) =>
         Decision(context, request, approval, RejectedAction, RepairRequestStatus.Rejected, request.RejectReason, occurredAt);
+
+    /// <summary>
+    /// ST-RR-007 success: the source state (DRAFT, SUBMITTED, UNDER_REVIEW or APPROVED) -> CANCELLED, with the required cancel
+    /// reason as the audit reason. The actor is the owning Requester.
+    /// </summary>
+    public static AuditHistory Cancelled(CommandContext context, RepairRequestAggregate request, RepairRequestStatus fromState, DateTime occurredAt) =>
+        new(
+            request.TenantId,
+            EntityType,
+            request.Id,
+            CancelledAction,
+            fromState: RepairRequestStatusCodes.ToCode(fromState),
+            toState: RepairRequestStatusCodes.ToCode(RepairRequestStatus.Cancelled),
+            oldValueJson: null,
+            newValueJson: null,
+            reason: request.CancelReason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
 
     private static AuditHistory Decision(
         CommandContext context,

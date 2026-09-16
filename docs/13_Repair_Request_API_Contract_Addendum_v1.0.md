@@ -19,7 +19,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 
 **Rules for this addendum:**
 - The RR-API-001 PDF is not modified.
-- An endpoint is listed as implemented only if a controller route exists in the S1-008 codebase.
+- An endpoint is listed as implemented only if a controller route exists in the S1-009 codebase.
 - Addendum IDs (`AUTH-API-*`, `CUST-API-*`, `SITE-API-*`, `EQP-API-*`, `FILE-API-003`, `SYS-API-*`) are documentation numbers, not new business semantics.
 - Section 5 lists the approved Pre-S1-007 amendments to catalogued endpoints. All of them are **implemented in S1-007**; implementation details are in §4.1.
 - Nothing here adds a business rule. Behaviour is traced to RR-DEC-001 decisions and baseline IDs.
@@ -36,7 +36,8 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | RR-API-004 | GET `/api/v1/repair-requests/{id}` | IMPLEMENTED (S1-005; S1-007 adds the new fields to the response) |
 | RR-API-005 | POST `/api/v1/repair-requests/{id}/submit` | IMPLEMENTED (S1-007) — see §4.1 |
 | RR-API-006..007 | approve / reject | IMPLEMENTED — S1-008 (a45bc38); see §4.7 |
-| RR-API-008..010 | return / cancel / convert | NOT IMPLEMENTED |
+| RR-API-009 | cancel | IMPLEMENTED — S1-009 (uncommitted; commit hash to be recorded at commit); see §4.8 |
+| RR-API-008, RR-API-010 | return / convert | NOT IMPLEMENTED |
 | FILE-API-001 | POST `/api/v1/repair-requests/{id}/attachments` | IMPLEMENTED (S1-006) |
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
 | WO-*, WS-*, ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-* | — | NOT IMPLEMENTED (later sprints / tickets) |
@@ -366,6 +367,29 @@ These responses come from ASP.NET Core before application code runs. Their bodie
 - **Concurrency:** the command takes the request's review-workflow lock (the same bounded lock as routing, §4.6) and then checks the ETag, so of two competing decisions exactly one succeeds and the other returns 409 CONCURRENCY_CONFLICT.
 - **403 security log:** event `AUTHZ_ACCESS_DENIED` with user, route template and correlation id; no record id, token or header.
 - **Not in S1-008:** the EV-SLA-005 SLA stop on Reject and decision notifications (deferred with SLA and notification scope); Return for Correction (RR-API-008); Cancel; Convert; an approval inbox list; the ACTIVE-user check (REQ-FU-USR-001).
+
+### 4.8 Cancel (S1-009 — uncommitted; commit hash to be recorded at commit)
+
+**RR-API-009 POST `/api/v1/repair-requests/{id}/cancel` — RepairRequest.Draft, If-Match, body `{ "reason": "string" }`**
+
+- **Who may cancel:** only the **owning Requester** (`created_by`) within the S1-003 Repair Request scope (ST-RR-007 actor Requester; UC-RR-004 "Own Request").
+  - Approver, Coordinator, Supervisor and Administrator have no Request Cancel permission. Coordinator cancels Visits and Supervisor cancels Work Orders; those are other objects.
+  - A multi-role user (e.g. REQUESTER + SUPERVISOR) may cancel only their own requests.
+- **Source states:** DRAFT, SUBMITTED, UNDER_REVIEW, APPROVED → **CANCELLED**, which is terminal (no reopen). REJECTED, CANCELLED and CONVERTED are denied.
+- **Check order and responses:**
+  1. 400 missing/invalid If-Match or malformed JSON; 401; 403 ACCESS_DENIED without REQUESTER;
+  2. 404 NOT_FOUND nonexistent, not owned, outside the caller's Site scope, or other tenant;
+  3. 409 CONCURRENCY_CONFLICT stale ETag, or the request's review lock was not granted in time;
+  4. 409 STATE_CONFLICT REJECTED / CANCELLED / CONVERTED;
+  5. 422 VALIDATION_FAILED on `reason`: missing, blank, or longer than 1000 characters after trimming.
+- **Success → `200`** with the RR-API-001 Repair Request response shape (`status = CANCELLED`) and a fresh `ETag`.
+- **Written atomically:**
+  - `status` CANCELLED and `cancel_reason` (RR-DD-001 RR-015, trimmed);
+  - one audit `REPAIR_REQUEST_CANCELLED` (from = the source state, to = CANCELLED, reason, actor = the owner, correlation id).
+  - Request No and `submittedAt` never change. Any failure writes nothing.
+- **Approval rows are left unchanged** (DEC-PRE-S1-009-01): an assigned PENDING step stays PENDING, and decided or routing-failure rows keep their state. After Cancel, Approve/Reject return 409 (not UNDER_REVIEW), Admin Retry returns 409 (not SUBMITTED), and the routing-issue list no longer shows the request.
+- **Concurrency:** Cancel takes the same review-workflow lock as routing and Approve/Reject (§4.6, §4.7), then checks the ETag, so exactly one of Cancel / Approve / Reject / routing succeeds and the others return 409.
+- **Not in S1-009:** the SLA stop (EV-SLA-005 stop_reason REQUEST_CANCELLED; deferred with `sla_record`); NTF-CANCEL (notification scope); Return for Correction; Convert.
 
 ## 5. Approved Contract Amendments from the Pre-S1-007 Resolution — IMPLEMENTED (S1-007)
 

@@ -70,6 +70,9 @@ public static class InfrastructureServiceCollectionExtensions
         // S1-008: Approve / Reject decision persistence (shares the review-workflow lock with routing).
         services.AddScoped<IRepairRequestDecisionStore, RepairRequestDecisionStore>();
 
+        // S1-009: Cancel persistence (shares the review-workflow lock with routing and decisions).
+        services.AddScoped<IRepairRequestCancelStore, RepairRequestCancelStore>();
+
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();
         services.AddOptions<FileStorageOptions>()

@@ -40,6 +40,9 @@ public static class ApplicationServiceCollectionExtensions
         // S1-008: Approve / Reject by the assigned approver (ST-RR-004/005).
         services.AddScoped<RepairRequestDecisionService>();
 
+        // S1-009: Cancel by the owning Requester (ST-RR-007).
+        services.AddScoped<RepairRequestCancelService>();
+
         return services;
     }
 }

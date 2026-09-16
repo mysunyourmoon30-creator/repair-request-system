@@ -266,6 +266,23 @@ public sealed class RepairRequest
         Status = RepairRequestStatus.Rejected;
     }
 
+    /// <summary>
+    /// ST-RR-007 Cancel (DRAFT / SUBMITTED / UNDER_REVIEW / APPROVED -> CANCELLED) by the owning Requester, with the required
+    /// reason (RR-DD-001 RR-015). REJECTED, CANCELLED and CONVERTED are never cancelled, and CANCELLED is terminal (UC-RR-004,
+    /// no reopen). Ownership, scope and approval-row handling are enforced by the Application layer; Request No and
+    /// submitted_at stay unchanged.
+    /// </summary>
+    public void Cancel(string reason)
+    {
+        if (!RepairRequestStatusTransitions.IsAllowed(Status, RepairRequestStatus.Cancelled))
+        {
+            throw new DomainRuleViolationException("Only a DRAFT, SUBMITTED, UNDER_REVIEW or APPROVED Repair Request can be cancelled.");
+        }
+
+        CancelReason = DomainGuard.RequiredText(reason, ReasonMaxLength, nameof(reason));
+        Status = RepairRequestStatus.Cancelled;
+    }
+
     private static string? OptionalCode(string? value, int maxLength, string paramName) =>
         value is null ? null : DomainGuard.RequiredText(value, maxLength, paramName);
 }

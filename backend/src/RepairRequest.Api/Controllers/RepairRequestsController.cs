@@ -11,8 +11,8 @@ namespace RepairRequest.Api.Controllers;
 /// <summary>
 /// Repair Request endpoints (RR-API-001 / RR-API-002 / RR-API-004 / RR-API-005 / RR-API-006 / RR-API-007; UC-RR-001/002/003).
 /// Create, edit and submit use the RepairRequest.Draft policy (REQUESTER); detail uses RepairRequest.Read within the S1-003
-/// scope; Approve and Reject use RepairRequest.Review (APPROVER) plus the assigned-approver and self-decision rules.
-/// List, Return for Correction and Cancel are later tickets.
+/// scope; Approve and Reject use RepairRequest.Review (APPROVER) plus the assigned-approver and self-decision rules; Cancel
+/// (RR-API-009) uses RepairRequest.Draft plus ownership. List, Return for Correction and Convert are later tickets.
 /// </summary>
 [ApiController]
 [Route("api/v1/repair-requests")]
@@ -23,17 +23,20 @@ public sealed class RepairRequestsController : CommandControllerBase
     private readonly RepairRequestDraftService _drafts;
     private readonly RepairRequestSubmitService _submits;
     private readonly RepairRequestDecisionService _decisions;
+    private readonly RepairRequestCancelService _cancels;
 
     public RepairRequestsController(
         RepairRequestDraftService drafts,
         RepairRequestSubmitService submits,
         RepairRequestDecisionService decisions,
+        RepairRequestCancelService cancels,
         ICurrentUserAccessor currentUserAccessor)
         : base(currentUserAccessor)
     {
         _drafts = drafts;
         _submits = submits;
         _decisions = decisions;
+        _cancels = cancels;
     }
 
     [HttpPost]
@@ -127,6 +130,28 @@ public sealed class RepairRequestsController : CommandControllerBase
         }
 
         var result = await _decisions.RejectAsync(
+            await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request?.Reason, cancellationToken);
+        return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// RR-API-009 Cancel (ST-RR-007) by the owning Requester of a DRAFT, SUBMITTED, UNDER_REVIEW or APPROVED request, with the
+    /// required reason. If-Match is required. Success returns the CANCELLED request with a fresh ETag.
+    /// </summary>
+    [HttpPost("{repairRequestId:guid}/cancel")]
+    [Authorize(Policy = AuthorizationPolicies.RepairRequestDraft)]
+    [ProducesResponseType<RepairRequestDraftResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Cancel(
+        Guid repairRequestId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] CancelRepairRequestRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var result = await _cancels.CancelAsync(
             await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request?.Reason, cancellationToken);
         return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
     }
