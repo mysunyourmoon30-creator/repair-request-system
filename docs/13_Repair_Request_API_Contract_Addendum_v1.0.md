@@ -14,7 +14,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Revision Date | 15 September 2026 — reconciled with the S1-007 implementation (Submit, Category/Priority/contact) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
 | Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`) |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73) |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -35,7 +35,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | RR-API-003 | GET `/api/v1/repair-requests` | NOT IMPLEMENTED |
 | RR-API-004 | GET `/api/v1/repair-requests/{id}` | IMPLEMENTED (S1-005; S1-007 adds the new fields to the response) |
 | RR-API-005 | POST `/api/v1/repair-requests/{id}/submit` | IMPLEMENTED (S1-007) — see §4.1 |
-| RR-API-006..007 | approve / reject | IMPLEMENTED — S1-008 (uncommitted; commit hash to be recorded at commit); see §4.7 |
+| RR-API-006..007 | approve / reject | IMPLEMENTED — S1-008 (a45bc38); see §4.7 |
 | RR-API-008..010 | return / cancel / convert | NOT IMPLEMENTED |
 | FILE-API-001 | POST `/api/v1/repair-requests/{id}/attachments` | IMPLEMENTED (S1-006) |
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
@@ -339,7 +339,7 @@ These responses come from ASP.NET Core before application code runs. Their bodie
 - Request No and `submittedAt` never change.
 - The Routing.Recovery role never grants RR-API-004 detail, Approve or Reject.
 
-### 4.7 Approve / Reject (S1-008 — uncommitted; commit hash to be recorded at commit)
+### 4.7 Approve / Reject (S1-008 — IMPLEMENTED, a45bc38)
 
 **RR-API-006 POST `/api/v1/repair-requests/{id}/approve` — RepairRequest.Review, If-Match, no body**
 **RR-API-007 POST `/api/v1/repair-requests/{id}/reject` — RepairRequest.Review, If-Match, body `{ "reason": "string" }`**

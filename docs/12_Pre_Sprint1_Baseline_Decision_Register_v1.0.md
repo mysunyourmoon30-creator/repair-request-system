@@ -760,7 +760,7 @@ No blocker in this register is a reason to halt Sprint 1.
   - REQUESTER + APPROVER rejecting their own request → 403;
   - the same user approving another assigned request → allowed;
   - another assigned APPROVER deciding the request → allowed.
-- **Status:** APPROVED. The routing portion is IMPLEMENTED in S1-007R; the Approve/Reject portion is IMPLEMENTED in S1-008 (uncommitted; commit hash to be recorded at commit).
+- **Status:** APPROVED. The routing portion is IMPLEMENTED in S1-007R; the Approve/Reject portion is IMPLEMENTED in S1-008 (commit a45bc3875398bf04e7b1e82c18ecb211aca007c6).
 
 #### DEC-PRE-S1-008-02 — Return for Correction is a separate ticket
 > S1-008 implements Review / Approve / Reject only. Return for Correction (ST-RR-006) and its resubmission semantics are deferred to a dedicated later ticket.
@@ -786,7 +786,7 @@ No blocker in this register is a reason to halt Sprint 1.
   - the decision actor and time are audit data (no approved_by/at or rejected_by/at columns);
   - the reject reason is stored in RR-016 `reject_reason` and APR-008 `decision_reason` (both nvarchar(1000), required on Reject) and as the audit reason;
   - the EV-SLA-005 SLA stop and decision notifications stay deferred with the SLA and notification scope.
-- **Status:** APPROVED – IMPLEMENTED in S1-008 (uncommitted; commit hash to be recorded at commit).
+- **Status:** APPROVED – IMPLEMENTED in S1-008 (commit a45bc3875398bf04e7b1e82c18ecb211aca007c6).
 
 ---
 
@@ -806,7 +806,7 @@ No blocker in this register is a reason to halt Sprint 1.
 | Routing notifications (NTF-SUBMITTED to assigned approver; routing-failure notification) | DEFERRED — notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-007R-01 |
 | Approval inbox list endpoint for approvers (UI-020) | DEFERRED — S1-008 or list ticket | DEC-PRE-S1-007R-10 |
 | Approval inbox index `IX_repair_request_approval_inbox` (assigned_approver_id, status, routed_at; RR-DBD-001) | DEFERRED — created by the approval inbox ticket together with its query; no S1-007R query uses it (Portfolio Project Owner, S1-007R pre-commit review) | DEC-PRE-S1-007R-06 persistence note |
-| S1-008 Approve / Reject (ST-RR-004/005) | No longer deferred — IMPLEMENTED in S1-008 (uncommitted); assigned approver only, self-decision forbidden, UNDER_REVIEW only | DEC-PRE-S1-008-01; DEC-PRE-S1-008-03 |
+| S1-008 Approve / Reject (ST-RR-004/005) | No longer deferred — IMPLEMENTED in S1-008 (a45bc38); assigned approver only, self-decision forbidden, UNDER_REVIEW only | DEC-PRE-S1-008-01; DEC-PRE-S1-008-03 |
 | Decision side effects: EV-SLA-005 SLA stop on Reject; NTF decision notifications (Coordinator on Approve, Requester on Reject) | DEFERRED — SLA calculation and notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-008-03 |
 | Return for Correction (ST-RR-006) and resubmission semantics | DEFERRED — dedicated later ticket; never merged with REJECTED | DEC-PRE-S1-008-02; NB-3 |
 | Submitted notification / outbox implementation (NTF-SUBMITTED) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
