@@ -800,7 +800,7 @@ No blocker in this register is a reason to halt Sprint 1.
   - Cancel is by the owning Requester only (ST-RR-007; UC-RR-004), from DRAFT/SUBMITTED/UNDER_REVIEW/APPROVED;
   - the reason is required and stored in RR-015 `cancel_reason`;
   - the SLA stop (EV-SLA-005 REQUEST_CANCELLED) stays deferred with `sla_record` (DEC-PRE-S1-007-12), and NTF-CANCEL with the notification scope.
-- **Status:** APPROVED – IMPLEMENTED in S1-009 (uncommitted; commit hash to be recorded at commit).
+- **Status:** APPROVED – IMPLEMENTED in S1-009 (commit 305079f9b8bc2e9373330a9fa5a6a61994a64545).
 
 ---
 
@@ -822,7 +822,7 @@ No blocker in this register is a reason to halt Sprint 1.
 | Approval inbox index `IX_repair_request_approval_inbox` (assigned_approver_id, status, routed_at; RR-DBD-001) | DEFERRED — created by the approval inbox ticket together with its query; no S1-007R query uses it (Portfolio Project Owner, S1-007R pre-commit review) | DEC-PRE-S1-007R-06 persistence note |
 | S1-008 Approve / Reject (ST-RR-004/005) | No longer deferred — IMPLEMENTED in S1-008 (a45bc38); assigned approver only, self-decision forbidden, UNDER_REVIEW only | DEC-PRE-S1-008-01; DEC-PRE-S1-008-03 |
 | Decision side effects: EV-SLA-005 SLA stop on Reject; NTF decision notifications (Coordinator on Approve, Requester on Reject) | DEFERRED — SLA calculation and notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-008-03 |
-| S1-009 Cancel (ST-RR-007) | IMPLEMENTED in S1-009 (uncommitted) — owning Requester only; DRAFT/SUBMITTED/UNDER_REVIEW/APPROVED → CANCELLED; approval rows unchanged | DEC-PRE-S1-009-01 |
+| S1-009 Cancel (ST-RR-007) | IMPLEMENTED in S1-009 (commit 305079f9b8bc2e9373330a9fa5a6a61994a64545) — owning Requester only; DRAFT/SUBMITTED/UNDER_REVIEW/APPROVED → CANCELLED; approval rows unchanged | DEC-PRE-S1-009-01 |
 | Cancel side effects: EV-SLA-005 SLA stop (stop_reason REQUEST_CANCELLED); NTF-CANCEL | DEFERRED — `sla_record` / SLA scope and notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-009-01 |
 | Return for Correction (ST-RR-006) and resubmission semantics | DEFERRED — dedicated later ticket; never merged with REJECTED | DEC-PRE-S1-008-02; NB-3 |
 | Submitted notification / outbox implementation (NTF-SUBMITTED) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |

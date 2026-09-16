@@ -14,7 +14,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Revision Date | 15 September 2026 — reconciled with the S1-007 implementation (Submit, Category/Priority/contact) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
 | Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`) |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38) |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -36,7 +36,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | RR-API-004 | GET `/api/v1/repair-requests/{id}` | IMPLEMENTED (S1-005; S1-007 adds the new fields to the response) |
 | RR-API-005 | POST `/api/v1/repair-requests/{id}/submit` | IMPLEMENTED (S1-007) — see §4.1 |
 | RR-API-006..007 | approve / reject | IMPLEMENTED — S1-008 (a45bc38); see §4.7 |
-| RR-API-009 | cancel | IMPLEMENTED — S1-009 (uncommitted; commit hash to be recorded at commit); see §4.8 |
+| RR-API-009 | cancel | IMPLEMENTED — S1-009 (305079f9b8bc2e9373330a9fa5a6a61994a64545); see §4.8 |
 | RR-API-008, RR-API-010 | return / convert | NOT IMPLEMENTED |
 | FILE-API-001 | POST `/api/v1/repair-requests/{id}/attachments` | IMPLEMENTED (S1-006) |
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
@@ -368,7 +368,7 @@ These responses come from ASP.NET Core before application code runs. Their bodie
 - **403 security log:** event `AUTHZ_ACCESS_DENIED` with user, route template and correlation id; no record id, token or header.
 - **Not in S1-008:** the EV-SLA-005 SLA stop on Reject and decision notifications (deferred with SLA and notification scope); Return for Correction (RR-API-008); Cancel; Convert; an approval inbox list; the ACTIVE-user check (REQ-FU-USR-001).
 
-### 4.8 Cancel (S1-009 — uncommitted; commit hash to be recorded at commit)
+### 4.8 Cancel (S1-009 — IMPLEMENTED, 305079f9b8bc2e9373330a9fa5a6a61994a64545)
 
 **RR-API-009 POST `/api/v1/repair-requests/{id}/cancel` — RepairRequest.Draft, If-Match, body `{ "reason": "string" }`**
 
