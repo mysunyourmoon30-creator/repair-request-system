@@ -649,7 +649,7 @@ No blocker in this register is a reason to halt Sprint 1.
   - Assignment only comes from System routing: ST-RR-003; RR-DD-001 ARC-* and APR-006 assigned_approver_id.
   - That routing was DEFERRED (DEC-PRE-S1-007-12; Section 8).
   - The Portfolio Project Owner decided **not** to weaken the rule to "APPROVER + Site". The routing prerequisite ships first as S1-007R, and S1-008 stays blocked until then.
-- **Status of DEC-PRE-S1-007R-01..10:** APPROVED – IMPLEMENTED in S1-007R (uncommitted; commit hash to be recorded at commit).
+- **Status of DEC-PRE-S1-007R-01..10:** APPROVED – IMPLEMENTED in S1-007R (commit b1cad73c000206ba6531e03387245d924a90b747).
 - **[BASE] facts used:**
   - ST-RR-003: SUBMITTED → UNDER_REVIEW, actor System, guard "active approval route / approver", failure stays SUBMITTED.
   - RR-DD-001 ARC-001..008 and APR-001..011.
@@ -794,7 +794,7 @@ No blocker in this register is a reason to halt Sprint 1.
 | Routing notifications (NTF-SUBMITTED to assigned approver; routing-failure notification) | DEFERRED — notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-007R-01 |
 | Approval inbox list endpoint for approvers (UI-020) | DEFERRED — S1-008 or list ticket | DEC-PRE-S1-007R-10 |
 | Approval inbox index `IX_repair_request_approval_inbox` (assigned_approver_id, status, routed_at; RR-DBD-001) | DEFERRED — created by the approval inbox ticket together with its query; no S1-007R query uses it (Portfolio Project Owner, S1-007R pre-commit review) | DEC-PRE-S1-007R-06 persistence note |
-| S1-008 Approve / Reject (ST-RR-004/005) | BLOCKED until S1-007R is committed; the segregation-of-duties rule is approved for S1-008 | DEC-PRE-S1-008-01 |
+| S1-008 Approve / Reject (ST-RR-004/005) | NOT STARTED — the S1-007R routing prerequisite is committed (b1cad73); the segregation-of-duties rule is approved for S1-008 | DEC-PRE-S1-008-01 |
 | Return for Correction (ST-RR-006) and resubmission semantics | DEFERRED — dedicated later ticket; never merged with REJECTED | DEC-PRE-S1-008-02; NB-3 |
 | Submitted notification / outbox implementation (NTF-SUBMITTED) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
 | Production malware scanning provider | DEFERRED — Security Hardening / Deployment | DEC-PS1-005 |

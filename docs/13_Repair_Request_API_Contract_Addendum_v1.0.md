@@ -14,7 +14,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Revision Date | 15 September 2026 — reconciled with the S1-007 implementation (Submit, Category/Priority/contact) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
 | Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`) |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (uncommitted; commit hash to be recorded at commit) |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -281,7 +281,7 @@ These responses come from ASP.NET Core before application code runs. Their bodie
 
 ---
 
-### 4.6 Approval Routing (S1-007R — uncommitted; commit hash to be recorded at commit)
+### 4.6 Approval Routing (S1-007R — IMPLEMENTED, b1cad73)
 
 **System routing after Submit (ST-RR-003; DEC-PRE-S1-007R-01..03/05/06/09)**
 - Runs immediately after the Submit commit, in its own transaction. A routing failure or error never fails the Submit.
