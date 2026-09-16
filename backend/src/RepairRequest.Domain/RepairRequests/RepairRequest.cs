@@ -235,6 +235,37 @@ public sealed class RepairRequest
         Status = RepairRequestStatus.UnderReview;
     }
 
+    /// <summary>
+    /// ST-RR-004 Approve (UNDER_REVIEW -> APPROVED) by the assigned approver. RR-STS-001 also lists SUBMITTED as a source, but
+    /// an approver is only assigned together with UNDER_REVIEW (S1-007R), so the command accepts UNDER_REVIEW only
+    /// (DEC-PRE-S1-008-03). Authorization, assignment and self-decision rules are enforced by the Application layer; decision
+    /// actor and time are audit data, not columns.
+    /// </summary>
+    public void Approve()
+    {
+        if (Status != RepairRequestStatus.UnderReview || !RepairRequestStatusTransitions.IsAllowed(Status, RepairRequestStatus.Approved))
+        {
+            throw new DomainRuleViolationException("Only an UNDER_REVIEW Repair Request can be approved.");
+        }
+
+        Status = RepairRequestStatus.Approved;
+    }
+
+    /// <summary>
+    /// ST-RR-005 Reject (UNDER_REVIEW -> REJECTED) by the assigned approver, with the required reason (RR-DD-001 RR-016). The
+    /// same UNDER_REVIEW-only rule as <see cref="Approve"/> applies (DEC-PRE-S1-008-03). Reject is never Return for Correction.
+    /// </summary>
+    public void Reject(string reason)
+    {
+        if (Status != RepairRequestStatus.UnderReview || !RepairRequestStatusTransitions.IsAllowed(Status, RepairRequestStatus.Rejected))
+        {
+            throw new DomainRuleViolationException("Only an UNDER_REVIEW Repair Request can be rejected.");
+        }
+
+        RejectReason = DomainGuard.RequiredText(reason, ReasonMaxLength, nameof(reason));
+        Status = RepairRequestStatus.Rejected;
+    }
+
     private static string? OptionalCode(string? value, int maxLength, string paramName) =>
         value is null ? null : DomainGuard.RequiredText(value, maxLength, paramName);
 }

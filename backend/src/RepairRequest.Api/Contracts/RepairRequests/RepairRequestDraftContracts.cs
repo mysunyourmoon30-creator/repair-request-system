@@ -29,6 +29,9 @@ public sealed record RepairRequestDraftRequest(
 /// <summary>RR-API-005 Submit body. The body itself may be omitted when no continuation reason is needed.</summary>
 public sealed record SubmitRepairRequestRequest(string? DuplicateContinuationReason);
 
+/// <summary>RR-API-007 Reject body. The reason is required (RR-DD-001 RR-016); a missing body or reason is a 422 on <c>reason</c>.</summary>
+public sealed record RejectRepairRequestRequest(string? Reason);
+
 public sealed record RepairRequestDraftResponse(
     Guid Id,
     string Status,

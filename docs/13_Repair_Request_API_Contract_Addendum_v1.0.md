@@ -19,7 +19,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 
 **Rules for this addendum:**
 - The RR-API-001 PDF is not modified.
-- An endpoint is listed as implemented only if a controller route exists in the S1-007R codebase.
+- An endpoint is listed as implemented only if a controller route exists in the S1-008 codebase.
 - Addendum IDs (`AUTH-API-*`, `CUST-API-*`, `SITE-API-*`, `EQP-API-*`, `FILE-API-003`, `SYS-API-*`) are documentation numbers, not new business semantics.
 - Section 5 lists the approved Pre-S1-007 amendments to catalogued endpoints. All of them are **implemented in S1-007**; implementation details are in §4.1.
 - Nothing here adds a business rule. Behaviour is traced to RR-DEC-001 decisions and baseline IDs.
@@ -35,7 +35,8 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | RR-API-003 | GET `/api/v1/repair-requests` | NOT IMPLEMENTED |
 | RR-API-004 | GET `/api/v1/repair-requests/{id}` | IMPLEMENTED (S1-005; S1-007 adds the new fields to the response) |
 | RR-API-005 | POST `/api/v1/repair-requests/{id}/submit` | IMPLEMENTED (S1-007) — see §4.1 |
-| RR-API-006..010 | approve / reject / return / cancel / convert | NOT IMPLEMENTED |
+| RR-API-006..007 | approve / reject | IMPLEMENTED — S1-008 (uncommitted; commit hash to be recorded at commit); see §4.7 |
+| RR-API-008..010 | return / cancel / convert | NOT IMPLEMENTED |
 | FILE-API-001 | POST `/api/v1/repair-requests/{id}/attachments` | IMPLEMENTED (S1-006) |
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
 | WO-*, WS-*, ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-* | — | NOT IMPLEMENTED (later sprints / tickets) |
@@ -88,7 +89,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | MasterData.Manage | ADMINISTRATOR | RR-REQ-001 §3 ("Master data ... configuration") |
 | RepairRequest.Read | REQUESTER, APPROVER, COORDINATOR, TECHNICIAN, TEAM_LEAD, SUPERVISOR | FR-09; S1-003 |
 | RepairRequest.Draft | REQUESTER | RR-REQ-001 §13 |
-| RepairRequest.Review | APPROVER (defined; used by S1-008) | RR-REQ-001 §13 |
+| RepairRequest.Review | APPROVER — Approve/Reject (S1-008); the assigned-approver and self-decision rules are enforced by the command | RR-REQ-001 §13; DEC-PRE-S1-008-01/03 |
 | Routing.Recovery | ADMINISTRATOR — routing-issue list and Retry Routing only; never Repair Request detail, Approve or Reject | DEC-PRE-S1-007R-07/10 |
 
 - Every non-anonymous endpoint is deny-by-default and needs an authenticated principal (JWT bearer, DEC-PS1-004).
@@ -337,6 +338,34 @@ These responses come from ASP.NET Core before application code runs. Their bodie
 - **Concurrency:** each attempt takes a transaction-owned application lock on the request's routing key with a bounded wait, then locks the request row; concurrent retries yield exactly one assignment and one transition. Attempts for other requests are never blocked, and a lock that is not granted in time returns 409 instead of failing.
 - Request No and `submittedAt` never change.
 - The Routing.Recovery role never grants RR-API-004 detail, Approve or Reject.
+
+### 4.7 Approve / Reject (S1-008 — uncommitted; commit hash to be recorded at commit)
+
+**RR-API-006 POST `/api/v1/repair-requests/{id}/approve` — RepairRequest.Review, If-Match, no body**
+**RR-API-007 POST `/api/v1/repair-requests/{id}/reject` — RepairRequest.Review, If-Match, body `{ "reason": "string" }`**
+
+- **Who may decide:** only the **assigned approver** of the request's pending approval step (S1-007R `repair_request_approval.assigned_approver_id`), holding APPROVER, within the S1-003 Repair Request scope (tenant + Site). APPROVER + Site alone is not enough.
+  - ADMINISTRATOR gains nothing from that role; ADMINISTRATOR + APPROVER follows the same rules.
+  - **Self-decision is forbidden:** a user never approves or rejects a request they created, even when holding APPROVER (DEC-PRE-S1-008-01). It is re-checked by the command, not only by routing.
+- **Source state:** UNDER_REVIEW only (DEC-PRE-S1-008-03). A SUBMITTED request has no assigned approver yet (not routed, or routing failed) and returns 409 STATE_CONFLICT; so do APPROVED, REJECTED and every other state.
+- **Check order and responses:**
+  1. 400 missing/invalid If-Match or malformed JSON; 401; 403 ACCESS_DENIED without APPROVER;
+  2. 404 NOT_FOUND nonexistent, other tenant or outside the caller's Site scope;
+  3. 403 ACCESS_DENIED the caller created the request;
+  4. 409 CONCURRENCY_CONFLICT stale ETag, or the request's review lock was not granted in time;
+  5. 409 STATE_CONFLICT not UNDER_REVIEW;
+  6. 403 ACCESS_DENIED the caller is not the assigned approver of the pending step;
+  7. Reject only — 422 VALIDATION_FAILED on `reason`: missing, blank, or longer than 1000 characters after trimming.
+- **Success → `200`** with the RR-API-001 Repair Request response shape (`status = APPROVED` or `REJECTED`) and a fresh `ETag`.
+- **Written atomically (one transaction):**
+  - approval step `status` APPROVED/REJECTED, `decided_at`, `decision_reason` (Reject);
+  - Repair Request `status` and `reject_reason` (Reject; trimmed);
+  - one audit `REPAIR_REQUEST_APPROVED` / `REPAIR_REQUEST_REJECTED` (from UNDER_REVIEW, to APPROVED/REJECTED, actor = the approver, reason = the reject reason, `approvalId` / `approvalStepNo`, correlation id).
+  - No approved_by/approved_at/rejected_by/rejected_at columns exist; decision actor and time are audit data.
+  - Any failure writes nothing, and a decided step is final (never re-decided and never removed by routing retry).
+- **Concurrency:** the command takes the request's review-workflow lock (the same bounded lock as routing, §4.6) and then checks the ETag, so of two competing decisions exactly one succeeds and the other returns 409 CONCURRENCY_CONFLICT.
+- **403 security log:** event `AUTHZ_ACCESS_DENIED` with user, route template and correlation id; no record id, token or header.
+- **Not in S1-008:** the EV-SLA-005 SLA stop on Reject and decision notifications (deferred with SLA and notification scope); Return for Correction (RR-API-008); Cancel; Convert; an approval inbox list; the ACTIVE-user check (REQ-FU-USR-001).
 
 ## 5. Approved Contract Amendments from the Pre-S1-007 Resolution — IMPLEMENTED (S1-007)
 

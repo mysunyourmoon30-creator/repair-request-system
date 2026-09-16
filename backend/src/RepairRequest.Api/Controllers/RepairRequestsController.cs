@@ -2,15 +2,17 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using RepairRequest.Api.Contracts.RepairRequests;
+using RepairRequest.Application.Approvals;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
 
 namespace RepairRequest.Api.Controllers;
 
 /// <summary>
-/// Repair Request endpoints (RR-API-001 / RR-API-002 / RR-API-004 / RR-API-005; UC-RR-001/002). Create, edit and submit use
-/// the RepairRequest.Draft policy (REQUESTER); detail uses RepairRequest.Read within the S1-003 scope. List, review and
-/// cancel actions are later tickets.
+/// Repair Request endpoints (RR-API-001 / RR-API-002 / RR-API-004 / RR-API-005 / RR-API-006 / RR-API-007; UC-RR-001/002/003).
+/// Create, edit and submit use the RepairRequest.Draft policy (REQUESTER); detail uses RepairRequest.Read within the S1-003
+/// scope; Approve and Reject use RepairRequest.Review (APPROVER) plus the assigned-approver and self-decision rules.
+/// List, Return for Correction and Cancel are later tickets.
 /// </summary>
 [ApiController]
 [Route("api/v1/repair-requests")]
@@ -20,15 +22,18 @@ public sealed class RepairRequestsController : CommandControllerBase
 
     private readonly RepairRequestDraftService _drafts;
     private readonly RepairRequestSubmitService _submits;
+    private readonly RepairRequestDecisionService _decisions;
 
     public RepairRequestsController(
         RepairRequestDraftService drafts,
         RepairRequestSubmitService submits,
+        RepairRequestDecisionService decisions,
         ICurrentUserAccessor currentUserAccessor)
         : base(currentUserAccessor)
     {
         _drafts = drafts;
         _submits = submits;
+        _decisions = decisions;
     }
 
     [HttpPost]
@@ -83,6 +88,46 @@ public sealed class RepairRequestsController : CommandControllerBase
 
         var result = await _submits.SubmitAsync(
             await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request?.DuplicateContinuationReason, cancellationToken);
+        return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// RR-API-006 Approve (ST-RR-004) by the assigned approver of an UNDER_REVIEW request. If-Match is required and there is no
+    /// body. Success returns the APPROVED request with a fresh ETag.
+    /// </summary>
+    [HttpPost("{repairRequestId:guid}/approve")]
+    [Authorize(Policy = AuthorizationPolicies.RepairRequestReview)]
+    [ProducesResponseType<RepairRequestDraftResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Approve(Guid repairRequestId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var result = await _decisions.ApproveAsync(await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, cancellationToken);
+        return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// RR-API-007 Reject (ST-RR-005) by the assigned approver of an UNDER_REVIEW request, with the required reason. If-Match is
+    /// required. Success returns the REJECTED request with a fresh ETag.
+    /// </summary>
+    [HttpPost("{repairRequestId:guid}/reject")]
+    [Authorize(Policy = AuthorizationPolicies.RepairRequestReview)]
+    [ProducesResponseType<RepairRequestDraftResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Reject(
+        Guid repairRequestId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] RejectRepairRequestRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var result = await _decisions.RejectAsync(
+            await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request?.Reason, cancellationToken);
         return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
     }
 }

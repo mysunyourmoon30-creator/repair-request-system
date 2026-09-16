@@ -38,6 +38,25 @@ public static class ApiProblemResults
         return ToResult(Create(StatusCodes.Status404NotFound, correlationId));
     }
 
+    /// <summary>
+    /// 403 ACCESS_DENIED for an object-level rule, e.g. an Approve/Reject by an approver who is not assigned, or on the
+    /// caller's own request (DEC-PRE-S1-008-01). Same body as the role-level 403, and the same security log event without
+    /// the record id.
+    /// </summary>
+    public static ObjectResult AccessDenied(HttpContext httpContext)
+    {
+        var correlationId = CorrelationIdResolver.Resolve(httpContext);
+
+        CreateLogger(httpContext).LogWarning(
+            "Authorization event {EventCode} for user {UserId} on {RouteTemplate}. CorrelationId: {CorrelationId}",
+            AuthorizationEventCodes.AccessDenied,
+            SubjectOf(httpContext),
+            RouteTemplate(httpContext),
+            correlationId);
+
+        return ToResult(Create(StatusCodes.Status403Forbidden, correlationId));
+    }
+
     /// <summary>400 BAD_REQUEST for a malformed request, e.g. a missing or unusable If-Match header.</summary>
     public static ObjectResult BadRequest(HttpContext httpContext, string detail) =>
         ToResult(Create(StatusCodes.Status400BadRequest, CorrelationIdResolver.Resolve(httpContext), detail: detail));

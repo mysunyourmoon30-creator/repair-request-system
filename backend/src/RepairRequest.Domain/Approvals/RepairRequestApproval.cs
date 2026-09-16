@@ -105,6 +105,31 @@ public sealed class RepairRequestApproval
         Fail(routingFailureCode);
     }
 
+    /// <summary>ST-RR-004 decision of the assigned approver (APR-007 APPROVED, APR-010 decided_at). A decided step is final.</summary>
+    public void Approve(DateTime decidedAt)
+    {
+        EnsureDecidable();
+        DecidedAt = DomainGuard.Utc(decidedAt, nameof(decidedAt));
+        Status = ApprovalStatus.Approved;
+    }
+
+    /// <summary>ST-RR-005 decision with the required reason (APR-007 REJECTED, APR-008 decision_reason, APR-010 decided_at).</summary>
+    public void Reject(string reason, DateTime decidedAt)
+    {
+        EnsureDecidable();
+        DecisionReason = DomainGuard.RequiredText(reason, DecisionReasonMaxLength, nameof(reason));
+        DecidedAt = DomainGuard.Utc(decidedAt, nameof(decidedAt));
+        Status = ApprovalStatus.Rejected;
+    }
+
+    private void EnsureDecidable()
+    {
+        if (!IsAssignedPending)
+        {
+            throw new DomainRuleViolationException("Only a pending approval step with an assigned approver can be decided.");
+        }
+    }
+
     /// <summary>
     /// A later routing attempt ended in a route-level failure (no route or no valid step): this unassigned failure row no
     /// longer describes the current routing state and is removed (DEC-PRE-S1-007R-09, route-level failure has no row). Its

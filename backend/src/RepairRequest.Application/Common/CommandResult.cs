@@ -18,7 +18,13 @@ public enum CommandFailure
     StateConflict,
 
     /// <summary>409 CONCURRENCY_CONFLICT: stale row version; nothing was written.</summary>
-    ConcurrencyConflict
+    ConcurrencyConflict,
+
+    /// <summary>
+    /// 403 ACCESS_DENIED: the caller may see the record but an object-level rule forbids the action (e.g. not the assigned
+    /// approver, or a decision on the caller's own request). Nothing was written.
+    /// </summary>
+    AccessDenied
 }
 
 public sealed class CommandError
@@ -50,6 +56,8 @@ public sealed class CommandError
     public int? DuplicateCount { get; }
 
     public static CommandError NotFound { get; } = new(CommandFailure.NotFound);
+
+    public static CommandError AccessDenied { get; } = new(CommandFailure.AccessDenied);
 
     public static CommandError ConcurrencyConflict { get; } =
         new(CommandFailure.ConcurrencyConflict, "The record was changed by another request. Reload it before retrying.");

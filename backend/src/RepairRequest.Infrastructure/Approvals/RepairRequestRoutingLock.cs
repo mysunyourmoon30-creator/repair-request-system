@@ -1,18 +1,45 @@
 using System.Globalization;
+using Microsoft.EntityFrameworkCore;
+using RepairRequest.Infrastructure.Persistence;
 
 namespace RepairRequest.Infrastructure.Approvals;
 
 /// <summary>
-/// SQL Server application lock that serializes ST-RR-003 routing per Repair Request (DEC-PRE-S1-007R-07). It is held by the
-/// routing transaction (<c>sp_getapplock</c>, owner Transaction), so it works across API instances and is released by SQL
-/// Server on commit, rollback or connection loss. The key is the request itself, so routing attempts for other requests
-/// never wait on it, and the wait is bounded by <see cref="RepairRequestRoutingLockOptions"/>.
+/// SQL Server application lock that serializes the review workflow of one Repair Request: ST-RR-003 routing
+/// (DEC-PRE-S1-007R-07) and the ST-RR-004/005 Approve/Reject decisions (S1-008) use the same key, so a decision never races
+/// a routing attempt or another decision. It is held by the command transaction (<c>sp_getapplock</c>, owner Transaction),
+/// so it works across API instances and is released by SQL Server on commit, rollback or connection loss. The key is the
+/// request itself, so commands for other requests never wait on it, and the wait is bounded by
+/// <see cref="RepairRequestRoutingLockOptions"/>.
 /// </summary>
 public static class RepairRequestRoutingLock
 {
-    /// <summary>Lock resource of one Repair Request's routing attempt. 41 characters (limit 255).</summary>
+    /// <summary>Lock resource of one Repair Request's review workflow. 41 characters (limit 255).</summary>
     public static string Resource(Guid repairRequestId) =>
         string.Create(CultureInfo.InvariantCulture, $"RR-ROUTE|{repairRequestId:N}");
+
+    /// <summary>
+    /// Takes the exclusive, transaction-owned lock inside the caller's open transaction. False means the configured wait
+    /// elapsed or the session was chosen as a deadlock victim; the caller then ends the command as a concurrency conflict
+    /// without writing anything and without retrying.
+    /// </summary>
+    internal static async Task<bool> TryAcquireAsync(
+        RepairRequestDbContext db,
+        Guid repairRequestId,
+        RepairRequestRoutingLockOptions options,
+        CancellationToken cancellationToken)
+    {
+        var resource = Resource(repairRequestId);
+        var timeout = options.TimeoutMilliseconds;
+
+        var results = await db.Database.SqlQuery<int>($"""
+            DECLARE @lock_result int;
+            EXEC @lock_result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = {timeout};
+            SELECT @lock_result AS [Value];
+            """).ToListAsync(cancellationToken);
+
+        return results.Single() >= 0;
+    }
 }
 
 /// <summary>

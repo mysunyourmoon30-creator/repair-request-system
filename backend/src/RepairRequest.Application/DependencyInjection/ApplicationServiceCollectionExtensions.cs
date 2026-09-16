@@ -37,6 +37,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<RepairRequestRoutingService>();
         services.AddScoped<ISubmittedRequestRouter>(provider => provider.GetRequiredService<RepairRequestRoutingService>());
 
+        // S1-008: Approve / Reject by the assigned approver (ST-RR-004/005).
+        services.AddScoped<RepairRequestDecisionService>();
+
         return services;
     }
 }

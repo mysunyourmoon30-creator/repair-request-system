@@ -67,6 +67,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IApprovalRouteStore, ApprovalRouteStore>();
         services.AddScoped<IApprovalRoutingStore, ApprovalRoutingStore>();
 
+        // S1-008: Approve / Reject decision persistence (shares the review-workflow lock with routing).
+        services.AddScoped<IRepairRequestDecisionStore, RepairRequestDecisionStore>();
+
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();
         services.AddOptions<FileStorageOptions>()

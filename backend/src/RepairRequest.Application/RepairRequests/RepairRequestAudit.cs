@@ -1,5 +1,6 @@
 using System.Text.Json;
 using RepairRequest.Application.Common;
+using RepairRequest.Domain.Approvals;
 using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
@@ -17,6 +18,11 @@ public static class RepairRequestAudit
     public const string DraftCreatedAction = "REPAIR_REQUEST_DRAFT_CREATED";
     public const string DraftUpdatedAction = "REPAIR_REQUEST_DRAFT_UPDATED";
     public const string SubmittedAction = "REPAIR_REQUEST_SUBMITTED";
+    public const string ApprovedAction = "REPAIR_REQUEST_APPROVED";
+    public const string RejectedAction = "REPAIR_REQUEST_REJECTED";
+
+    public const string ApprovalIdField = "approvalId";
+    public const string ApprovalStepNoField = "approvalStepNo";
 
     public static AuditHistory DraftCreated(CommandContext context, RepairRequestAggregate draft, DateTime occurredAt)
     {
@@ -95,6 +101,43 @@ public static class RepairRequestAudit
             occurredAt,
             context.CorrelationId);
     }
+
+    /// <summary>
+    /// ST-RR-004 success: UNDER_REVIEW -> APPROVED. The actor is the authenticated assigned approver; the decided approval step
+    /// is referenced by id and number. No reason is required for Approve.
+    /// </summary>
+    public static AuditHistory Approved(CommandContext context, RepairRequestAggregate request, RepairRequestApproval approval, DateTime occurredAt) =>
+        Decision(context, request, approval, ApprovedAction, RepairRequestStatus.Approved, reason: null, occurredAt);
+
+    /// <summary>ST-RR-005 success: UNDER_REVIEW -> REJECTED with the required reason as the audit reason (AUD-010).</summary>
+    public static AuditHistory Rejected(CommandContext context, RepairRequestAggregate request, RepairRequestApproval approval, DateTime occurredAt) =>
+        Decision(context, request, approval, RejectedAction, RepairRequestStatus.Rejected, request.RejectReason, occurredAt);
+
+    private static AuditHistory Decision(
+        CommandContext context,
+        RepairRequestAggregate request,
+        RepairRequestApproval approval,
+        string actionCode,
+        RepairRequestStatus toState,
+        string? reason,
+        DateTime occurredAt) =>
+        new(
+            request.TenantId,
+            EntityType,
+            request.Id,
+            actionCode,
+            fromState: RepairRequestStatusCodes.ToCode(RepairRequestStatus.UnderReview),
+            toState: RepairRequestStatusCodes.ToCode(toState),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [ApprovalIdField] = approval.Id,
+                [ApprovalStepNoField] = approval.ApprovalStepNo
+            }),
+            reason: reason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
 
     /// <summary>The editable Draft fields in API naming, in a stable order.</summary>
     public static IReadOnlyList<(string Field, object? Value)> DraftValues(RepairRequestAggregate draft) =>

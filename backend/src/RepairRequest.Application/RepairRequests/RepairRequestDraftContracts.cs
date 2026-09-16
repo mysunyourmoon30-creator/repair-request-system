@@ -116,4 +116,5 @@ public static class RepairRequestFields
     public const string RequestNo = "requestNo";
     public const string SubmittedAt = "submittedAt";
     public const string DuplicateCount = "duplicateCount";
+    public const string Reason = "reason";
 }

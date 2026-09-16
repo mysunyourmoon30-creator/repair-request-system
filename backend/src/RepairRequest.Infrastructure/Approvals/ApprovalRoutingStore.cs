@@ -114,16 +114,7 @@ internal sealed class ApprovalRoutingStore : IApprovalRoutingStore
     /// </summary>
     private async Task AcquireRoutingLockAsync(Guid repairRequestId, CancellationToken cancellationToken)
     {
-        var resource = RepairRequestRoutingLock.Resource(repairRequestId);
-        var timeout = _lockOptions.TimeoutMilliseconds;
-
-        var results = await _db.Database.SqlQuery<int>($"""
-            DECLARE @lock_result int;
-            EXEC @lock_result = sp_getapplock @Resource = {resource}, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = {timeout};
-            SELECT @lock_result AS [Value];
-            """).ToListAsync(cancellationToken);
-
-        if (results.Single() < 0)
+        if (!await RepairRequestRoutingLock.TryAcquireAsync(_db, repairRequestId, _lockOptions, cancellationToken))
         {
             throw new RoutingLockUnavailableException();
         }

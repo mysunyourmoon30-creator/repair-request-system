@@ -82,6 +82,7 @@ public abstract class CommandControllerBase : ControllerBase
             CommandFailure.NotFound => ApiProblemResults.ResourceNotFound(HttpContext, resourceType),
             CommandFailure.ValidationFailed => ApiProblemResults.ValidationFailed(HttpContext, error.Errors, error.Message, error.DuplicateCount),
             CommandFailure.StateConflict => ApiProblemResults.Conflict(HttpContext, ApiProblemResults.StateConflictCode, error.Message, error.ActiveChildCount),
+            CommandFailure.AccessDenied => ApiProblemResults.AccessDenied(HttpContext),
             _ => ApiProblemResults.Conflict(HttpContext, ApiProblemResults.ConcurrencyConflictCode, error.Message)
         };
 }
