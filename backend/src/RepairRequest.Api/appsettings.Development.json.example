@@ -5,5 +5,9 @@
   },
   "Cors": {
     "AllowedOrigins": [ "http://localhost:4200" ]
+  },
+  "DevelopmentMalwareScanning": {
+    "_comment": "Development/Testing-only FAKE scanner (DEC-PRE-S1-007-08) so uploads can become CLEAN locally. It provides no malware protection and the API refuses to start with it enabled in any other environment.",
+    "Enabled": true
   }
 }

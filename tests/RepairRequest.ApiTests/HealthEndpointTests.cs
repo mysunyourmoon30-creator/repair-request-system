@@ -1,20 +1,20 @@
 using System.Net;
-using Microsoft.AspNetCore.Mvc.Testing;
 
 namespace RepairRequest.ApiTests;
 
 /// <summary>
 /// Sprint 0 API-layer smoke test: the host boots and a controller responds.
 /// Deliberately hits the DB-independent /api/health controller (not the
-/// EF-backed /health check) so this test has no external dependency and can
-/// run in any CI environment; see RepairRequest.IntegrationTests for the
-/// DB-connected proof required by the Sprint 0 Definition of Done.
+/// EF-backed /health check) so this test has no database dependency; see
+/// RepairRequest.IntegrationTests for the DB-connected proof required by the
+/// Sprint 0 Definition of Done. The host factory supplies the JWT signing key
+/// that startup validation requires.
 /// </summary>
-public class HealthEndpointTests : IClassFixture<WebApplicationFactory<Program>>
+public class HealthEndpointTests : IClassFixture<ApiHostFactory>
 {
-    private readonly WebApplicationFactory<Program> _factory;
+    private readonly ApiHostFactory _factory;
 
-    public HealthEndpointTests(WebApplicationFactory<Program> factory)
+    public HealthEndpointTests(ApiHostFactory factory)
     {
         _factory = factory;
     }

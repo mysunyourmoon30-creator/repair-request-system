@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace RepairRequest.Api.Controllers;
@@ -8,6 +9,7 @@ namespace RepairRequest.Api.Controllers;
 /// any business endpoint exists.
 /// </summary>
 [ApiController]
+[AllowAnonymous]
 [Route("api/[controller]")]
 public class HealthController : ControllerBase
 {
