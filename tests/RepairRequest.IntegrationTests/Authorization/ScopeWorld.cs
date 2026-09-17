@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using RepairRequest.Domain.MasterData;
+using RepairRequest.Domain.WorkOrders;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
@@ -75,6 +76,16 @@ internal sealed class ScopeWorld
         entry.Property(r => r.SiteId).CurrentValue = site?.Id;
         await db.SaveChangesAsync();
         return request.Id;
+    }
+
+    /// <summary>S2-001: seeds a Work Order directly (Convert is not implemented), linked to an existing Repair Request.</summary>
+    public static async Task<Guid> AddWorkOrderAsync(
+        RepairRequestDbContext db, Guid tenantId, Guid repairRequestId, string workOrderNo, DateTime createdAt)
+    {
+        var workOrder = WorkOrder.Create(tenantId, repairRequestId, workOrderNo, createdAt);
+        db.WorkOrders.Add(workOrder);
+        await db.SaveChangesAsync();
+        return workOrder.Id;
     }
 
     public static Task DeactivateSiteAsync(RepairRequestDbContext db, Guid siteId) =>

@@ -5,6 +5,7 @@ using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.Files;
 using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
+using RepairRequest.Domain.WorkOrders;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence.Conversions;
 using RepairRequest.Infrastructure.RepairRequests;
@@ -55,6 +56,8 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
     public DbSet<ApprovalRouteStep> ApprovalRouteSteps => Set<ApprovalRouteStep>();
 
     public DbSet<RepairRequestApproval> RepairRequestApprovals => Set<RepairRequestApproval>();
+
+    public DbSet<WorkOrder> WorkOrders => Set<WorkOrder>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -5,7 +5,8 @@ namespace RepairRequest.Application.Security;
 /// <summary>
 /// Central role-capability catalog derived from RR-REQ-001 sections 3 and 13 and S1-003 decision 2.
 /// Controllers reference policy names only; role codes are never compared inline.
-/// Work Order / Visit / Session policies belong to Sprint 2.
+/// Visit / Session policies still belong to a later Sprint 2 ticket; Work Order read is added by S2-001
+/// (DEC-S2-001-03, `docs/12` Section 11).
 /// </summary>
 public static class AuthorizationPolicies
 {
@@ -30,6 +31,13 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string RoutingRecovery = "Routing.Recovery";
 
+    /// <summary>
+    /// Search / view Work Orders within data scope (S2-001). TECHNICIAN is deliberately excluded until Work
+    /// Order/Visit assignment rules are defined (DEC-S2-001-03, Portfolio Project Owner directive); ADMINISTRATOR
+    /// is excluded per the existing no-business-read convention.
+    /// </summary>
+    public const string WorkOrderRead = "WorkOrder.Read";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -46,7 +54,15 @@ public static class AuthorizationPolicies
             ],
             [RepairRequestDraft] = [RoleCodes.Requester],
             [RepairRequestReview] = [RoleCodes.Approver],
-            [RoutingRecovery] = [RoleCodes.Administrator]
+            [RoutingRecovery] = [RoleCodes.Administrator],
+            [WorkOrderRead] =
+            [
+                RoleCodes.Requester,
+                RoleCodes.Approver,
+                RoleCodes.Coordinator,
+                RoleCodes.TeamLead,
+                RoleCodes.Supervisor
+            ]
         };
 }
 

@@ -11,16 +11,16 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Document ID | RR-API-001-ADD |
 | Version | 1.0 |
 | Status | Approved for Portfolio Development (documentation reconciliation) |
-| Revision Date | 15 September 2026 — reconciled with the S1-007 implementation (Submit, Category/Priority/contact) |
+| Revision Date | 17 September 2026 — reconciled with the S2-001 implementation (Work Order List/Detail); previously 15 September 2026 (S1-007) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
-| Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`) |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b) |
+| Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001 |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
 - The RR-API-001 PDF is not modified.
-- An endpoint is listed as implemented only if a controller route exists in the S1-010 codebase.
-- Addendum IDs (`AUTH-API-*`, `CUST-API-*`, `SITE-API-*`, `EQP-API-*`, `FILE-API-003`, `SYS-API-*`) are documentation numbers, not new business semantics.
+- An endpoint is listed as implemented only if a controller route exists in the codebase as of the stated revision (S1-010, then S2-001).
+- Addendum IDs (`AUTH-API-*`, `CUST-API-*`, `SITE-API-*`, `EQP-API-*`, `FILE-API-003`, `SYS-API-*`, `WO-API-ADD-*`) are documentation numbers, not new business semantics.
 - Section 5 lists the approved Pre-S1-007 amendments to catalogued endpoints. All of them are **implemented in S1-007**; implementation details are in §4.1.
 - Nothing here adds a business rule. Behaviour is traced to RR-DEC-001 decisions and baseline IDs.
 
@@ -41,7 +41,8 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | RR-API-010 | convert | NOT IMPLEMENTED |
 | FILE-API-001 | POST `/api/v1/repair-requests/{id}/attachments` | IMPLEMENTED (S1-006) |
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
-| WO-*, WS-*, ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-* | — | NOT IMPLEMENTED (later sprints / tickets) |
+| WO-API-001 | GET `/api/v1/work-orders/{id}` | IMPLEMENTED (S2-001) — read-only List/Detail; Convert/Schedule/Reassign not implemented, see §4.10 |
+| WS-*, ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WO-API-002..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
 
 ## 2. Implemented Endpoints Missing From the RR-API-001 v1.2 Catalog
 
@@ -78,6 +79,19 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | ROUTE-API-005 | POST | `/api/v1/approval-routes/{approvalRouteId}/deactivate` | Deactivate (no reason; ARC-008 flag) | MasterData.Manage | If-Match | DEC-PRE-S1-007R-04 |
 | ROUTING-API-001 | GET | `/api/v1/routing-issues` | SUBMITTED requests not yet routed or with a routing failure (routing metadata only) | Routing.Recovery | — | DEC-PRE-S1-007R-10 |
 | ROUTING-API-002 | POST | `/api/v1/repair-requests/{id}/retry-routing` | Admin Retry Routing (server-side route and approver) | Routing.Recovery | If-Match | DEC-PRE-S1-007R-07/08 |
+| WO-API-ADD-001 | GET | `/api/v1/work-orders` | List Work Orders (paged; `status` filter; fixed newest-first sort) | WorkOrder.Read | — | DEC-S2-001-01..05 (`docs/12` Section 11) |
+
+---
+
+## 4.10 S2-001 Work Order List/Detail
+
+Read-only. `WorkOrder.Read` allows REQUESTER, APPROVER, COORDINATOR, TEAM_LEAD, SUPERVISOR — TECHNICIAN and ADMINISTRATOR are denied `403 ACCESS_DENIED` outright (DEC-S2-001-03). Row-level scope mirrors `RepairRequest.Read`/`IDataScope.RepairRequests`, correlated through the Work Order's `repair_request_id` (site-wide roles see Work Orders whose linked Repair Request's Site is in the caller's `user_site_scope`; REQUESTER sees only Work Orders of Repair Requests it created); a nonexistent and an out-of-scope id return the same `404 NOT_FOUND` body (WO-API-001 detail).
+
+Response fields are `workOrderId, workOrderNo, status, repairRequestId, repairRequestNo, customerCode, siteCode, equipmentCode, rowVersion` — reused unchanged for both the list item and the detail response. `customerCode`/`siteCode`/`equipmentCode` are codes, not display names (DEC-S2-001-01). Scheduled Date and Assigned Team/Technician/Team Lead are never returned (DEC-S2-001-02/03); `owner_team_id`/`team_lead_id` are persisted on `work_order` but not projected into the response.
+
+`GET /api/v1/work-orders` query string: `page`, `pageSize` (existing `Paging:DefaultPageSize`/`MaxPageSize` convention) and an optional `status` (one of the `WorkOrderStatus` codes; an unrecognised value is `400 BAD_REQUEST`). Sort is fixed newest-first via a technical `created_at` column added to `work_order` for this purpose only (not one of the RR-DD-001 WO-001..013 business fields, DEC-S2-001-04); there is no client-selectable sort in this ticket.
+
+Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, Reassign and every other Work Order mutation are **not implemented** — `work_order` is empty in production until Convert exists. Automated tests seed `RepairRequest`/`WorkOrder` rows directly through EF Core.
 
 ---
 

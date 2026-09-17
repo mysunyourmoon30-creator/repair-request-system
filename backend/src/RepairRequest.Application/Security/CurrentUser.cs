@@ -55,4 +55,19 @@ public sealed class CurrentUser
         Roles.Any(role => role != RoleCodes.Administrator && role != RoleCodes.Requester);
 
     public bool IsRequester => IsInRole(RoleCodes.Requester);
+
+    /// <summary>
+    /// Holds a role permitted to read Work Orders (S2-001 / DEC-S2-001-03): mirrors <see cref="HasBusinessRole"/>
+    /// but excludes TECHNICIAN until Work Order/Visit assignment rules are defined.
+    /// </summary>
+    public bool HasWorkOrderReadScope =>
+        Roles.Any(role => role is RoleCodes.Requester or RoleCodes.Approver or RoleCodes.Coordinator
+            or RoleCodes.TeamLead or RoleCodes.Supervisor);
+
+    /// <summary>
+    /// Holds a role that sees every Work Order at its assigned Sites (mirrors <see cref="HasSiteWideRequestScope"/>,
+    /// excluding TECHNICIAN per DEC-S2-001-03). REQUESTER alone is limited to its own data.
+    /// </summary>
+    public bool HasSiteWideWorkOrderScope =>
+        Roles.Any(role => role is RoleCodes.Approver or RoleCodes.Coordinator or RoleCodes.TeamLead or RoleCodes.Supervisor);
 }

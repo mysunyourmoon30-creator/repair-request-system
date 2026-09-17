@@ -9,6 +9,7 @@ using RepairRequest.Application.Authentication;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
+using RepairRequest.Application.WorkOrders;
 using RepairRequest.Infrastructure.Approvals;
 using RepairRequest.Infrastructure.Attachments;
 using RepairRequest.Infrastructure.Authentication;
@@ -18,6 +19,7 @@ using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.MasterData;
 using RepairRequest.Infrastructure.RepairRequests;
 using RepairRequest.Infrastructure.Persistence;
+using RepairRequest.Infrastructure.WorkOrders;
 
 namespace RepairRequest.Infrastructure.DependencyInjection;
 
@@ -72,6 +74,9 @@ public static class InfrastructureServiceCollectionExtensions
 
         // S1-009: Cancel persistence (shares the review-workflow lock with routing and decisions).
         services.AddScoped<IRepairRequestCancelStore, RepairRequestCancelStore>();
+
+        // S2-001: Work Order List/Detail read persistence port.
+        services.AddScoped<IWorkOrderStore, WorkOrderStore>();
 
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();
