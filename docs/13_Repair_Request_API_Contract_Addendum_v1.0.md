@@ -14,7 +14,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Revision Date | 15 September 2026 — reconciled with the S1-007 implementation (Submit, Category/Priority/contact) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
 | Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`) |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f) |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -34,10 +34,10 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | RR-API-002 | PATCH `/api/v1/repair-requests/{id}` | IMPLEMENTED (S1-005; S1-007 adds Category, Priority and request contact) — `locationId` not accepted, see §4.1 |
 | RR-API-003 | GET `/api/v1/repair-requests` | NOT IMPLEMENTED |
 | RR-API-004 | GET `/api/v1/repair-requests/{id}` | IMPLEMENTED (S1-005; S1-007 adds the new fields to the response) |
-| RR-API-005 | POST `/api/v1/repair-requests/{id}/submit` | IMPLEMENTED (S1-007; resubmission after Return for Correction in S1-010, uncommitted) — see §4.1, §4.9 |
+| RR-API-005 | POST `/api/v1/repair-requests/{id}/submit` | IMPLEMENTED (S1-007; resubmission after Return for Correction in S1-010 (5064c6b05ae22dd443498f9734368eaec61b8437)) — see §4.1, §4.9 |
 | RR-API-006..007 | approve / reject | IMPLEMENTED — S1-008 (a45bc38); see §4.7 |
 | RR-API-009 | cancel | IMPLEMENTED — S1-009 (305079f9b8bc2e9373330a9fa5a6a61994a64545); see §4.8 |
-| RR-API-008 | POST `/api/v1/repair-requests/{id}/return-for-correction` | IMPLEMENTED — S1-010 (uncommitted; commit hash to be recorded at commit); see §4.9 |
+| RR-API-008 | POST `/api/v1/repair-requests/{id}/return-for-correction` | IMPLEMENTED — S1-010 (5064c6b05ae22dd443498f9734368eaec61b8437); see §4.9 |
 | RR-API-010 | convert | NOT IMPLEMENTED |
 | FILE-API-001 | POST `/api/v1/repair-requests/{id}/attachments` | IMPLEMENTED (S1-006) |
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
@@ -393,7 +393,7 @@ These responses come from ASP.NET Core before application code runs. Their bodie
 - **Concurrency:** Cancel takes the same review-workflow lock as routing and Approve/Reject (§4.6, §4.7), then checks the ETag, so exactly one of Cancel / Approve / Reject / routing succeeds and the others return 409.
 - **Not in S1-009:** the SLA stop (EV-SLA-005 stop_reason REQUEST_CANCELLED; deferred with `sla_record`); NTF-CANCEL (notification scope); Return for Correction; Convert.
 
-### 4.9 Return for Correction & Resubmit (S1-010 — uncommitted; commit hash to be recorded at commit)
+### 4.9 Return for Correction & Resubmit (S1-010 — IMPLEMENTED, 5064c6b05ae22dd443498f9734368eaec61b8437)
 
 **RR-API-008 POST `/api/v1/repair-requests/{id}/return-for-correction` — RepairRequest.Review, If-Match, body `{ "reason": "string" }`**
 

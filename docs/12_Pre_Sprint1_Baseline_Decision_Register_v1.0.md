@@ -814,7 +814,7 @@ No blocker in this register is a reason to halt Sprint 1.
   - The route-level failure cleanup never removes a returned row (it only removes unassigned PENDING failure rows).
   - Existing rows are migrated to cycle 1 (migration `AddApprovalCycle`).
 - **Baseline amendment:** RR-DD-001 APR-005 / RR-DBD-001 repair_request_approval uniqueness gains the cycle dimension. No state, role or guard changes.
-- **Status:** APPROVED – IMPLEMENTED in S1-010 (uncommitted; commit hash to be recorded at commit).
+- **Status:** APPROVED – IMPLEMENTED in S1-010 (commit 5064c6b05ae22dd443498f9734368eaec61b8437).
 
 #### DEC-PRE-S1-010-02 — Request No, submitted_at and SLA on resubmission (resolves NB-3)
 > Resubmission after Return for Correction keeps the Request No, `submitted_by` and `submitted_at`. No Request No is allocated. The SLA start marker is not restarted: Return is not an EV-SLA-005 stop event, so the SLA continues through the correction. The resubmission time is recorded only in the `REPAIR_REQUEST_RESUBMITTED` audit.
@@ -822,7 +822,7 @@ No blocker in this register is a reason to halt Sprint 1.
 - **Source:** Portfolio Project Owner, S1-010 pre-implementation review, 16 September 2026.
 - **Evidence:** RR-003 "generated at SUBMITTED; immutable" and BR-01; RR-014 `submitted_at` "SLA start"; SLA-003 one `sla_record` per request; EV-SLA-005 stops only on REJECTED/CANCELLED.
 - **Consequence:** the BR-14 24-hour window compares other requests' original `submitted_at` (NB-1), so a request resubmitted more than 24h after its first submission is outside other requests' duplicate window.
-- **Status:** APPROVED – IMPLEMENTED in S1-010 (uncommitted; commit hash to be recorded at commit).
+- **Status:** APPROVED – IMPLEMENTED in S1-010 (commit 5064c6b05ae22dd443498f9734368eaec61b8437).
 
 #### DEC-PRE-S1-010-03 — Return for Correction source state and actor
 > Return for Correction (ST-RR-006) is accepted only while the Repair Request is **UNDER_REVIEW**, by the **assigned approver** of the current-cycle PENDING step, never by the request's creator. A SUBMITTED request returns **409 STATE_CONFLICT**.
@@ -834,14 +834,14 @@ No blocker in this register is a reason to halt Sprint 1.
   - there is no RETURNED state; the request becomes an editable DRAFT for its owner (ST-RR-006 "Restore edit permission"; UC-RR-001), and attachments may be added while DRAFT;
   - Return takes the review-workflow lock shared with routing, Approve/Reject and Cancel;
   - NTF-RETURNED stays deferred with the notification scope.
-- **Status:** APPROVED – IMPLEMENTED in S1-010 (uncommitted; commit hash to be recorded at commit).
+- **Status:** APPROVED – IMPLEMENTED in S1-010 (commit 5064c6b05ae22dd443498f9734368eaec61b8437).
 
 #### DEC-PRE-S1-010-04 — Duplicate rule on resubmission
 > Resubmission runs the full BR-14 / D-12 duplicate check again, excluding the request itself. When matches exist, a continuation reason is required (the same 422 contract as Submit), and the applied reason replaces the stored RR-011 `duplicate_continuation_reason`. When no match exists, the stored reason is kept unchanged. The `REPAIR_REQUEST_RESUBMITTED` audit records the applied reason and the duplicate count.
 
 - **Source:** Portfolio Project Owner, S1-010 pre-implementation review, 16 September 2026.
 - **Evidence:** ST-RR-002 guard "duplicate rule handled" applies to every DRAFT → SUBMITTED; UAT-03 "D-12 set used; no bypass".
-- **Status:** APPROVED – IMPLEMENTED in S1-010 (uncommitted; commit hash to be recorded at commit).
+- **Status:** APPROVED – IMPLEMENTED in S1-010 (commit 5064c6b05ae22dd443498f9734368eaec61b8437).
 
 ---
 
@@ -865,7 +865,7 @@ No blocker in this register is a reason to halt Sprint 1.
 | Decision side effects: EV-SLA-005 SLA stop on Reject; NTF decision notifications (Coordinator on Approve, Requester on Reject) | DEFERRED — SLA calculation and notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-008-03 |
 | S1-009 Cancel (ST-RR-007) | IMPLEMENTED in S1-009 (commit 305079f9b8bc2e9373330a9fa5a6a61994a64545) — owning Requester only; DRAFT/SUBMITTED/UNDER_REVIEW/APPROVED → CANCELLED; approval rows unchanged | DEC-PRE-S1-009-01 |
 | Cancel side effects: EV-SLA-005 SLA stop (stop_reason REQUEST_CANCELLED); NTF-CANCEL | DEFERRED — `sla_record` / SLA scope and notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-009-01 |
-| S1-010 Return for Correction (ST-RR-006) and Resubmit | IMPLEMENTED in S1-010 (uncommitted) — assigned approver, UNDER_REVIEW only, reason required; returned step kept as history; resubmit keeps Request No and submitted_at and routes the next approval cycle; never merged with REJECTED | DEC-PRE-S1-008-02; DEC-PRE-S1-010-01..04 |
+| S1-010 Return for Correction (ST-RR-006) and Resubmit | IMPLEMENTED in S1-010 (commit 5064c6b05ae22dd443498f9734368eaec61b8437) — assigned approver, UNDER_REVIEW only, reason required; returned step kept as history; resubmit keeps Request No and submitted_at and routes the next approval cycle; never merged with REJECTED | DEC-PRE-S1-008-02; DEC-PRE-S1-010-01..04 |
 | Return side effects: NTF-RETURNED notification to the Requester | DEFERRED — notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-010-03 |
 | Approval inbox (UI-020) with approval cycles | DEFERRED — the inbox query must use the current approval cycle and the Repair Request status | DEC-PRE-S1-009-01; DEC-PRE-S1-010-01 |
 | Submitted notification / outbox implementation (NTF-SUBMITTED) | DEFERRED — later Sprint 1 ticket | DEC-PRE-S1-007-12 |
