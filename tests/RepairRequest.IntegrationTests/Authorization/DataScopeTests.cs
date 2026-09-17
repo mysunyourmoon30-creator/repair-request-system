@@ -54,6 +54,9 @@ public sealed class DataScopeTests : IAsyncLifetime
     private Task<Guid> AddRequestAsync(Guid tenantId, Guid createdBy, Domain.MasterData.Site? site) =>
         WithDbAsync(db => ScopeWorld.AddRequestAsync(db, tenantId, createdBy, site));
 
+    private Task<Guid> AddWorkOrderAsync(Guid tenantId, Guid repairRequestId, string workOrderNo, DateTime createdAt) =>
+        WithDbAsync(db => ScopeWorld.AddWorkOrderAsync(db, tenantId, repairRequestId, workOrderNo, createdAt));
+
     private static Guid[] Sorted(IEnumerable<Guid> ids) => ids.Order().ToArray();
 
     // ---------------- Site / Equipment / Customer ----------------
@@ -305,5 +308,68 @@ public sealed class DataScopeTests : IAsyncLifetime
         _host.Logs.Clear();
         await dataScope.Customers(requester).AsNoTracking().Select(customer => customer.Id).ToListAsync();
         Assert.Equal(1, _host.Logs.ExecutedDbCommandCount);
+    }
+
+    // ---------------- Work Order (S2-001 / DEC-S2-001-03) ----------------
+
+    [Fact]
+    public async Task WorkOrders_AreVisibleOnlyThroughTheOriginatingRequestsAssignedSite()
+    {
+        var world = await NewWorldAsync();
+        var requester = await NewUserAsync(world, [world.SiteA1, world.SiteB1], RoleCodes.Requester);
+        var atA1 = await AddRequestAsync(world.TenantId, requester.UserId, world.SiteA1);
+        var atB1 = await AddRequestAsync(world.TenantId, requester.UserId, world.SiteB1);
+        var woAtA1 = await AddWorkOrderAsync(world.TenantId, atA1, "WO-A1", DateTime.UtcNow);
+        await AddWorkOrderAsync(world.TenantId, atB1, "WO-B1", DateTime.UtcNow);
+        var coordinator = await NewUserAsync(world, [world.SiteA1], RoleCodes.Coordinator);
+
+        var visible = await QueryAsync(scope => scope.WorkOrders(coordinator).Select(workOrder => workOrder.Id).ToListAsync());
+
+        Assert.Equal([woAtA1], visible);
+    }
+
+    [Fact]
+    public async Task RequesterOnly_SeesWorkOrdersOfOwnRepairRequestsOnly()
+    {
+        var world = await NewWorldAsync();
+        var requester = await NewUserAsync(world, [world.SiteA1], RoleCodes.Requester);
+        var colleague = await NewUserAsync(world, [world.SiteA1], RoleCodes.Requester);
+
+        var ownRequest = await AddRequestAsync(world.TenantId, requester.UserId, world.SiteA1);
+        var colleagueRequest = await AddRequestAsync(world.TenantId, colleague.UserId, world.SiteA1);
+        var ownWorkOrder = await AddWorkOrderAsync(world.TenantId, ownRequest, "WO-OWN", DateTime.UtcNow);
+        await AddWorkOrderAsync(world.TenantId, colleagueRequest, "WO-COLLEAGUE", DateTime.UtcNow);
+
+        var visible = await QueryAsync(scope => scope.WorkOrders(requester).Select(workOrder => workOrder.Id).ToListAsync());
+
+        Assert.Equal([ownWorkOrder], visible);
+    }
+
+    [Fact]
+    public async Task Technician_SeesNoWorkOrders_EvenWithSiteAssignment()
+    {
+        // DEC-S2-001-03: TECHNICIAN is deliberately excluded until Work Order/Visit assignment rules are defined.
+        var world = await NewWorldAsync();
+        var requester = await NewUserAsync(world, [world.SiteA1], RoleCodes.Requester);
+        var request = await AddRequestAsync(world.TenantId, requester.UserId, world.SiteA1);
+        await AddWorkOrderAsync(world.TenantId, request, "WO-A1", DateTime.UtcNow);
+        var technician = await NewUserAsync(world, [world.SiteA1], RoleCodes.Technician);
+
+        Assert.Empty(await QueryAsync(scope => scope.WorkOrders(technician).ToListAsync()));
+    }
+
+    [Fact]
+    public async Task WorkOrdersOfAnotherTenant_AreNeverVisible()
+    {
+        var world = await NewWorldAsync();
+        var otherTenantUser = await _host.CreateUserInTenantAsync(world.OtherTenantId, RoleCodes.Requester);
+        var foreignRequest = await AddRequestAsync(world.OtherTenantId, otherTenantUser.Id, world.OtherTenantSite);
+        var foreignWorkOrder = await WithDbAsync(db =>
+            ScopeWorld.AddWorkOrderAsync(db, world.OtherTenantId, foreignRequest, "WO-FOREIGN", DateTime.UtcNow));
+        var coordinator = await NewUserAsync(world, [world.SiteA1, world.SiteA2, world.SiteB1], RoleCodes.Coordinator);
+
+        var found = await QueryAsync(scope => scope.WorkOrders(coordinator).AnyAsync(workOrder => workOrder.Id == foreignWorkOrder));
+
+        Assert.False(found);
     }
 }

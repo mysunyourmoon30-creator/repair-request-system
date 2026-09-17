@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.MasterData;
+using RepairRequest.Domain.WorkOrders;
 using RepairRequest.Infrastructure.Persistence;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
@@ -131,6 +132,34 @@ internal sealed class DataScope : IDataScope
 
         // DEC-PRE-S1-007R-10: routing recovery only, and only for tenant-wide configuration scope (ADMINISTRATOR).
         return user.HasTenantWideConfigurationScope ? requests : requests.Where(_ => false);
+    }
+
+    public IQueryable<WorkOrder> WorkOrders(CurrentUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        var workOrders = _db.WorkOrders.Where(workOrder => workOrder.TenantId == tenantId);
+
+        // TECHNICIAN and ADMINISTRATOR hold no Work Order read scope (DEC-S2-001-03).
+        if (!user.HasWorkOrderReadScope)
+        {
+            return workOrders.Where(_ => false);
+        }
+
+        if (user.HasSiteWideWorkOrderScope)
+        {
+            return workOrders.Where(workOrder => _db.RepairRequests.Any(request =>
+                request.Id == workOrder.RepairRequestId
+                && request.SiteId != null
+                && _db.UserSiteScopes.Any(scope =>
+                    scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId)));
+        }
+
+        // REQUESTER only: Work Orders of Repair Requests the caller created (DEC-S2-001-03).
+        return workOrders.Where(workOrder => _db.RepairRequests.Any(request =>
+            request.Id == workOrder.RepairRequestId && request.CreatedBy == userId));
     }
 
     public Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken) =>

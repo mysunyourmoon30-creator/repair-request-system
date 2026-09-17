@@ -4,6 +4,7 @@ using RepairRequest.Application.Approvals;
 using RepairRequest.Application.Attachments;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
+using RepairRequest.Application.WorkOrders;
 
 namespace RepairRequest.Application.DependencyInjection;
 
@@ -42,6 +43,9 @@ public static class ApplicationServiceCollectionExtensions
 
         // S1-009: Cancel by the owning Requester (ST-RR-007).
         services.AddScoped<RepairRequestCancelService>();
+
+        // S2-001: Work Order List/Detail.
+        services.AddScoped<WorkOrderService>();
 
         return services;
     }
