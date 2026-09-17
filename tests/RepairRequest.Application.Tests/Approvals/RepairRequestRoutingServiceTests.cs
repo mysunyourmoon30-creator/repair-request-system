@@ -213,7 +213,7 @@ public class RepairRequestRoutingServiceTests
     public async Task AlreadyAssignedPendingApproval_IsStateConflict_AndNothingChanges()
     {
         var request = _store.SeedSubmitted(_tenantId, _creator, _siteId);
-        _store.Approvals.Add(RepairRequestApproval.Assigned(_tenantId, request.Id, Guid.NewGuid(), 1, Guid.NewGuid(), Now.UtcDateTime));
+        _store.Approvals.Add(RepairRequestApproval.Assigned(_tenantId, request.Id, RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, Guid.NewGuid(), Now.UtcDateTime));
         AddRoute();
         AddEligibleApprover();
 
@@ -227,11 +227,10 @@ public class RepairRequestRoutingServiceTests
     [Theory]
     [InlineData(ApprovalStatus.Approved)]
     [InlineData(ApprovalStatus.Rejected)]
-    [InlineData(ApprovalStatus.ReturnedForCorrection)]
     public async Task DecidedApproval_IsStateConflict_AndIsNeverRemovedByARouteLevelRetry(ApprovalStatus decision)
     {
         var request = _store.SeedSubmitted(_tenantId, _creator, _siteId);
-        var decided = RepairRequestApproval.Assigned(_tenantId, request.Id, Guid.NewGuid(), 1, Guid.NewGuid(), Now.UtcDateTime);
+        var decided = RepairRequestApproval.Assigned(_tenantId, request.Id, RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, Guid.NewGuid(), Now.UtcDateTime);
         FakeApprovalRoutingStore.Set(decided, nameof(RepairRequestApproval.Status), decision);
         _store.Approvals.Add(decided);
 
@@ -241,6 +240,49 @@ public class RepairRequestRoutingServiceTests
         Assert.Equal(CommandFailure.StateConflict, result.Error?.Failure);
         Assert.Same(decided, Assert.Single(_store.Approvals));
         Assert.Empty(_store.Audits);
+    }
+
+    [Fact]
+    public async Task ReturnedApproval_IsHistory_ARouteLevelFailureKeepsIt_AndRecordsTheNextCycle()
+    {
+        // DEC-PRE-S1-010-01: a step returned for correction belongs to an earlier cycle; routing a resubmission never
+        // changes or removes it.
+        var request = _store.SeedSubmitted(_tenantId, _creator, _siteId);
+        var returned = RepairRequestApproval.Assigned(_tenantId, request.Id, RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, Guid.NewGuid(), Now.UtcDateTime);
+        FakeApprovalRoutingStore.Set(returned, nameof(RepairRequestApproval.Status), ApprovalStatus.ReturnedForCorrection);
+        _store.Approvals.Add(returned);
+
+        var result = await RouteSubmittedAsync(request.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(RepairRequestStatus.Submitted, result.Value!.Status);
+        Assert.Same(returned, Assert.Single(_store.Approvals));
+        Assert.Equal(ApprovalStatus.ReturnedForCorrection, returned.Status);
+        var audit = Assert.Single(_store.Audits);
+        Assert.Equal(RepairRequestRoutingAudit.RoutingFailedAction, audit.ActionCode);
+        Assert.Contains("\"approvalCycleNo\":2", audit.NewValueJson);
+    }
+
+    [Fact]
+    public async Task ReturnedApproval_ResubmissionIsAssignedInTheNextCycle()
+    {
+        var request = _store.SeedSubmitted(_tenantId, _creator, _siteId);
+        var returned = RepairRequestApproval.Assigned(_tenantId, request.Id, RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, Guid.NewGuid(), Now.UtcDateTime);
+        FakeApprovalRoutingStore.Set(returned, nameof(RepairRequestApproval.Status), ApprovalStatus.ReturnedForCorrection);
+        _store.Approvals.Add(returned);
+        AddRoute();
+        var approver = AddEligibleApprover();
+
+        var result = await RouteSubmittedAsync(request.Id);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(RepairRequestStatus.UnderReview, result.Value!.Status);
+        Assert.Equal(2, _store.Approvals.Count);
+        Assert.Equal(ApprovalStatus.ReturnedForCorrection, returned.Status);
+        var next = Assert.Single(_store.Approvals, approval => approval != returned);
+        Assert.Equal(2, next.ApprovalCycleNo);
+        Assert.Equal(approver, next.AssignedApproverId);
+        Assert.True(next.IsAssignedPending);
     }
 
     [Fact]
@@ -286,7 +328,7 @@ public class RepairRequestRoutingServiceTests
     public async Task Retry_RouteLevelFailureAfterApproverFailure_RemovesTheStaleRow_AndAuditsTheNewCode()
     {
         var request = _store.SeedSubmitted(_tenantId, _creator, _siteId);
-        _store.Approvals.Add(RepairRequestApproval.AssignmentFailed(_tenantId, request.Id, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverAmbiguous));
+        _store.Approvals.Add(RepairRequestApproval.AssignmentFailed(_tenantId, request.Id, RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverAmbiguous));
 
         var result = await _service.RetryAsync(Administrator(), request.Id, FakeApprovalRoutingStore.InitialRowVersion, CancellationToken.None);
 
@@ -301,7 +343,7 @@ public class RepairRequestRoutingServiceTests
     public async Task Retry_OfAFailureRow_UpdatesThatRow_InsteadOfAddingAnother()
     {
         var request = _store.SeedSubmitted(_tenantId, _creator, _siteId);
-        var failureRow = RepairRequestApproval.AssignmentFailed(_tenantId, request.Id, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverNotFound);
+        var failureRow = RepairRequestApproval.AssignmentFailed(_tenantId, request.Id, RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverNotFound);
         _store.Approvals.Add(failureRow);
         var route = AddRoute();
         var approver = AddEligibleApprover();

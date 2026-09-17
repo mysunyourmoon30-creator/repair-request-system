@@ -25,7 +25,7 @@ public interface IRepairRequestDecisionStore
     /// <summary>Tracked, locked load within the caller's S1-003 Repair Request scope; null when absent or out of scope.</summary>
     Task<RepairRequestAggregate?> LockForDecisionAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken);
 
-    /// <summary>Tracked approval row of one step, or null.</summary>
+    /// <summary>Tracked approval row of one step in the current (highest) approval cycle, or null (DEC-PRE-S1-010-01).</summary>
     Task<RepairRequestApproval?> FindStepApprovalAsync(Guid tenantId, Guid repairRequestId, short stepNo, CancellationToken cancellationToken);
 
     void AddAudit(AuditHistory audit);

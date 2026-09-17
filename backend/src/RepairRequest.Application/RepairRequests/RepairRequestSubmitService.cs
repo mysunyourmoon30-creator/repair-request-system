@@ -8,7 +8,10 @@ namespace RepairRequest.Application.RepairRequests;
 
 /// <summary>
 /// UC-RR-002 Submit Request and Handle Duplicate Warning (ST-RR-002 DRAFT -> SUBMITTED; FR-02; BR-01/03/14/16; D-12;
-/// DEC-PRE-S1-007-01..12). Role capability (REQUESTER) is enforced by the API policy. Validation order is deterministic:
+/// DEC-PRE-S1-007-01..12), including Resubmit of a DRAFT returned for correction (DEC-PRE-S1-010-02/-04: the same checks,
+/// the CLEAN photo and a new duplicate check that excludes the request itself; Request No, submitted_by and submitted_at are
+/// kept and no Request No is allocated; the next approval cycle is routed after the commit). Role capability (REQUESTER)
+/// is enforced by the API policy. Validation order is deterministic:
 /// owned request in scope (404) -> row version (409) -> DRAFT state (409) -> selected Site in business scope (404) ->
 /// all field/master/lookup/contact/CLEAN-photo prerequisites in one 422 -> one atomic store call, serialized per BR-14
 /// duplicate key: duplicate warning (422 with count only) or Request No + transition + audit (409 on concurrency or lock
@@ -97,6 +100,9 @@ public sealed class RepairRequestSubmitService
         }
 
         var now = UtcNow();
+        var resubmission = request.IsReturnedDraft;
+
+        // The request itself is excluded, so a resubmission never matches its own earlier submission (DEC-PRE-S1-010-04).
         var duplicateQuery = new DuplicateQuery(
             request.TenantId, request.Id, request.SiteId!.Value, request.RequestCategoryCode!, request.EquipmentId, now - DuplicateWindow);
 
@@ -106,13 +112,19 @@ public sealed class RepairRequestSubmitService
             request,
             expectedRowVersion,
             duplicateQuery,
-            now.Year,
+            resubmission ? null : now.Year,
             hasContinuationReason: reason is not null,
             (sequence, duplicateCount) =>
             {
                 // A reason sent when there is no duplicate has nothing to continue from: it is ignored, not stored and not audited.
                 var appliedReason = duplicateCount > 0 ? reason : null;
-                request.Submit(RequestNumber.Format(now.Year, sequence), context.User.UserId, now, appliedReason);
+                if (resubmission)
+                {
+                    request.Resubmit(context.User.UserId, appliedReason);
+                    return RepairRequestAudit.Resubmitted(context, request, duplicateCount, appliedReason, now);
+                }
+
+                request.Submit(RequestNumber.Format(now.Year, sequence!.Value), context.User.UserId, now, appliedReason);
                 return RepairRequestAudit.Submitted(context, request, duplicateCount, now);
             },
             cancellationToken);

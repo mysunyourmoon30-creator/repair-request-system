@@ -43,9 +43,9 @@ internal sealed class FakeRepairRequestSubmitStore : IRepairRequestSubmitStore
         RepairRequestAggregate request,
         byte[] expectedRowVersion,
         DuplicateQuery duplicateQuery,
-        int requestYear,
+        int? requestYear,
         bool hasContinuationReason,
-        Func<int, int, AuditHistory> applySubmit,
+        Func<int?, int, AuditHistory> applySubmit,
         CancellationToken cancellationToken)
     {
         SubmitCalls++;
@@ -56,8 +56,9 @@ internal sealed class FakeRepairRequestSubmitStore : IRepairRequestSubmitStore
             return new RepairRequestSubmitResult(RepairRequestSubmitStatus.DuplicateWarning, duplicateCount);
         }
 
-        var key = (request.TenantId, requestYear);
-        var next = Counters.GetValueOrDefault(key) + 1;
+        // A resubmission (no year) allocates no Request No.
+        var key = (request.TenantId, requestYear.GetValueOrDefault());
+        int? next = requestYear is null ? null : Counters.GetValueOrDefault(key) + 1;
         var audit = applySubmit(next, duplicateCount);
 
         if (SaveOutcome != RepairRequestSaveOutcome.Saved || !request.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
@@ -65,7 +66,11 @@ internal sealed class FakeRepairRequestSubmitStore : IRepairRequestSubmitStore
             return new RepairRequestSubmitResult(RepairRequestSubmitStatus.ConcurrencyConflict, duplicateCount);
         }
 
-        Counters[key] = next;
+        if (next is { } allocated)
+        {
+            Counters[key] = allocated;
+        }
+
         Audits.Add(audit);
         FakeRepairRequestDraftStore.ForceRowVersion(request, FakeRepairRequestDraftStore.SavedRowVersion);
         return new RepairRequestSubmitResult(RepairRequestSubmitStatus.Saved, duplicateCount);

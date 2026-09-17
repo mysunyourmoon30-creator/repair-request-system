@@ -5,7 +5,8 @@ namespace RepairRequest.Domain.RepairRequests;
 /// <summary>
 /// Repair Request aggregate root (RR-DD-001 RR-001..RR-020; RR-DBD-001 repair_request).
 /// S1-001 establishes the persisted shape and the initial DRAFT state; S1-005 adds Draft editing (ST-RR-001) and S1-007
-/// adds Submit (ST-RR-002). Review and cancel commands (ST-RR-003..007) are added by later tickets; CONVERTED (ST-RR-008)
+/// adds Submit (ST-RR-002). Routing, decisions, Cancel and Return for Correction / Resubmit (ST-RR-003..007) follow in
+/// S1-007R..S1-010; CONVERTED (ST-RR-008)
 /// exists for lifecycle compatibility but Work Order creation is Sprint 2 scope.
 /// </summary>
 public sealed class RepairRequest
@@ -197,6 +198,50 @@ public sealed class RepairRequest
         DomainGuard.Utc(submittedAt, nameof(submittedAt));
         var reason = DomainGuard.OptionalText(duplicateContinuationReason, ReasonMaxLength, nameof(duplicateContinuationReason));
 
+        EnsureSubmittable(submittedBy);
+
+        RequestNo = number;
+        SubmittedBy = submittedBy;
+        SubmittedAt = submittedAt;
+        DuplicateContinuationReason = reason;
+        Status = RepairRequestStatus.Submitted;
+    }
+
+    /// <summary>
+    /// Resubmit (ST-RR-002 again) of a DRAFT returned for correction (ST-RR-006), by the owning Requester. The Request No
+    /// (immutable, RR-003), submitted_by and submitted_at (the SLA start marker; the SLA continues, DEC-PRE-S1-010-02) are
+    /// kept. A duplicate continuation reason applied to this resubmission replaces the stored one (DEC-PRE-S1-010-04);
+    /// without one the stored reason is kept. The resubmission time is audit data only.
+    /// </summary>
+    public void Resubmit(Guid submittedBy, string? duplicateContinuationReason)
+    {
+        if (Status != RepairRequestStatus.Draft || !RepairRequestStatusTransitions.IsAllowed(Status, RepairRequestStatus.Submitted))
+        {
+            throw new DomainRuleViolationException("Only a DRAFT Repair Request can be resubmitted.");
+        }
+
+        if (RequestNo is null || SubmittedAt is null)
+        {
+            throw new DomainRuleViolationException("Only a Repair Request returned for correction can be resubmitted.");
+        }
+
+        DomainGuard.NotEmpty(submittedBy, nameof(submittedBy));
+        var reason = DomainGuard.OptionalText(duplicateContinuationReason, ReasonMaxLength, nameof(duplicateContinuationReason));
+        EnsureSubmittable(submittedBy);
+
+        if (reason is not null)
+        {
+            DuplicateContinuationReason = reason;
+        }
+
+        Status = RepairRequestStatus.Submitted;
+    }
+
+    /// <summary>Whether this DRAFT was submitted before and returned for correction, so Submit means Resubmit.</summary>
+    public bool IsReturnedDraft => Status == RepairRequestStatus.Draft && RequestNo is not null;
+
+    private void EnsureSubmittable(Guid submittedBy)
+    {
         if (submittedBy != CreatedBy)
         {
             throw new DomainRuleViolationException("Only the Requester who owns the Draft can submit it.");
@@ -212,12 +257,6 @@ public sealed class RepairRequest
         {
             throw new DomainRuleViolationException("The Draft is missing data required at Submit.");
         }
-
-        RequestNo = number;
-        SubmittedBy = submittedBy;
-        SubmittedAt = submittedAt;
-        DuplicateContinuationReason = reason;
-        Status = RepairRequestStatus.Submitted;
     }
 
     /// <summary>
@@ -264,6 +303,22 @@ public sealed class RepairRequest
 
         RejectReason = DomainGuard.RequiredText(reason, ReasonMaxLength, nameof(reason));
         Status = RepairRequestStatus.Rejected;
+    }
+
+    /// <summary>
+    /// ST-RR-006 Return for Correction (UNDER_REVIEW -> DRAFT) by the assigned approver (DEC-PRE-S1-010-03; RR-STS-001 also
+    /// lists SUBMITTED, which has no assigned approver). There is no RETURNED state: the request becomes an editable DRAFT
+    /// again, and Request No, submitted_by, submitted_at and every other field stay unchanged. The required reason and the
+    /// decision are recorded on the approval step (APR-007/008), which is retained as history.
+    /// </summary>
+    public void ReturnForCorrection()
+    {
+        if (Status != RepairRequestStatus.UnderReview || !RepairRequestStatusTransitions.IsAllowed(Status, RepairRequestStatus.Draft))
+        {
+            throw new DomainRuleViolationException("Only an UNDER_REVIEW Repair Request can be returned for correction.");
+        }
+
+        Status = RepairRequestStatus.Draft;
     }
 
     /// <summary>

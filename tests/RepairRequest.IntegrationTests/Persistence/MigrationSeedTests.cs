@@ -9,8 +9,12 @@ using RepairRequest.Infrastructure.RepairRequests;
 namespace RepairRequest.IntegrationTests.Persistence;
 
 /// <summary>
-/// DEC-PRE-S1-007-03: the AddRepairRequestSubmit migration seeds the placeholder Category/Priority lookups for every tenant
-/// that already has users, exactly once per tenant, when upgrading a database that existed before S1-007.
+/// Upgrade paths of data-bearing migrations:
+/// <list type="bullet">
+/// <item>DEC-PRE-S1-007-03: the AddRepairRequestSubmit migration seeds the placeholder Category/Priority lookups for every
+/// tenant that already has users, exactly once per tenant, when upgrading a database that existed before S1-007.</item>
+/// <item>DEC-PRE-S1-010-01: the AddApprovalCycle migration places every existing approval row in approval cycle 1.</item>
+/// </list>
 /// </summary>
 public sealed class MigrationSeedTests : IAsyncLifetime
 {
@@ -18,6 +22,7 @@ public sealed class MigrationSeedTests : IAsyncLifetime
         "Server=(localdb)\\MSSQLLocalDB;Database=RepairRequestDb_MigrationSeedTest;Trusted_Connection=True;TrustServerCertificate=True";
 
     private const string LastMigrationBeforeS1007 = "20260913144322_AddRefreshTokenAndRoleSeed";
+    private const string LastMigrationBeforeS1010 = "20260915161441_AddApprovalRouting";
 
     private static RepairRequestDbContext CreateContext() =>
         new(new DbContextOptionsBuilder<RepairRequestDbContext>().UseSqlServer(ConnectionString).Options);
@@ -87,5 +92,37 @@ public sealed class MigrationSeedTests : IAsyncLifetime
         Assert.DoesNotContain(categories, category => category.TenantId == tenantWithoutUsers);
         Assert.Equal(2 * RequestLookupSeeder.CategorySeed.Count, categories.Count);
         Assert.Equal(2 * RequestLookupSeeder.PrioritySeed.Count, priorities.Count);
+    }
+
+    [Fact]
+    public async Task UpgradingAnExistingDatabase_PlacesExistingApprovalRowsInTheFirstCycle()
+    {
+        var approvalId = Guid.NewGuid();
+
+        await using (var context = CreateContext())
+        {
+            await context.GetService<IMigrator>().MigrateAsync(LastMigrationBeforeS1010);
+
+            // Only the approval row's own shape matters here; its foreign keys are not what this upgrade changes.
+            await context.Database.ExecuteSqlAsync($"""
+                ALTER TABLE [repair_request_approval] NOCHECK CONSTRAINT ALL;
+                INSERT INTO [repair_request_approval]
+                    ([approval_id], [tenant_id], [repair_request_id], [approval_route_id], [approval_step_no], [assigned_approver_id], [status], [routed_at])
+                VALUES ({approvalId}, {Guid.NewGuid()}, {Guid.NewGuid()}, {Guid.NewGuid()}, 1, {Guid.NewGuid()}, 'PENDING', SYSUTCDATETIME());
+                """);
+        }
+
+        await using (var context = CreateContext())
+        {
+            // The added CHECK ([approval_cycle_no] >= 1) validates the existing row, so a wrong default would fail here.
+            await context.GetService<IMigrator>().MigrateAsync();
+            Assert.Empty(await context.Database.GetPendingMigrationsAsync());
+        }
+
+        await using var verify = CreateContext();
+        var cycles = await verify.Database
+            .SqlQuery<short>($"SELECT [approval_cycle_no] AS [Value] FROM [repair_request_approval] WHERE [approval_id] = {approvalId}")
+            .ToListAsync();
+        Assert.Equal((short)1, Assert.Single(cycles));
     }
 }

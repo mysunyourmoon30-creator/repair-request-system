@@ -32,6 +32,9 @@ public sealed record SubmitRepairRequestRequest(string? DuplicateContinuationRea
 /// <summary>RR-API-007 Reject body. The reason is required (RR-DD-001 RR-016); a missing body or reason is a 422 on <c>reason</c>.</summary>
 public sealed record RejectRepairRequestRequest(string? Reason);
 
+/// <summary>RR-API-008 Return for Correction body. The reason is required (RR-DD-001 APR-008); a missing body or reason is a 422 on <c>reason</c>.</summary>
+public sealed record ReturnForCorrectionRequest(string? Reason);
+
 /// <summary>RR-API-009 Cancel body. The reason is required (RR-DD-001 RR-015); a missing body or reason is a 422 on <c>reason</c>.</summary>
 public sealed record CancelRepairRequestRequest(string? Reason);
 

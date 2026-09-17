@@ -74,8 +74,10 @@ internal sealed class FakeApprovalRoutingStore : IApprovalRoutingStore
         Task.FromResult(Requests.SingleOrDefault(request => request.Id == repairRequestId && request.TenantId == tenantId));
 
     public Task<RepairRequestApproval?> FindStepApprovalAsync(Guid tenantId, Guid repairRequestId, short stepNo, CancellationToken cancellationToken) =>
-        Task.FromResult(Approvals.SingleOrDefault(approval =>
-            approval.TenantId == tenantId && approval.RepairRequestId == repairRequestId && approval.ApprovalStepNo == stepNo));
+        Task.FromResult(Approvals
+            .Where(approval => approval.TenantId == tenantId && approval.RepairRequestId == repairRequestId && approval.ApprovalStepNo == stepNo)
+            .OrderByDescending(approval => approval.ApprovalCycleNo)
+            .FirstOrDefault());
 
     public Task<IReadOnlyList<RouteCandidate>> ListActiveRoutesAsync(
         Guid tenantId,

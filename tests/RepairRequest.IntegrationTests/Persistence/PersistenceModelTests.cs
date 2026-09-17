@@ -162,7 +162,7 @@ public class PersistenceModelTests
     [InlineData(typeof(Site), "UQ_site_customer_id_site_code", new[] { "customer_id", "site_code" })]
     [InlineData(typeof(Equipment), "UQ_equipment_site_id_equipment_code", new[] { "site_id", "equipment_code" })]
     [InlineData(typeof(RepairRequestAggregate), "UQ_repair_request_tenant_id_request_no", new[] { "tenant_id", "request_no" })]
-    [InlineData(typeof(RepairRequestApproval), "UQ_repair_request_approval_request_step", new[] { "repair_request_id", "approval_step_no" })]
+    [InlineData(typeof(RepairRequestApproval), "UQ_repair_request_approval_request_step_cycle", new[] { "repair_request_id", "approval_step_no", "approval_cycle_no" })]
     public void UniqueIndexes_MatchBaselineScope(Type clrType, string indexName, string[] columns)
     {
         using var context = CreateContext();
@@ -204,7 +204,7 @@ public class PersistenceModelTests
         Assert.Equal("tenant_id,approval_route_id,step_no", Columns(step.FindPrimaryKey()!.Properties));
         Assert.Equal(["tenant_id,approver_user_id"], step.GetIndexes().Select(index => Columns(index.Properties)));
         Assert.Equal(
-            ["repair_request_id,approval_step_no", "tenant_id,approval_route_id,approval_step_no", "tenant_id,assigned_approver_id"],
+            ["repair_request_id,approval_step_no,approval_cycle_no", "tenant_id,approval_route_id,approval_step_no", "tenant_id,assigned_approver_id"],
             approval.GetIndexes().Select(index => Columns(index.Properties)).Order(StringComparer.Ordinal));
 
         // The RR-DBD-001 approval inbox index is deferred to the approval inbox ticket: no S1-007R query uses it.

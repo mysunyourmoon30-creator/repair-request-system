@@ -9,10 +9,10 @@ using RepairRequest.Application.Security;
 namespace RepairRequest.Api.Controllers;
 
 /// <summary>
-/// Repair Request endpoints (RR-API-001 / RR-API-002 / RR-API-004 / RR-API-005 / RR-API-006 / RR-API-007; UC-RR-001/002/003).
-/// Create, edit and submit use the RepairRequest.Draft policy (REQUESTER); detail uses RepairRequest.Read within the S1-003
-/// scope; Approve and Reject use RepairRequest.Review (APPROVER) plus the assigned-approver and self-decision rules; Cancel
-/// (RR-API-009) uses RepairRequest.Draft plus ownership. List, Return for Correction and Convert are later tickets.
+/// Repair Request endpoints (RR-API-001 / 002 / 004..009; UC-RR-001..004). Create, edit and submit (including Resubmit of a
+/// DRAFT returned for correction) use the RepairRequest.Draft policy (REQUESTER); detail uses RepairRequest.Read within the
+/// S1-003 scope; Approve, Reject and Return for Correction use RepairRequest.Review (APPROVER) plus the assigned-approver and
+/// self-decision rules; Cancel (RR-API-009) uses RepairRequest.Draft plus ownership. List and Convert are later tickets.
 /// </summary>
 [ApiController]
 [Route("api/v1/repair-requests")]
@@ -130,6 +130,28 @@ public sealed class RepairRequestsController : CommandControllerBase
         }
 
         var result = await _decisions.RejectAsync(
+            await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request?.Reason, cancellationToken);
+        return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// RR-API-008 Return for Correction (ST-RR-006) of an UNDER_REVIEW request by its assigned approver, with the required
+    /// reason. If-Match is required. Success returns the request as DRAFT with a fresh ETag; the owner can edit and resubmit it.
+    /// </summary>
+    [HttpPost("{repairRequestId:guid}/return-for-correction")]
+    [Authorize(Policy = AuthorizationPolicies.RepairRequestReview)]
+    [ProducesResponseType<RepairRequestDraftResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ReturnForCorrection(
+        Guid repairRequestId,
+        [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] ReturnForCorrectionRequest? request,
+        CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var result = await _decisions.ReturnForCorrectionAsync(
             await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request?.Reason, cancellationToken);
         return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
     }

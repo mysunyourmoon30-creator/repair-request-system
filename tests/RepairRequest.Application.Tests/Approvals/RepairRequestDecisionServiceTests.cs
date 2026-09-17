@@ -205,7 +205,7 @@ public class RepairRequestDecisionServiceTests
         _store.Approvals.Clear();
         var (withFailureRow, _) = _store.SeedUnderReview(_tenantId, _creator, _approver);
         _store.Approvals.RemoveAll(approval => approval.RepairRequestId == withFailureRow.Id);
-        _store.Approvals.Add(RepairRequestApproval.AssignmentFailed(_tenantId, withFailureRow.Id, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverAmbiguous));
+        _store.Approvals.Add(RepairRequestApproval.AssignmentFailed(_tenantId, withFailureRow.Id, RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverAmbiguous));
 
         Assert.Equal(CommandFailure.AccessDenied, (await DecideAsync(Approver(), withoutStep, approve: true)).Error?.Failure);
         Assert.Equal(CommandFailure.AccessDenied, (await DecideAsync(Approver(), withFailureRow, approve: false)).Error?.Failure);
@@ -343,7 +343,7 @@ internal sealed class FakeRepairRequestDecisionStore : IRepairRequestDecisionSto
         Set(request, nameof(RepairRequestAggregate.RowVersion), InitialRowVersion);
         Requests.Add(request);
 
-        var step = RepairRequestApproval.Assigned(tenantId, request.Id, Guid.NewGuid(), 1, assignee, new DateTime(2026, 9, 15, 8, 0, 1, DateTimeKind.Utc));
+        var step = RepairRequestApproval.Assigned(tenantId, request.Id, RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, assignee, new DateTime(2026, 9, 15, 8, 0, 1, DateTimeKind.Utc));
         Set(step, nameof(RepairRequestApproval.Id), Guid.NewGuid());
         Approvals.Add(step);
         return (request, step);
@@ -374,8 +374,10 @@ internal sealed class FakeRepairRequestDecisionStore : IRepairRequestDecisionSto
     }
 
     public Task<RepairRequestApproval?> FindStepApprovalAsync(Guid tenantId, Guid repairRequestId, short stepNo, CancellationToken cancellationToken) =>
-        Task.FromResult(Approvals.SingleOrDefault(approval =>
-            approval.TenantId == tenantId && approval.RepairRequestId == repairRequestId && approval.ApprovalStepNo == stepNo));
+        Task.FromResult(Approvals
+            .Where(approval => approval.TenantId == tenantId && approval.RepairRequestId == repairRequestId && approval.ApprovalStepNo == stepNo)
+            .OrderByDescending(approval => approval.ApprovalCycleNo)
+            .FirstOrDefault());
 
     public void AddAudit(AuditHistory audit) => _pendingAudits.Add(audit);
 

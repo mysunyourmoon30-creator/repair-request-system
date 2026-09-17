@@ -8,19 +8,21 @@ using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest
 namespace RepairRequest.Application.Approvals;
 
 /// <summary>
-/// RR-API-006 Approve (ST-RR-004) and RR-API-007 Reject (ST-RR-005) by the assigned approver (S1-008). One decision runs in
+/// RR-API-006 Approve (ST-RR-004), RR-API-007 Reject (ST-RR-005; S1-008) and RR-API-008 Return for Correction (ST-RR-006;
+/// S1-010) by the assigned approver of the current approval cycle. One decision runs in
 /// one transaction with the request's review-workflow lock held, and the checks run in this deterministic order:
 /// <list type="number">
 /// <item>APPROVER role, and the request within the caller's S1-003 Repair Request scope (404 otherwise);</item>
 /// <item>no decision on the caller's own request, even with an assignment (403; DEC-PRE-S1-008-01);</item>
 /// <item>row version (409 CONCURRENCY_CONFLICT);</item>
-/// <item>UNDER_REVIEW only: SUBMITTED has no assigned approver (409 STATE_CONFLICT; DEC-PRE-S1-008-03);</item>
+/// <item>UNDER_REVIEW only: SUBMITTED has no assigned approver (409 STATE_CONFLICT; DEC-PRE-S1-008-03, DEC-PRE-S1-010-03);</item>
 /// <item>the caller is the assigned approver of the pending step (403; S1-007R assignment);</item>
-/// <item>Reject only: a reason, trimmed, 1..1000 characters (422).</item>
+/// <item>Reject and Return only: a reason, trimmed, 1..1000 characters (422).</item>
 /// </list>
-/// Success decides the approval step, moves the request to APPROVED or REJECTED (with reject_reason) and writes one audit
-/// record with the approver as actor. Nothing is written on any failure. Decision notifications, the SLA stop on Reject,
-/// Return for Correction and Work Order conversion are out of scope.
+/// Success decides the approval step and moves the request to APPROVED, REJECTED (with reject_reason) or back to DRAFT
+/// (Return: the reason is the step's decision_reason and the step is kept as history), and writes one audit record with
+/// the approver as actor. Nothing is written on any failure. Decision notifications, the SLA stop on Reject and Work Order
+/// conversion are out of scope.
 /// </summary>
 public sealed class RepairRequestDecisionService
 {
@@ -38,7 +40,7 @@ public sealed class RepairRequestDecisionService
         Guid repairRequestId,
         byte[] expectedRowVersion,
         CancellationToken cancellationToken) =>
-        DecideAsync(context, repairRequestId, expectedRowVersion, approve: true, reason: null, cancellationToken);
+        DecideAsync(context, repairRequestId, expectedRowVersion, DecisionKind.Approve, reason: null, cancellationToken);
 
     public Task<CommandResult<RepairRequestDraftDto>> RejectAsync(
         CommandContext context,
@@ -46,13 +48,28 @@ public sealed class RepairRequestDecisionService
         byte[] expectedRowVersion,
         string? reason,
         CancellationToken cancellationToken) =>
-        DecideAsync(context, repairRequestId, expectedRowVersion, approve: false, reason, cancellationToken);
+        DecideAsync(context, repairRequestId, expectedRowVersion, DecisionKind.Reject, reason, cancellationToken);
+
+    public Task<CommandResult<RepairRequestDraftDto>> ReturnForCorrectionAsync(
+        CommandContext context,
+        Guid repairRequestId,
+        byte[] expectedRowVersion,
+        string? reason,
+        CancellationToken cancellationToken) =>
+        DecideAsync(context, repairRequestId, expectedRowVersion, DecisionKind.ReturnForCorrection, reason, cancellationToken);
+
+    private enum DecisionKind
+    {
+        Approve,
+        Reject,
+        ReturnForCorrection
+    }
 
     private Task<CommandResult<RepairRequestDraftDto>> DecideAsync(
         CommandContext context,
         Guid repairRequestId,
         byte[] expectedRowVersion,
-        bool approve,
+        DecisionKind kind,
         string? reason,
         CancellationToken cancellationToken)
     {
@@ -63,7 +80,7 @@ public sealed class RepairRequestDecisionService
         }
 
         return _store.RunInTransactionAsync(
-            () => DecideLockedAsync(context, repairRequestId, expectedRowVersion, approve, reason, cancellationToken),
+            () => DecideLockedAsync(context, repairRequestId, expectedRowVersion, kind, reason, cancellationToken),
             cancellationToken);
     }
 
@@ -71,7 +88,7 @@ public sealed class RepairRequestDecisionService
         CommandContext context,
         Guid repairRequestId,
         byte[] expectedRowVersion,
-        bool approve,
+        DecisionKind kind,
         string? reason,
         CancellationToken cancellationToken)
     {
@@ -95,7 +112,9 @@ public sealed class RepairRequestDecisionService
 
         if (request.Status != RepairRequestStatus.UnderReview)
         {
-            return CommandError.StateConflict("Only an UNDER_REVIEW Repair Request can be approved or rejected.");
+            return CommandError.StateConflict(kind == DecisionKind.ReturnForCorrection
+                ? "Only an UNDER_REVIEW Repair Request can be returned for correction."
+                : "Only an UNDER_REVIEW Repair Request can be approved or rejected.");
         }
 
         var approval = await _store.FindStepApprovalAsync(request.TenantId, request.Id, ApprovalRouteStep.FirstStepNo, cancellationToken);
@@ -104,26 +123,34 @@ public sealed class RepairRequestDecisionService
             return CommandError.AccessDenied;
         }
 
-        var rejectReason = approve ? null : RejectReason(reason);
-        if (!approve && rejectReason is null)
+        var decisionReason = kind == DecisionKind.Approve ? null : DecisionReason(reason);
+        if (kind != DecisionKind.Approve && decisionReason is null)
         {
             return CommandError.Validation(
                 RepairRequestFields.Reason,
-                $"A reason of 1 to {RepairRequestAggregate.ReasonMaxLength} characters is required to reject.");
+                kind == DecisionKind.Reject
+                    ? $"A reason of 1 to {RepairRequestAggregate.ReasonMaxLength} characters is required to reject."
+                    : $"A reason of 1 to {RepairRequestApproval.DecisionReasonMaxLength} characters is required to return for correction.");
         }
 
         var now = UtcNow();
-        if (approve)
+        switch (kind)
         {
-            approval.Approve(now);
-            request.Approve();
-            _store.AddAudit(RepairRequestAudit.Approved(context, request, approval, now));
-        }
-        else
-        {
-            approval.Reject(rejectReason!, now);
-            request.Reject(rejectReason!);
-            _store.AddAudit(RepairRequestAudit.Rejected(context, request, approval, now));
+            case DecisionKind.Approve:
+                approval.Approve(now);
+                request.Approve();
+                _store.AddAudit(RepairRequestAudit.Approved(context, request, approval, now));
+                break;
+            case DecisionKind.Reject:
+                approval.Reject(decisionReason!, now);
+                request.Reject(decisionReason!);
+                _store.AddAudit(RepairRequestAudit.Rejected(context, request, approval, now));
+                break;
+            default:
+                approval.ReturnForCorrection(decisionReason!, now);
+                request.ReturnForCorrection();
+                _store.AddAudit(RepairRequestAudit.ReturnedForCorrection(context, request, approval, now));
+                break;
         }
 
         var outcome = await _store.SaveChangesAsync(request, expectedRowVersion, cancellationToken);
@@ -133,8 +160,10 @@ public sealed class RepairRequestDecisionService
             : CommandError.ConcurrencyConflict;
     }
 
-    /// <summary>The trimmed reason, or null when it is missing, blank or longer than RR-DD-001 RR-016 allows.</summary>
-    private static string? RejectReason(string? value)
+    /// <summary>
+    /// The trimmed reason, or null when it is missing, blank or longer than RR-DD-001 RR-016 / APR-008 allow (both 1000).
+    /// </summary>
+    private static string? DecisionReason(string? value)
     {
         var trimmed = value?.Trim();
         return string.IsNullOrEmpty(trimmed) || trimmed.Length > RepairRequestAggregate.ReasonMaxLength ? null : trimmed;

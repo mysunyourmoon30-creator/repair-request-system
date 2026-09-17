@@ -84,9 +84,9 @@ internal sealed class RepairRequestSubmitStore : IRepairRequestSubmitStore
         RepairRequestAggregate request,
         byte[] expectedRowVersion,
         DuplicateQuery duplicateQuery,
-        int requestYear,
+        int? requestYear,
         bool hasContinuationReason,
-        Func<int, int, AuditHistory> applySubmit,
+        Func<int?, int, AuditHistory> applySubmit,
         CancellationToken cancellationToken)
     {
         try
@@ -108,7 +108,8 @@ internal sealed class RepairRequestSubmitStore : IRepairRequestSubmitStore
                 return new RepairRequestSubmitResult(RepairRequestSubmitStatus.DuplicateWarning, duplicateCount);
             }
 
-            var sequence = await AllocateSequenceAsync(request.TenantId, requestYear, cancellationToken);
+            // A resubmission keeps its Request No and never touches the counter (DEC-PRE-S1-010-02).
+            int? sequence = requestYear is { } year ? await AllocateSequenceAsync(request.TenantId, year, cancellationToken) : null;
             _db.AuditHistory.Add(applySubmit(sequence, duplicateCount));
 
             // The UPDATE applies only WHERE row_version = the client's If-Match token.

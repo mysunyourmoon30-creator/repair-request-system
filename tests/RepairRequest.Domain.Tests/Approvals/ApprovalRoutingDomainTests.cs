@@ -106,7 +106,7 @@ public class ApprovalRoutingDomainTests
     {
         var approver = Guid.NewGuid();
 
-        var approval = RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, approver, Now);
+        var approval = RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, approver, Now);
 
         Assert.Equal(ApprovalStatus.Pending, approval.Status);
         Assert.Equal(approver, approval.AssignedApproverId);
@@ -120,7 +120,7 @@ public class ApprovalRoutingDomainTests
     {
         var routeId = Guid.NewGuid();
 
-        var approval = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), routeId, 1, RoutingFailureCodes.ApproverAmbiguous);
+        var approval = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, routeId, 1, RoutingFailureCodes.ApproverAmbiguous);
 
         Assert.Equal(routeId, approval.ApprovalRouteId);
         Assert.Equal(1, approval.ApprovalStepNo);
@@ -137,22 +137,22 @@ public class ApprovalRoutingDomainTests
     [InlineData("UNKNOWN_CODE")]
     public void Approval_RouteLevelOrUnknownFailureCodes_AreNeverStoredOnARow(string code)
     {
-        Assert.Throws<ArgumentException>(() => RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, code));
+        Assert.Throws<ArgumentException>(() => RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, code));
     }
 
     [Fact]
     public void Approval_RequiresRouteStepAndUtcTime()
     {
-        Assert.Throws<ArgumentException>(() => RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), Guid.Empty, 1, Guid.NewGuid(), Now));
-        Assert.Throws<ArgumentOutOfRangeException>(() => RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 0, Guid.NewGuid(), Now));
-        Assert.Throws<ArgumentException>(() => RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, Guid.Empty, Now));
-        Assert.Throws<ArgumentException>(() => RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, Guid.NewGuid(), DateTime.SpecifyKind(Now, DateTimeKind.Local)));
+        Assert.Throws<ArgumentException>(() => RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.Empty, 1, Guid.NewGuid(), Now));
+        Assert.Throws<ArgumentOutOfRangeException>(() => RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 0, Guid.NewGuid(), Now));
+        Assert.Throws<ArgumentException>(() => RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, Guid.Empty, Now));
+        Assert.Throws<ArgumentException>(() => RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, Guid.NewGuid(), DateTime.SpecifyKind(Now, DateTimeKind.Local)));
     }
 
     [Fact]
     public void Approval_Retry_AssignsOrRecordsANewFailure_OnlyWhileUnassigned()
     {
-        var failed = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, RoutingFailureCodes.ApproverNotFound);
+        var failed = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverNotFound);
         var newRoute = Guid.NewGuid();
 
         failed.FailOnRetry(newRoute, 1, RoutingFailureCodes.ApproverNotEligible);
@@ -171,8 +171,8 @@ public class ApprovalRoutingDomainTests
     [Fact]
     public void Approval_OnlyAnUnassignedRoutingFailure_IsDiscardable()
     {
-        var failure = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, RoutingFailureCodes.ApproverAmbiguous);
-        var assigned = RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, Guid.NewGuid(), Now);
+        var failure = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverAmbiguous);
+        var assigned = RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, Guid.NewGuid(), Now);
 
         failure.EnsureDiscardableRoutingFailure();
         Assert.Throws<DomainRuleViolationException>(assigned.EnsureDiscardableRoutingFailure);
@@ -185,7 +185,7 @@ public class ApprovalRoutingDomainTests
     public void Approval_WithADecision_IsNeverDiscardable(ApprovalStatus decision)
     {
         // Decisions are not produced by S1-007R; the status is forced to prove the removal guard never accepts a decided row.
-        var decided = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, RoutingFailureCodes.ApproverNotFound);
+        var decided = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverNotFound);
         typeof(RepairRequestApproval).GetProperty(nameof(RepairRequestApproval.Status))!.SetValue(decided, decision);
 
         Assert.Throws<DomainRuleViolationException>(decided.EnsureDiscardableRoutingFailure);

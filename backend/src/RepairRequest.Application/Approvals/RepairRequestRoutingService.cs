@@ -92,10 +92,25 @@ public sealed class RepairRequestRoutingService : ISubmittedRequestRouter
             return CommandError.StateConflict("Only a SUBMITTED Repair Request can be routed.");
         }
 
+        // The current approval cycle (DEC-PRE-S1-010-01): a step returned for correction is history, so a resubmitted
+        // request is routed into the next cycle; an unassigned failure row of the current cycle is routed again in place.
         var existing = await _store.FindStepApprovalAsync(tenantId, request.Id, ApprovalRouteStep.FirstStepNo, cancellationToken);
-        if (existing is not null && (existing.Status != ApprovalStatus.Pending || existing.AssignedApproverId is not null))
+        var cycleNo = RepairRequestApproval.FirstCycleNo;
+        if (existing is not null)
         {
-            return CommandError.StateConflict("The Repair Request already has an assigned approval.");
+            if (existing.Status == ApprovalStatus.ReturnedForCorrection)
+            {
+                cycleNo = checked((short)(existing.ApprovalCycleNo + 1));
+                existing = null;
+            }
+            else if (existing.Status != ApprovalStatus.Pending || existing.AssignedApproverId is not null)
+            {
+                return CommandError.StateConflict("The Repair Request already has an assigned approval.");
+            }
+            else
+            {
+                cycleNo = existing.ApprovalCycleNo;
+            }
         }
 
         var decision = await DecideAsync(tenantId, request, cancellationToken);
@@ -106,7 +121,7 @@ public sealed class RepairRequestRoutingService : ISubmittedRequestRouter
             if (existing is null)
             {
                 _store.AddApproval(RepairRequestApproval.Assigned(
-                    tenantId, request.Id, decision.RouteId!.Value, decision.StepNo!.Value, approverId, now));
+                    tenantId, request.Id, cycleNo, decision.RouteId!.Value, decision.StepNo!.Value, approverId, now));
             }
             else
             {
@@ -114,7 +129,7 @@ public sealed class RepairRequestRoutingService : ISubmittedRequestRouter
             }
 
             request.RouteForReview();
-            _store.AddAudit(RepairRequestRoutingAudit.Routed(context, request, decision, trigger, now));
+            _store.AddAudit(RepairRequestRoutingAudit.Routed(context, request, decision, cycleNo, trigger, now));
         }
         else
         {
@@ -125,7 +140,7 @@ public sealed class RepairRequestRoutingService : ISubmittedRequestRouter
             {
                 if (existing is null)
                 {
-                    _store.AddApproval(RepairRequestApproval.AssignmentFailed(tenantId, request.Id, routeId, stepNo, decision.FailureCode!));
+                    _store.AddApproval(RepairRequestApproval.AssignmentFailed(tenantId, request.Id, cycleNo, routeId, stepNo, decision.FailureCode!));
                 }
                 else
                 {
@@ -138,7 +153,7 @@ public sealed class RepairRequestRoutingService : ISubmittedRequestRouter
                 _store.RemoveApproval(existing);
             }
 
-            _store.AddAudit(RepairRequestRoutingAudit.RoutingFailed(context, request, decision, trigger, now));
+            _store.AddAudit(RepairRequestRoutingAudit.RoutingFailed(context, request, decision, cycleNo, trigger, now));
         }
 
         var outcome = await _store.SaveChangesAsync(request, expectedRowVersion, cancellationToken);

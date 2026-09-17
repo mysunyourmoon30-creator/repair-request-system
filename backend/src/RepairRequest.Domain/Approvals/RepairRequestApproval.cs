@@ -4,24 +4,29 @@ namespace RepairRequest.Domain.Approvals;
 
 /// <summary>
 /// Approval assignment and decision history of one Repair Request step (RR-DD-001 APR-001..011; RR-DBD-001
-/// repair_request_approval, UNIQUE(request, step)). S1-007R writes a PENDING row when routing either assigns exactly one
-/// approver or resolves a route and step but cannot assign one (routing_failure_code set, no approver;
-/// DEC-PRE-S1-007R-09). A row is either assigned or carries a routing failure, never both. Decisions (APPROVED /
-/// REJECTED / RETURNED_FOR_CORRECTION) are not made here.
+/// repair_request_approval, UNIQUE(request, step, approval cycle); DEC-PRE-S1-010-01). S1-007R writes a PENDING row when
+/// routing either assigns exactly one approver or resolves a route and step but cannot assign one (routing_failure_code
+/// set, no approver; DEC-PRE-S1-007R-09). A row is either assigned or carries a routing failure, never both. The assigned
+/// approver decides it once: APPROVED / REJECTED (S1-008) or RETURNED_FOR_CORRECTION (S1-010). A returned row is kept as
+/// history and a resubmission is routed into the next approval cycle.
 /// </summary>
 public sealed class RepairRequestApproval
 {
     public const int DecisionReasonMaxLength = 1000;
+
+    /// <summary>The first approval cycle of a request; each resubmission after Return for Correction starts the next one.</summary>
+    public const short FirstCycleNo = 1;
 
     /// <summary>EF Core materialization.</summary>
     private RepairRequestApproval()
     {
     }
 
-    private RepairRequestApproval(Guid tenantId, Guid repairRequestId, Guid approvalRouteId, short approvalStepNo)
+    private RepairRequestApproval(Guid tenantId, Guid repairRequestId, short approvalCycleNo, Guid approvalRouteId, short approvalStepNo)
     {
         TenantId = DomainGuard.NotEmpty(tenantId, nameof(tenantId));
         RepairRequestId = DomainGuard.NotEmpty(repairRequestId, nameof(repairRequestId));
+        ApprovalCycleNo = approvalCycleNo >= FirstCycleNo ? approvalCycleNo : throw new ArgumentOutOfRangeException(nameof(approvalCycleNo));
         Status = ApprovalStatus.Pending;
         SetRoute(approvalRouteId, approvalStepNo);
     }
@@ -30,12 +35,13 @@ public sealed class RepairRequestApproval
     public static RepairRequestApproval Assigned(
         Guid tenantId,
         Guid repairRequestId,
+        short approvalCycleNo,
         Guid approvalRouteId,
         short approvalStepNo,
         Guid assignedApproverId,
         DateTime routedAt)
     {
-        var approval = new RepairRequestApproval(tenantId, repairRequestId, approvalRouteId, approvalStepNo);
+        var approval = new RepairRequestApproval(tenantId, repairRequestId, approvalCycleNo, approvalRouteId, approvalStepNo);
         approval.Assign(assignedApproverId, routedAt);
         return approval;
     }
@@ -44,11 +50,12 @@ public sealed class RepairRequestApproval
     public static RepairRequestApproval AssignmentFailed(
         Guid tenantId,
         Guid repairRequestId,
+        short approvalCycleNo,
         Guid approvalRouteId,
         short approvalStepNo,
         string routingFailureCode)
     {
-        var approval = new RepairRequestApproval(tenantId, repairRequestId, approvalRouteId, approvalStepNo);
+        var approval = new RepairRequestApproval(tenantId, repairRequestId, approvalCycleNo, approvalRouteId, approvalStepNo);
         approval.Fail(routingFailureCode);
         return approval;
     }
@@ -61,10 +68,16 @@ public sealed class RepairRequestApproval
     /// <summary>APR-003.</summary>
     public Guid RepairRequestId { get; private set; }
 
+    /// <summary>
+    /// Approval cycle (DEC-PRE-S1-010-01): 1 for the first submission, +1 for each resubmission after Return for Correction.
+    /// Unique together with the request and step, so earlier cycles stay as decision history.
+    /// </summary>
+    public short ApprovalCycleNo { get; private set; }
+
     /// <summary>APR-004. Always set.</summary>
     public Guid ApprovalRouteId { get; private set; }
 
-    /// <summary>APR-005. Always set; unique per request.</summary>
+    /// <summary>APR-005. Always set; unique per request and approval cycle.</summary>
     public short ApprovalStepNo { get; private set; }
 
     /// <summary>APR-006. Null only together with a routing failure code.</summary>
@@ -73,7 +86,7 @@ public sealed class RepairRequestApproval
     /// <summary>APR-007.</summary>
     public ApprovalStatus Status { get; private set; }
 
-    /// <summary>APR-008. Required for Reject/Return in later tickets.</summary>
+    /// <summary>APR-008. Required for Reject and Return for Correction.</summary>
     public string? DecisionReason { get; private set; }
 
     /// <summary>APR-009. System time of the successful assignment.</summary>
@@ -120,6 +133,18 @@ public sealed class RepairRequestApproval
         DecisionReason = DomainGuard.RequiredText(reason, DecisionReasonMaxLength, nameof(reason));
         DecidedAt = DomainGuard.Utc(decidedAt, nameof(decidedAt));
         Status = ApprovalStatus.Rejected;
+    }
+
+    /// <summary>
+    /// ST-RR-006 decision with the required reason (APR-007 RETURNED_FOR_CORRECTION, APR-008 decision_reason, APR-010
+    /// decided_at). The row is final and kept as decision history; a resubmission is routed into the next cycle.
+    /// </summary>
+    public void ReturnForCorrection(string reason, DateTime decidedAt)
+    {
+        EnsureDecidable();
+        DecisionReason = DomainGuard.RequiredText(reason, DecisionReasonMaxLength, nameof(reason));
+        DecidedAt = DomainGuard.Utc(decidedAt, nameof(decidedAt));
+        Status = ApprovalStatus.ReturnedForCorrection;
     }
 
     private void EnsureDecidable()

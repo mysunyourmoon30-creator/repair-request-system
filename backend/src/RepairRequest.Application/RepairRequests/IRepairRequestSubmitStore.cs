@@ -49,9 +49,10 @@ public interface IRepairRequestSubmitStore
     /// <item>takes an exclusive lock on the duplicate key of <paramref name="duplicateQuery"/>, held until commit/rollback;</item>
     /// <item>counts duplicates inside that lock; a match without <paramref name="hasContinuationReason"/> returns
     /// <see cref="RepairRequestSubmitStatus.DuplicateWarning"/> and writes nothing;</item>
-    /// <item>allocates the next per-tenant, per-year Request No sequence, lets <paramref name="applySubmit"/> (sequence,
-    /// duplicate count) apply the transition and build its audit record, and saves the request only while its row version
-    /// still equals <paramref name="expectedRowVersion"/>.</item>
+    /// <item>allocates the next per-tenant, per-year Request No sequence when <paramref name="requestYear"/> is set (a first
+    /// Submit), or nothing for a resubmission, which keeps its Request No (null; DEC-PRE-S1-010-02); lets
+    /// <paramref name="applySubmit"/> (sequence or null, duplicate count) apply the transition and build its audit record,
+    /// and saves the request only while its row version still equals <paramref name="expectedRowVersion"/>.</item>
     /// </list>
     /// Any failure, lock timeout or conflict rolls everything back, including the sequence increment, so a failed Submit
     /// never consumes a number (DEC-PRE-S1-007-09/-11).
@@ -60,8 +61,8 @@ public interface IRepairRequestSubmitStore
         RepairRequestAggregate request,
         byte[] expectedRowVersion,
         DuplicateQuery duplicateQuery,
-        int requestYear,
+        int? requestYear,
         bool hasContinuationReason,
-        Func<int, int, AuditHistory> applySubmit,
+        Func<int?, int, AuditHistory> applySubmit,
         CancellationToken cancellationToken);
 }

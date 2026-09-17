@@ -31,7 +31,7 @@ public class RepairRequestDecisionDomainTests
     }
 
     private static RepairRequestApproval AssignedStep() =>
-        RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, Guid.NewGuid(), Now);
+        RepairRequestApproval.Assigned(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, Guid.NewGuid(), Now);
 
     // ---------------- Repair Request ----------------
 
@@ -152,7 +152,7 @@ public class RepairRequestDecisionDomainTests
     [Fact]
     public void ApprovalStep_WithoutAnAssignedApprover_CannotBeDecided()
     {
-        var failure = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), 1, RoutingFailureCodes.ApproverNotFound);
+        var failure = RepairRequestApproval.AssignmentFailed(Guid.NewGuid(), Guid.NewGuid(), RepairRequestApproval.FirstCycleNo, Guid.NewGuid(), 1, RoutingFailureCodes.ApproverNotFound);
 
         Assert.Throws<DomainRuleViolationException>(() => failure.Approve(Now));
         Assert.Throws<DomainRuleViolationException>(() => failure.Reject("Reason", Now));

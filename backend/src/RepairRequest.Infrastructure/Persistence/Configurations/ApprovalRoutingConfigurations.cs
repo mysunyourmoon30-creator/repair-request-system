@@ -115,7 +115,8 @@ internal sealed class ApprovalRouteStepConfiguration : IEntityTypeConfiguration<
 }
 
 /// <summary>
-/// repair_request_approval (RR-DD-001 APR-001..011; RR-DBD-001 UNIQUE(request, step)). A row is either assigned or carries
+/// repair_request_approval (RR-DD-001 APR-001..011; RR-DBD-001 UNIQUE(request, step), amended to UNIQUE(request, step,
+/// approval_cycle_no) by DEC-PRE-S1-010-01 so each resubmission gets a new cycle). A row is either assigned or carries
 /// an approver-level routing failure (DEC-PRE-S1-007R-09); approval_route_id and approval_step_no are always required.
 /// The RR-DBD-001 approval inbox index (assigned_approver_id, status, routed_at) is deferred to the approval inbox ticket:
 /// no S1-007R query uses it. Foreign-key indexes are not duplicated: (tenant_id, approval_route_id, approval_step_no)
@@ -129,6 +130,7 @@ internal sealed class RepairRequestApprovalConfiguration : IEntityTypeConfigurat
         {
             table.HasCheckConstraint("CK_repair_request_approval_status", SqlCheck.In<ApprovalStatus>("status"));
             table.HasCheckConstraint("CK_repair_request_approval_step_no", "[approval_step_no] >= 1");
+            table.HasCheckConstraint("CK_repair_request_approval_cycle_no", "[approval_cycle_no] >= 1");
             table.HasCheckConstraint(
                 "CK_repair_request_approval_assignment",
                 "[assigned_approver_id] IS NOT NULL OR [routing_failure_code] IS NOT NULL");
@@ -145,6 +147,7 @@ internal sealed class RepairRequestApprovalConfiguration : IEntityTypeConfigurat
         builder.Property(approval => approval.RepairRequestId).HasColumnName("repair_request_id");
         builder.Property(approval => approval.ApprovalRouteId).HasColumnName("approval_route_id");
         builder.Property(approval => approval.ApprovalStepNo).HasColumnName("approval_step_no");
+        builder.Property(approval => approval.ApprovalCycleNo).HasColumnName("approval_cycle_no");
         builder.Property(approval => approval.AssignedApproverId).HasColumnName("assigned_approver_id");
 
         builder.Property(approval => approval.Status)
@@ -169,9 +172,11 @@ internal sealed class RepairRequestApprovalConfiguration : IEntityTypeConfigurat
             .HasColumnName("row_version")
             .IsRowVersion();
 
-        builder.HasIndex(approval => new { approval.RepairRequestId, approval.ApprovalStepNo })
+        // One row per request, step and approval cycle (DEC-PRE-S1-010-01). The key order also serves the "current cycle of
+        // a step" lookup as one backward range seek.
+        builder.HasIndex(approval => new { approval.RepairRequestId, approval.ApprovalStepNo, approval.ApprovalCycleNo })
             .IsUnique()
-            .HasDatabaseName("UQ_repair_request_approval_request_step");
+            .HasDatabaseName("UQ_repair_request_approval_request_step_cycle");
 
         builder.HasOne<RepairRequestAggregate>()
             .WithMany()

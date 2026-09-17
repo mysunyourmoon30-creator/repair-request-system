@@ -26,7 +26,8 @@ namespace RepairRequest.Infrastructure.Approvals;
 /// approval_route_step primary key. No graphs are loaded.</item>
 /// <item>Eligibility: EXISTS / TOP(n) over user_site_scope keys and the Identity user-role key; the creator is excluded in
 /// SQL.</item>
-/// <item>Double assignment: UNIQUE(repair_request_id, approval_step_no) is the database backstop.</item>
+/// <item>Double assignment: UNIQUE(repair_request_id, approval_step_no, approval_cycle_no) is the database backstop; the current
+/// cycle of a step is one backward seek on that index (DEC-PRE-S1-010-01).</item>
 /// </list>
 /// </summary>
 internal sealed class ApprovalRoutingStore : IApprovalRoutingStore
@@ -121,9 +122,10 @@ internal sealed class ApprovalRoutingStore : IApprovalRoutingStore
     }
 
     public Task<RepairRequestApproval?> FindStepApprovalAsync(Guid tenantId, Guid repairRequestId, short stepNo, CancellationToken cancellationToken) =>
-        _db.RepairRequestApprovals.SingleOrDefaultAsync(
-            approval => approval.RepairRequestId == repairRequestId && approval.ApprovalStepNo == stepNo && approval.TenantId == tenantId,
-            cancellationToken);
+        _db.RepairRequestApprovals
+            .Where(approval => approval.RepairRequestId == repairRequestId && approval.ApprovalStepNo == stepNo && approval.TenantId == tenantId)
+            .OrderByDescending(approval => approval.ApprovalCycleNo)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public async Task<IReadOnlyList<RouteCandidate>> ListActiveRoutesAsync(
         Guid tenantId,

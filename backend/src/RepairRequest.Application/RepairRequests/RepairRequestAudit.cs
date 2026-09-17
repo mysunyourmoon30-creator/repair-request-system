@@ -8,9 +8,9 @@ using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest
 namespace RepairRequest.Application.RepairRequests;
 
 /// <summary>
-/// Audit records for Draft create/edit (UC-RR-001 "Audit create/edit"; ST-RR-001) and Submit (UC-RR-002 "Audit
-/// submit/reason"; ST-RR-002), written through the append-only audit_history table in the same transaction as the change.
-/// Failed commands are not audited.
+/// Audit records for Draft create/edit (UC-RR-001 "Audit create/edit"; ST-RR-001), Submit and Resubmit (UC-RR-002 "Audit
+/// submit/reason"; ST-RR-002), decisions (ST-RR-004..006) and Cancel (ST-RR-007), written through the append-only
+/// audit_history table in the same transaction as the change. Failed commands are not audited.
 /// </summary>
 public static class RepairRequestAudit
 {
@@ -21,9 +21,12 @@ public static class RepairRequestAudit
     public const string ApprovedAction = "REPAIR_REQUEST_APPROVED";
     public const string RejectedAction = "REPAIR_REQUEST_REJECTED";
     public const string CancelledAction = "REPAIR_REQUEST_CANCELLED";
+    public const string ReturnedForCorrectionAction = "REPAIR_REQUEST_RETURNED_FOR_CORRECTION";
+    public const string ResubmittedAction = "REPAIR_REQUEST_RESUBMITTED";
 
     public const string ApprovalIdField = "approvalId";
     public const string ApprovalStepNoField = "approvalStepNo";
+    public const string ApprovalCycleNoField = "approvalCycleNo";
 
     public static AuditHistory DraftCreated(CommandContext context, RepairRequestAggregate draft, DateTime occurredAt)
     {
@@ -104,6 +107,44 @@ public static class RepairRequestAudit
     }
 
     /// <summary>
+    /// Resubmit success (ST-RR-002 after ST-RR-006): DRAFT -> SUBMITTED. The unchanged Request No and the original submitted_at
+    /// (SLA start, DEC-PRE-S1-010-02) are recorded; the resubmission time is <paramref name="occurredAt"/>. The audit reason is
+    /// the continuation reason applied to this resubmission only (DEC-PRE-S1-010-04), with the duplicate count, never identifiers.
+    /// </summary>
+    public static AuditHistory Resubmitted(
+        CommandContext context,
+        RepairRequestAggregate request,
+        int duplicateCount,
+        string? appliedContinuationReason,
+        DateTime occurredAt)
+    {
+        var values = new Dictionary<string, object?>
+        {
+            [RepairRequestFields.RequestNo] = request.RequestNo,
+            [RepairRequestFields.SubmittedAt] = request.SubmittedAt
+        };
+
+        if (duplicateCount > 0)
+        {
+            values[RepairRequestFields.DuplicateCount] = duplicateCount;
+        }
+
+        return new AuditHistory(
+            request.TenantId,
+            EntityType,
+            request.Id,
+            ResubmittedAction,
+            fromState: RepairRequestStatusCodes.ToCode(RepairRequestStatus.Draft),
+            toState: RepairRequestStatusCodes.ToCode(RepairRequestStatus.Submitted),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(values),
+            reason: appliedContinuationReason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+    }
+
+    /// <summary>
     /// ST-RR-004 success: UNDER_REVIEW -> APPROVED. The actor is the authenticated assigned approver; the decided approval step
     /// is referenced by id and number. No reason is required for Approve.
     /// </summary>
@@ -113,6 +154,13 @@ public static class RepairRequestAudit
     /// <summary>ST-RR-005 success: UNDER_REVIEW -> REJECTED with the required reason as the audit reason (AUD-010).</summary>
     public static AuditHistory Rejected(CommandContext context, RepairRequestAggregate request, RepairRequestApproval approval, DateTime occurredAt) =>
         Decision(context, request, approval, RejectedAction, RepairRequestStatus.Rejected, request.RejectReason, occurredAt);
+
+    /// <summary>
+    /// ST-RR-006 success: UNDER_REVIEW -> DRAFT with the required reason (stored on the approval step, APR-008) as the audit
+    /// reason. The returned step is referenced by id, step and approval cycle.
+    /// </summary>
+    public static AuditHistory ReturnedForCorrection(CommandContext context, RepairRequestAggregate request, RepairRequestApproval approval, DateTime occurredAt) =>
+        Decision(context, request, approval, ReturnedForCorrectionAction, RepairRequestStatus.Draft, approval.DecisionReason, occurredAt);
 
     /// <summary>
     /// ST-RR-007 success: the source state (DRAFT, SUBMITTED, UNDER_REVIEW or APPROVED) -> CANCELLED, with the required cancel
@@ -152,7 +200,8 @@ public static class RepairRequestAudit
             newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
             {
                 [ApprovalIdField] = approval.Id,
-                [ApprovalStepNoField] = approval.ApprovalStepNo
+                [ApprovalStepNoField] = approval.ApprovalStepNo,
+                [ApprovalCycleNoField] = approval.ApprovalCycleNo
             }),
             reason: reason,
             context.User.UserId,

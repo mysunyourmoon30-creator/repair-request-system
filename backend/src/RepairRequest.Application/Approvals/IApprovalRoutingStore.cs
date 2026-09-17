@@ -21,7 +21,10 @@ public interface IApprovalRoutingStore
     /// <summary>Locks and loads (tracked, current database values) the request of <paramref name="tenantId"/>; null when absent.</summary>
     Task<RepairRequestAggregate?> LockRequestAsync(Guid tenantId, Guid repairRequestId, CancellationToken cancellationToken);
 
-    /// <summary>Tracked approval row of one step, or null.</summary>
+    /// <summary>
+    /// Tracked approval row of one step in the request's current (highest) approval cycle, or null when the step has no row
+    /// (DEC-PRE-S1-010-01).
+    /// </summary>
     Task<RepairRequestApproval?> FindStepApprovalAsync(Guid tenantId, Guid repairRequestId, short stepNo, CancellationToken cancellationToken);
 
     /// <summary>Active routes of the tenant for the Category at the Site or as tenant default, with their steps.</summary>

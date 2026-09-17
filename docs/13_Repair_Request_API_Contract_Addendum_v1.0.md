@@ -19,7 +19,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 
 **Rules for this addendum:**
 - The RR-API-001 PDF is not modified.
-- An endpoint is listed as implemented only if a controller route exists in the S1-009 codebase.
+- An endpoint is listed as implemented only if a controller route exists in the S1-010 codebase.
 - Addendum IDs (`AUTH-API-*`, `CUST-API-*`, `SITE-API-*`, `EQP-API-*`, `FILE-API-003`, `SYS-API-*`) are documentation numbers, not new business semantics.
 - Section 5 lists the approved Pre-S1-007 amendments to catalogued endpoints. All of them are **implemented in S1-007**; implementation details are in §4.1.
 - Nothing here adds a business rule. Behaviour is traced to RR-DEC-001 decisions and baseline IDs.
@@ -34,10 +34,11 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | RR-API-002 | PATCH `/api/v1/repair-requests/{id}` | IMPLEMENTED (S1-005; S1-007 adds Category, Priority and request contact) — `locationId` not accepted, see §4.1 |
 | RR-API-003 | GET `/api/v1/repair-requests` | NOT IMPLEMENTED |
 | RR-API-004 | GET `/api/v1/repair-requests/{id}` | IMPLEMENTED (S1-005; S1-007 adds the new fields to the response) |
-| RR-API-005 | POST `/api/v1/repair-requests/{id}/submit` | IMPLEMENTED (S1-007) — see §4.1 |
+| RR-API-005 | POST `/api/v1/repair-requests/{id}/submit` | IMPLEMENTED (S1-007; resubmission after Return for Correction in S1-010, uncommitted) — see §4.1, §4.9 |
 | RR-API-006..007 | approve / reject | IMPLEMENTED — S1-008 (a45bc38); see §4.7 |
 | RR-API-009 | cancel | IMPLEMENTED — S1-009 (305079f9b8bc2e9373330a9fa5a6a61994a64545); see §4.8 |
-| RR-API-008, RR-API-010 | return / convert | NOT IMPLEMENTED |
+| RR-API-008 | POST `/api/v1/repair-requests/{id}/return-for-correction` | IMPLEMENTED — S1-010 (uncommitted; commit hash to be recorded at commit); see §4.9 |
+| RR-API-010 | convert | NOT IMPLEMENTED |
 | FILE-API-001 | POST `/api/v1/repair-requests/{id}/attachments` | IMPLEMENTED (S1-006) |
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
 | WO-*, WS-*, ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-* | — | NOT IMPLEMENTED (later sprints / tickets) |
@@ -196,6 +197,7 @@ These responses come from ASP.NET Core before application code runs. Their bodie
   - Submits with other keys are not delayed by this.
   - If the key cannot be locked within the wait limit → 409 CONCURRENCY_CONFLICT, and nothing is written.
 - **Any failed Submit** writes nothing: no Request No, no `submittedAt`, no audit.
+- **Resubmission (S1-010):** the same endpoint and checks apply to a DRAFT returned for correction. It keeps its `requestNo` and `submittedAt`, allocates no Request No, re-runs the duplicate check without matching itself, and audits `REPAIR_REQUEST_RESUBMITTED`; see §4.9.
 - Trace: UC-RR-002, ST-RR-002, BR-01/03/14/16, D-12, TC-RR-003/004, TC-SEC-001/002.
 
 ### 4.2 Attachments / Files
@@ -391,6 +393,39 @@ These responses come from ASP.NET Core before application code runs. Their bodie
 - **Concurrency:** Cancel takes the same review-workflow lock as routing and Approve/Reject (§4.6, §4.7), then checks the ETag, so exactly one of Cancel / Approve / Reject / routing succeeds and the others return 409.
 - **Not in S1-009:** the SLA stop (EV-SLA-005 stop_reason REQUEST_CANCELLED; deferred with `sla_record`); NTF-CANCEL (notification scope); Return for Correction; Convert.
 
+### 4.9 Return for Correction & Resubmit (S1-010 — uncommitted; commit hash to be recorded at commit)
+
+**RR-API-008 POST `/api/v1/repair-requests/{id}/return-for-correction` — RepairRequest.Review, If-Match, body `{ "reason": "string" }`**
+
+- **Who may return:** only the **assigned approver** of the current-cycle PENDING approval step, never the request's creator (UC-RR-003; DEC-PRE-S1-008-01; DEC-PRE-S1-010-03).
+- **Source state:** UNDER_REVIEW only → **DRAFT**. There is no RETURNED state. SUBMITTED, APPROVED, REJECTED, CANCELLED, CONVERTED and DRAFT return 409 STATE_CONFLICT.
+- **Check order and responses** (the same order as Approve/Reject, §4.7):
+  1. 400 missing/invalid If-Match or malformed JSON; 401; 403 ACCESS_DENIED without APPROVER;
+  2. 404 NOT_FOUND nonexistent, outside the caller's Site scope, or other tenant;
+  3. 403 ACCESS_DENIED when the caller created the request;
+  4. 409 CONCURRENCY_CONFLICT stale ETag, or the request's review lock was not granted in time;
+  5. 409 STATE_CONFLICT not UNDER_REVIEW;
+  6. 403 ACCESS_DENIED when the caller is not the assigned approver of the current-cycle PENDING step;
+  7. 422 VALIDATION_FAILED on `reason`: missing, blank, or longer than 1000 characters after trimming.
+- **Success → `200`** with the RR-API-001 Repair Request response shape (`status = DRAFT`, unchanged `requestNo` and `submittedAt`) and a fresh `ETag`.
+- **Written atomically:**
+  - the approval step: `status` RETURNED_FOR_CORRECTION, `decision_reason` (APR-008, trimmed), `decided_at`. The step is kept as decision history and is never changed again;
+  - the request: `status` DRAFT; no other field changes (no return-reason column exists on `repair_request`);
+  - one audit `REPAIR_REQUEST_RETURNED_FOR_CORRECTION` (UNDER_REVIEW → DRAFT, reason, actor = approver, approvalId, approvalStepNo, approvalCycleNo, correlation id).
+  - Any failure writes nothing.
+- **After Return:** the owner edits the DRAFT with RR-API-002 and may add attachments (FILE-API-001), exactly as for any DRAFT. Cancel (RR-API-009) is also allowed.
+
+**Resubmit — RR-API-005 POST `/api/v1/repair-requests/{id}/submit` on a returned DRAFT**
+
+- Same policy, body, check order and 422 contract as Submit (§4.1), including the CLEAN-photo rule.
+- **Kept:** `requestNo`, `submittedBy` and `submittedAt` (SLA start marker; the SLA continues — DEC-PRE-S1-010-02). No Request No is allocated.
+- **Duplicates:** the BR-14 check runs again and never matches the request itself. With matches, a `duplicateContinuationReason` is required and replaces the stored one; without matches, the stored reason is kept (DEC-PRE-S1-010-04).
+- **Written atomically:** DRAFT → SUBMITTED and one audit `REPAIR_REQUEST_RESUBMITTED` (`requestNo`, original `submittedAt`, `duplicateCount` when > 0, the applied reason, actor = owner; the audit time is the resubmission time).
+- **Routing:** System routing runs after the commit exactly as for Submit (§4.6). The route configuration is evaluated again and the step is created in the **next approval cycle**; the returned step of the earlier cycle is not changed (DEC-PRE-S1-010-01). A routing failure stays SUBMITTED, appears in the routing-issue list, and Admin Retry routes it within the new cycle. The response is `UNDER_REVIEW` only when routing assigned an approver.
+
+- **Concurrency:** Return takes the review-workflow lock shared with routing, Approve/Reject and Cancel, then checks the ETag, so exactly one of Return / Approve / Reject / Cancel succeeds. Resubmit uses the Submit duplicate-key lock and the row-version check, so of Resubmit / Cancel / a second Resubmit exactly one succeeds, and only one new approval cycle is routed. UNIQUE(repair_request_id, approval_step_no, approval_cycle_no) is the database backstop.
+- **Not in S1-010:** NTF-RETURNED and other notifications; SLA calculation and `sla_record`; multi-step approval; approver reassignment; the approval inbox (it must use the current cycle and the request status); attachment removal; Convert.
+
 ## 5. Approved Contract Amendments from the Pre-S1-007 Resolution — IMPLEMENTED (S1-007)
 
 These come from the Pre-S1-007 requirement resolution (RR-DEC-001 §7). **All of them are implemented in S1-007** (commit 36ffc6a). The table is kept as the decision trace; the implemented behaviour is described in §4.1.
@@ -416,3 +451,4 @@ These come from the Pre-S1-007 requirement resolution (RR-DEC-001 §7). **All of
 | Authentication | DEC-PS1-004 | — | AUTH-API-001..003 | TC-AUTH-* (not yet authored) | Authentication integration tests |
 | Submit (S1-007) | FR-02; BR-01/02/14/16; D-12; RR-DD-001 RR-014/018; DEC-PRE-S1-007-01..12 (ACTIVE contact deferred → REQ-FU-USR-001) | ST-RR-002 (SLA start = `submitted_at`); SLA calculation / EV-SLA-001..005 deferred | RR-API-001/002/004/005 (§4.1, §5) | TC-RR-003/004; TC-SEC-001/002 (TC-SLA-\* deferred) | RepairRequestSubmitEndpointsTests, RepairRequestSubmitServiceTests, RepairRequestSubmitStoreTests, RepairRequestSubmitTests, RequestNumberAndLookupTests, MigrationSeedTests, DevelopmentMalwareScanningTestingTests, DevelopmentMalwareScanningDevelopmentTests, DevelopmentMalwareScanningProductionTests |
 | Approval routing (S1-007R) | ST-RR-003; UC-RR-002/003; RR-DD-001 ARC-*/APR-*; DEC-PRE-S1-007R-01..10; DEC-PRE-S1-008-01 (routing portion) | ST-RR-003 SUBMITTED → UNDER_REVIEW (System); failure stays SUBMITTED | RR-API-005 response status (§4.1); ROUTE-API-001..005; ROUTING-API-001/002 (§4.6) | TC-RR-005; TC-SEC-001/002 | ApprovalRoutingEndpointsTests, ApprovalRoutingTests, RepairRequestRoutingServiceTests, ApprovalRouteServiceTests, ApprovalRoutingRulesTests, ApprovalRoutingDomainTests, PersistenceModelTests |
+| Return for Correction & Resubmit (S1-010) | UC-RR-002/003; BR-01/14; D-12; RR-DD-001 RR-003/011/014, APR-005 (amended)..010; DEC-PRE-S1-010-01..04 | ST-RR-006 UNDER_REVIEW → DRAFT; ST-RR-002 again; ST-RR-003 into the next approval cycle | RR-API-008; RR-API-005 resubmission (§4.1, §4.9) | TC-RR-008; TC-RR-004; TC-SEC-001 | RepairRequestReturnForCorrectionEndpointsTests, RepairRequestReturnResubmitTests, RepairRequestReturnForCorrectionServiceTests, RepairRequestResubmitServiceTests, RepairRequestReturnForCorrectionDomainTests |

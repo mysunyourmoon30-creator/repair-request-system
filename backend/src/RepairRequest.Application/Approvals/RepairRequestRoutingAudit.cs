@@ -22,11 +22,18 @@ public static class RepairRequestRoutingAudit
     public const string RoutingFailureCodeField = "routingFailureCode";
     public const string ApprovalRouteIdField = "approvalRouteId";
     public const string ApprovalStepNoField = "approvalStepNo";
+    public const string ApprovalCycleNoField = "approvalCycleNo";
     public const string AssignedApproverIdField = "assignedApproverId";
     public const string TriggerField = "trigger";
     public const string InitiatedByField = "initiatedBy";
 
-    public static AuditHistory Routed(CommandContext context, RepairRequestAggregate request, RoutingDecision decision, RoutingTrigger trigger, DateTime occurredAt) =>
+    public static AuditHistory Routed(
+        CommandContext context,
+        RepairRequestAggregate request,
+        RoutingDecision decision,
+        short approvalCycleNo,
+        RoutingTrigger trigger,
+        DateTime occurredAt) =>
         new(
             request.TenantId,
             RepairRequestAudit.EntityType,
@@ -39,6 +46,7 @@ public static class RepairRequestRoutingAudit
             {
                 [ApprovalRouteIdField] = decision.RouteId,
                 [ApprovalStepNoField] = decision.StepNo,
+                [ApprovalCycleNoField] = approvalCycleNo,
                 [AssignedApproverIdField] = decision.AssignedApproverId,
                 [TriggerField] = TriggerCode(trigger),
                 [InitiatedByField] = context.User.UserId
@@ -48,7 +56,13 @@ public static class RepairRequestRoutingAudit
             occurredAt,
             context.CorrelationId);
 
-    public static AuditHistory RoutingFailed(CommandContext context, RepairRequestAggregate request, RoutingDecision decision, RoutingTrigger trigger, DateTime occurredAt) =>
+    public static AuditHistory RoutingFailed(
+        CommandContext context,
+        RepairRequestAggregate request,
+        RoutingDecision decision,
+        short approvalCycleNo,
+        RoutingTrigger trigger,
+        DateTime occurredAt) =>
         new(
             request.TenantId,
             RepairRequestAudit.EntityType,
@@ -62,6 +76,7 @@ public static class RepairRequestRoutingAudit
                 [RoutingFailureCodeField] = decision.FailureCode,
                 [ApprovalRouteIdField] = decision.RouteId,
                 [ApprovalStepNoField] = decision.StepNo,
+                [ApprovalCycleNoField] = approvalCycleNo,
                 [TriggerField] = TriggerCode(trigger),
                 [InitiatedByField] = context.User.UserId
             }),

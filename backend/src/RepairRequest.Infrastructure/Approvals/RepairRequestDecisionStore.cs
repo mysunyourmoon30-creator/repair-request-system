@@ -90,9 +90,10 @@ internal sealed class RepairRequestDecisionStore : IRepairRequestDecisionStore
     }
 
     public Task<RepairRequestApproval?> FindStepApprovalAsync(Guid tenantId, Guid repairRequestId, short stepNo, CancellationToken cancellationToken) =>
-        _db.RepairRequestApprovals.SingleOrDefaultAsync(
-            approval => approval.RepairRequestId == repairRequestId && approval.ApprovalStepNo == stepNo && approval.TenantId == tenantId,
-            cancellationToken);
+        _db.RepairRequestApprovals
+            .Where(approval => approval.RepairRequestId == repairRequestId && approval.ApprovalStepNo == stepNo && approval.TenantId == tenantId)
+            .OrderByDescending(approval => approval.ApprovalCycleNo)
+            .FirstOrDefaultAsync(cancellationToken);
 
     public void AddAudit(AuditHistory audit) => _db.AuditHistory.Add(audit);
 

@@ -135,7 +135,7 @@ public sealed class RepairRequestSubmitStoreTests : IAsyncLifetime
         return await submits.SubmitAsync(request, request.RowVersion, QueryFor(request, submittedAt), year, hasContinuationReason: true, (sequence, duplicateCount) =>
         {
             beforeApply?.Invoke();
-            request.Submit(RequestNumber.Format(year, sequence), owner.UserId, submittedAt, null);
+            request.Submit(RequestNumber.Format(year, sequence!.Value), owner.UserId, submittedAt, null);
             return RepairRequestAudit.Submitted(context, request, duplicateCount, submittedAt);
         }, None);
     }
@@ -307,13 +307,13 @@ public sealed class RepairRequestSubmitStoreTests : IAsyncLifetime
         var first = await firstScope.ServiceProvider.GetRequiredService<IRepairRequestSubmitStore>().SubmitAsync(
             firstCopy, firstCopy.RowVersion, QueryFor(firstCopy, at), 2026, hasContinuationReason: false, (sequence, duplicateCount) =>
             {
-                firstCopy.Submit(RequestNumber.Format(2026, sequence), owner.UserId, at, null);
+                firstCopy.Submit(RequestNumber.Format(2026, sequence!.Value), owner.UserId, at, null);
                 return RepairRequestAudit.Submitted(context, firstCopy, duplicateCount, at);
             }, None);
         var second = await secondScope.ServiceProvider.GetRequiredService<IRepairRequestSubmitStore>().SubmitAsync(
             staleCopy, staleCopy.RowVersion, QueryFor(staleCopy, at), 2026, hasContinuationReason: false, (sequence, duplicateCount) =>
             {
-                staleCopy.Submit(RequestNumber.Format(2026, sequence), owner.UserId, at, null);
+                staleCopy.Submit(RequestNumber.Format(2026, sequence!.Value), owner.UserId, at, null);
                 return RepairRequestAudit.Submitted(context, staleCopy, duplicateCount, at);
             }, None);
 
