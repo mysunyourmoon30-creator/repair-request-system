@@ -1,4 +1,5 @@
 using RepairRequest.Domain.MasterData;
+using RepairRequest.Domain.WorkOrders;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
 namespace RepairRequest.Application.Security;
@@ -45,6 +46,14 @@ public interface IDataScope
     /// grants detail, Approve or Reject.
     /// </summary>
     IQueryable<RepairRequestAggregate> RoutingRecoveryRequests(CurrentUser user);
+
+    /// <summary>
+    /// Work Orders visible to the caller (S2-001 / DEC-S2-001-03), correlated through the originating Repair
+    /// Request's Site since Work Order carries no Site of its own: every Work Order at assigned Sites for
+    /// site-wide Work Order roles; only Work Orders linked to Repair Requests the caller created for REQUESTER.
+    /// TECHNICIAN and ADMINISTRATOR see none.
+    /// </summary>
+    IQueryable<WorkOrder> WorkOrders(CurrentUser user);
 
     /// <summary>Validates a client-supplied Site id against the caller's <see cref="BusinessSites"/> scope in a single query.</summary>
     Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken);

@@ -16,7 +16,11 @@ public class AuthorizationPoliciesTests
         },
         { AuthorizationPolicies.RepairRequestDraft, [RoleCodes.Requester] },
         { AuthorizationPolicies.RepairRequestReview, [RoleCodes.Approver] },
-        { AuthorizationPolicies.RoutingRecovery, [RoleCodes.Administrator] }
+        { AuthorizationPolicies.RoutingRecovery, [RoleCodes.Administrator] },
+        {
+            AuthorizationPolicies.WorkOrderRead,
+            [RoleCodes.Requester, RoleCodes.Approver, RoleCodes.Coordinator, RoleCodes.TeamLead, RoleCodes.Supervisor]
+        }
     };
 
     [Theory]
@@ -29,16 +33,24 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(6, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(7, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
     [InlineData(AuthorizationPolicies.RepairRequestRead)]
     [InlineData(AuthorizationPolicies.RepairRequestDraft)]
     [InlineData(AuthorizationPolicies.RepairRequestReview)]
+    [InlineData(AuthorizationPolicies.WorkOrderRead)]
     public void Administrator_IsNotGrantedRepairRequestCapabilities(string policyName)
     {
         Assert.DoesNotContain(RoleCodes.Administrator, AuthorizationPolicies.AllowedRoles[policyName]);
+    }
+
+    [Fact]
+    public void WorkOrderRead_ExcludesTechnician_UntilAssignmentRulesAreDefined()
+    {
+        // DEC-S2-001-03: TECHNICIAN is deliberately excluded from Work Order read scope in S2-001.
+        Assert.DoesNotContain(RoleCodes.Technician, AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderRead]);
     }
 
     [Fact]
