@@ -71,5 +71,28 @@ internal sealed class WorkOrderStore : IWorkOrderStore
                 .FirstOrDefault(),
             _db.Sites.Where(site => site.Id == request.SiteId).Select(site => site.SiteCode).FirstOrDefault(),
             _db.Equipment.Where(item => item.Id == request.EquipmentId).Select(item => item.EquipmentCode).FirstOrDefault(),
-            workOrder.RowVersion);
+            workOrder.RowVersion,
+            _db.ServiceVisits
+                .Where(visit => visit.WorkOrderId == workOrder.Id)
+                .OrderByDescending(visit => visit.ScheduledStartAt)
+                .ThenByDescending(visit => visit.Id)
+                .Select(visit => new ServiceVisitDto(
+                    visit.Id,
+                    visit.WorkOrderId,
+                    visit.VisitType,
+                    visit.Status,
+                    visit.AssignedTeamId,
+                    visit.AssignedTechnicianId,
+                    visit.ScheduledStartAt,
+                    visit.ScheduledEndAt,
+                    visit.RescheduleReason,
+                    visit.ReassignReason,
+                    visit.CancelReason,
+                    visit.MissedReason,
+                    visit.CompletedAt,
+                    visit.SourceMissedVisitId,
+                    visit.MissedDecisionCode,
+                    visit.MissedDecidedAt,
+                    visit.RowVersion))
+                .ToList());
 }

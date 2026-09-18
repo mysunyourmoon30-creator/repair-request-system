@@ -62,6 +62,8 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
 
     public DbSet<WorkOrderNumberCounter> WorkOrderNumberCounters => Set<WorkOrderNumberCounter>();
 
+    public DbSet<ServiceVisit> ServiceVisits => Set<ServiceVisit>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

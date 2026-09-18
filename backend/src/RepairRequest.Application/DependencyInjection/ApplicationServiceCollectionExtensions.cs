@@ -50,6 +50,10 @@ public static class ApplicationServiceCollectionExtensions
         // S2-002: Convert an APPROVED Repair Request into a Work Order (ST-RR-008).
         services.AddScoped<RepairRequestConvertService>();
 
+        // S2-003: Schedule an OPEN Work Order (ST-WO-001) and manage its Service Visits (ST-SV-004..009).
+        services.AddScoped<WorkOrderScheduleService>();
+        services.AddScoped<ServiceVisitManageService>();
+
         return services;
     }
 }
