@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using RepairRequest.Application.Common;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.Auditing;
@@ -50,6 +51,47 @@ internal sealed class RepairRequestDraftStore : IRepairRequestDraftStore
                 request.SubmittedAt,
                 request.RowVersion))
             .SingleOrDefaultAsync(cancellationToken);
+
+    public async Task<PagedResult<RepairRequestDraftDto>> ListAsync(CurrentUser user, RepairRequestListQuery query, CancellationToken cancellationToken)
+    {
+        var source = _scope.RepairRequests(user).AsNoTracking();
+
+        if (query.Status is { } status)
+        {
+            source = source.Where(request => request.Status == status);
+        }
+
+        var paging = query.Paging;
+        var totalCount = await source.CountAsync(cancellationToken);
+        var skip = (long)(paging.Page - 1) * paging.PageSize;
+
+        IReadOnlyList<RepairRequestDraftDto> items = skip >= totalCount
+            ? []
+            : await source
+                // Newest-submitted-first: RepairRequest has no CreatedAt; every listed status has been submitted.
+                .OrderByDescending(request => request.SubmittedAt)
+                .ThenByDescending(request => request.Id)
+                .Skip((int)skip)
+                .Take(paging.PageSize)
+                .Select(request => new RepairRequestDraftDto(
+                    request.Id,
+                    request.Status,
+                    request.RequestNo,
+                    request.SiteId,
+                    request.EquipmentId,
+                    request.RequestCategoryCode,
+                    request.PriorityCode,
+                    request.RequestContactId,
+                    request.Description,
+                    request.PreferredStartAt,
+                    request.PreferredEndAt,
+                    request.CreatedBy,
+                    request.SubmittedAt,
+                    request.RowVersion))
+                .ToListAsync(cancellationToken);
+
+        return new PagedResult<RepairRequestDraftDto>(items, paging.Page, paging.PageSize, totalCount);
+    }
 
     public Task<RepairRequestAggregate?> FindOwnAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken)
     {

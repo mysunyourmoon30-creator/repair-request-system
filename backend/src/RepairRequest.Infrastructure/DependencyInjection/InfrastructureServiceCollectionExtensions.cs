@@ -78,6 +78,9 @@ public static class InfrastructureServiceCollectionExtensions
         // S2-001: Work Order List/Detail read persistence port.
         services.AddScoped<IWorkOrderStore, WorkOrderStore>();
 
+        // S2-002: Convert persistence port (ST-RR-008).
+        services.AddScoped<IRepairRequestConvertStore, RepairRequestConvertStore>();
+
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();
         services.AddOptions<FileStorageOptions>()

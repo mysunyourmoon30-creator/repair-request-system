@@ -20,7 +20,8 @@ public class AuthorizationPoliciesTests
         {
             AuthorizationPolicies.WorkOrderRead,
             [RoleCodes.Requester, RoleCodes.Approver, RoleCodes.Coordinator, RoleCodes.TeamLead, RoleCodes.Supervisor]
-        }
+        },
+        { AuthorizationPolicies.RepairRequestConvert, [RoleCodes.Coordinator] }
     };
 
     [Theory]
@@ -33,7 +34,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(7, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(8, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -41,9 +42,17 @@ public class AuthorizationPoliciesTests
     [InlineData(AuthorizationPolicies.RepairRequestDraft)]
     [InlineData(AuthorizationPolicies.RepairRequestReview)]
     [InlineData(AuthorizationPolicies.WorkOrderRead)]
+    [InlineData(AuthorizationPolicies.RepairRequestConvert)]
     public void Administrator_IsNotGrantedRepairRequestCapabilities(string policyName)
     {
         Assert.DoesNotContain(RoleCodes.Administrator, AuthorizationPolicies.AllowedRoles[policyName]);
+    }
+
+    [Fact]
+    public void RepairRequestConvert_IsCoordinatorOnly()
+    {
+        // BR-03; ST-RR-008; UC-WO-001 — Convert is a Coordinator-only action.
+        Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.RepairRequestConvert]);
     }
 
     [Fact]

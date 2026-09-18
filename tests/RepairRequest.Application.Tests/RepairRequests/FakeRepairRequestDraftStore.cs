@@ -101,6 +101,24 @@ internal sealed class FakeRepairRequestDraftStore : IRepairRequestDraftStore
             .Select(RepairRequestDraftDto.From)
             .SingleOrDefault());
 
+    public Task<PagedResult<RepairRequestDraftDto>> ListAsync(CurrentUser user, RepairRequestListQuery query, CancellationToken cancellationToken)
+    {
+        var source = Requests.Where(request => request.TenantId == user.TenantId);
+        if (query.Status is { } status)
+        {
+            source = source.Where(request => request.Status == status);
+        }
+
+        var ordered = source.OrderByDescending(request => request.SubmittedAt).ThenByDescending(request => request.Id).ToList();
+        var items = ordered
+            .Skip((query.Paging.Page - 1) * query.Paging.PageSize)
+            .Take(query.Paging.PageSize)
+            .Select(RepairRequestDraftDto.From)
+            .ToList();
+
+        return Task.FromResult(new PagedResult<RepairRequestDraftDto>(items, query.Paging.Page, query.Paging.PageSize, ordered.Count));
+    }
+
     public Task<RepairRequestAggregate?> FindOwnAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken) =>
         Task.FromResult(Requests.SingleOrDefault(request =>
             request.Id == repairRequestId && request.TenantId == user.TenantId && request.CreatedBy == user.UserId));

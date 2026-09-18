@@ -29,6 +29,17 @@ public sealed record RepairRequestDraftRequest(
 /// <summary>RR-API-005 Submit body. The body itself may be omitted when no continuation reason is needed.</summary>
 public sealed record SubmitRepairRequestRequest(string? DuplicateContinuationReason);
 
+/// <summary>Query string of the Repair Request list (S2-002): page (1-based), pageSize (clamped), status.</summary>
+public sealed class RepairRequestListRequest
+{
+    public int? Page { get; init; }
+
+    public int? PageSize { get; init; }
+
+    /// <summary>One of the Repair Request status codes (RR-DD-001 RR-004); omitted lists every status.</summary>
+    public string? Status { get; init; }
+}
+
 /// <summary>RR-API-007 Reject body. The reason is required (RR-DD-001 RR-016); a missing body or reason is a 422 on <c>reason</c>.</summary>
 public sealed record RejectRepairRequestRequest(string? Reason);
 

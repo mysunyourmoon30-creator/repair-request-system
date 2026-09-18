@@ -25,6 +25,9 @@ public static class AuthorizationPolicies
     /// <summary>Approve / reject / return for correction (RR-REQ-001 section 13: Approver).</summary>
     public const string RepairRequestReview = "RepairRequest.Review";
 
+    /// <summary>Convert an APPROVED Repair Request into a Work Order (S2-002; BR-03; UC-WO-001: Coordinator only).</summary>
+    public const string RepairRequestConvert = "RepairRequest.Convert";
+
     /// <summary>
     /// Routing recovery only: list routing issues and Retry Routing (DEC-PRE-S1-007R-07/10). ADMINISTRATOR configuration
     /// scope; it never grants Repair Request detail, Approve or Reject.
@@ -54,6 +57,7 @@ public static class AuthorizationPolicies
             ],
             [RepairRequestDraft] = [RoleCodes.Requester],
             [RepairRequestReview] = [RoleCodes.Approver],
+            [RepairRequestConvert] = [RoleCodes.Coordinator],
             [RoutingRecovery] = [RoleCodes.Administrator],
             [WorkOrderRead] =
             [
