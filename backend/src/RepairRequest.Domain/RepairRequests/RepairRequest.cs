@@ -6,8 +6,7 @@ namespace RepairRequest.Domain.RepairRequests;
 /// Repair Request aggregate root (RR-DD-001 RR-001..RR-020; RR-DBD-001 repair_request).
 /// S1-001 establishes the persisted shape and the initial DRAFT state; S1-005 adds Draft editing (ST-RR-001) and S1-007
 /// adds Submit (ST-RR-002). Routing, decisions, Cancel and Return for Correction / Resubmit (ST-RR-003..007) follow in
-/// S1-007R..S1-010; CONVERTED (ST-RR-008)
-/// exists for lifecycle compatibility but Work Order creation is Sprint 2 scope.
+/// S1-007R..S1-010; Convert (ST-RR-008, APPROVED -> CONVERTED) follows in S2-002.
 /// </summary>
 public sealed class RepairRequest
 {
@@ -336,6 +335,22 @@ public sealed class RepairRequest
 
         CancelReason = DomainGuard.RequiredText(reason, ReasonMaxLength, nameof(reason));
         Status = RepairRequestStatus.Cancelled;
+    }
+
+    /// <summary>
+    /// ST-RR-008 Convert (APPROVED -> CONVERTED) by a Coordinator (S2-002; BR-03; UC-WO-001). Aggregate-local guard only:
+    /// current state APPROVED. The Work Order itself (exactly one, OPEN) is created by the Application layer in the same
+    /// transaction as this transition; no existing-Work-Order check, site scope or reason applies here (BR-04 does not
+    /// list Convert, and WO-004's uniqueness is enforced by the database, not this method).
+    /// </summary>
+    public void Convert()
+    {
+        if (!RepairRequestStatusTransitions.IsAllowed(Status, RepairRequestStatus.Converted))
+        {
+            throw new DomainRuleViolationException("Only an APPROVED Repair Request can be converted.");
+        }
+
+        Status = RepairRequestStatus.Converted;
     }
 
     private static string? OptionalCode(string? value, int maxLength, string paramName) =>

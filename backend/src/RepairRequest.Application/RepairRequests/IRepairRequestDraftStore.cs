@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
 using RepairRequest.Domain.Auditing;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
@@ -20,6 +21,9 @@ public interface IRepairRequestDraftStore
 {
     /// <summary>Detail within the caller's approved Repair Request scope (S1-005 decision E3).</summary>
     Task<RepairRequestDraftDto?> GetAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken);
+
+    /// <summary>List within the caller's Repair Request scope (S2-002), same scope as <see cref="GetAsync"/>.</summary>
+    Task<PagedResult<RepairRequestDraftDto>> ListAsync(CurrentUser user, RepairRequestListQuery query, CancellationToken cancellationToken);
 
     /// <summary>Tracked load of a request the caller owns (created_by) and can see; otherwise null.</summary>
     Task<RepairRequestAggregate?> FindOwnAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken);

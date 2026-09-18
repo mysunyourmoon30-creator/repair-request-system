@@ -25,6 +25,9 @@ public sealed class RepairRequestDraftService
     public Task<RepairRequestDraftDto?> GetAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken) =>
         _store.GetAsync(user, repairRequestId, cancellationToken);
 
+    public Task<PagedResult<RepairRequestDraftDto>> ListAsync(CurrentUser user, RepairRequestListQuery query, CancellationToken cancellationToken) =>
+        _store.ListAsync(user, query, cancellationToken);
+
     public async Task<CommandResult<RepairRequestDraftDto>> CreateAsync(
         CommandContext context,
         RepairRequestDraftFields fields,

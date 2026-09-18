@@ -1,3 +1,4 @@
+using RepairRequest.Application.Common;
 using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
@@ -54,6 +55,9 @@ public sealed record RepairRequestDraftDto(
             request.RowVersion);
 }
 
+/// <summary>List query (S2-002): paging plus an optional status filter. Sort is fixed newest-submitted-first.</summary>
+public sealed record RepairRequestListQuery(PageRequest Paging, RepairRequestStatus? Status);
+
 /// <summary>Selections to validate against the database in one query. Null members are not looked up.</summary>
 public sealed record DraftSelectionQuery(
     Guid? SiteId,
@@ -98,6 +102,21 @@ public static class RepairRequestStatusCodes
         RepairRequestStatus.Converted => "CONVERTED",
         _ => throw new ArgumentOutOfRangeException(nameof(status))
     };
+
+    public static bool TryParse(string? code, out RepairRequestStatus status)
+    {
+        switch (code)
+        {
+            case "DRAFT": status = RepairRequestStatus.Draft; return true;
+            case "SUBMITTED": status = RepairRequestStatus.Submitted; return true;
+            case "UNDER_REVIEW": status = RepairRequestStatus.UnderReview; return true;
+            case "APPROVED": status = RepairRequestStatus.Approved; return true;
+            case "REJECTED": status = RepairRequestStatus.Rejected; return true;
+            case "CANCELLED": status = RepairRequestStatus.Cancelled; return true;
+            case "CONVERTED": status = RepairRequestStatus.Converted; return true;
+            default: status = default; return false;
+        }
+    }
 }
 
 /// <summary>API field names used as keys of the 422 VALIDATION_FAILED error map and in audit values.</summary>

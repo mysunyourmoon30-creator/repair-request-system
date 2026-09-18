@@ -1,18 +1,25 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
+using Microsoft.Extensions.Options;
 using RepairRequest.Api.Contracts.RepairRequests;
+using RepairRequest.Api.Contracts.WorkOrders;
+using RepairRequest.Api.Http;
 using RepairRequest.Application.Approvals;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
+using RepairRequest.Application.WorkOrders;
+using RepairRequest.Domain.RepairRequests;
 
 namespace RepairRequest.Api.Controllers;
 
 /// <summary>
-/// Repair Request endpoints (RR-API-001 / 002 / 004..009; UC-RR-001..004). Create, edit and submit (including Resubmit of a
-/// DRAFT returned for correction) use the RepairRequest.Draft policy (REQUESTER); detail uses RepairRequest.Read within the
-/// S1-003 scope; Approve, Reject and Return for Correction use RepairRequest.Review (APPROVER) plus the assigned-approver and
-/// self-decision rules; Cancel (RR-API-009) uses RepairRequest.Draft plus ownership. List and Convert are later tickets.
+/// Repair Request endpoints (RR-API-001 / 002 / 004..010; UC-RR-001..004; UC-WO-001). List and detail use
+/// RepairRequest.Read within the S1-003 scope; Create, edit and submit (including Resubmit of a DRAFT returned for
+/// correction) use the RepairRequest.Draft policy (REQUESTER); Approve, Reject and Return for Correction use
+/// RepairRequest.Review (APPROVER) plus the assigned-approver and self-decision rules; Cancel (RR-API-009) uses
+/// RepairRequest.Draft plus ownership; Convert (RR-API-010, S2-002) uses RepairRequest.Convert (COORDINATOR)
+/// within their Site scope.
 /// </summary>
 [ApiController]
 [Route("api/v1/repair-requests")]
@@ -24,19 +31,55 @@ public sealed class RepairRequestsController : CommandControllerBase
     private readonly RepairRequestSubmitService _submits;
     private readonly RepairRequestDecisionService _decisions;
     private readonly RepairRequestCancelService _cancels;
+    private readonly RepairRequestConvertService _converts;
+    private readonly WorkOrderService _workOrders;
+    private readonly PagingOptions _paging;
 
     public RepairRequestsController(
         RepairRequestDraftService drafts,
         RepairRequestSubmitService submits,
         RepairRequestDecisionService decisions,
         RepairRequestCancelService cancels,
-        ICurrentUserAccessor currentUserAccessor)
+        RepairRequestConvertService converts,
+        WorkOrderService workOrders,
+        ICurrentUserAccessor currentUserAccessor,
+        IOptions<PagingOptions> paging)
         : base(currentUserAccessor)
     {
         _drafts = drafts;
         _submits = submits;
         _decisions = decisions;
         _cancels = cancels;
+        _converts = converts;
+        _workOrders = workOrders;
+        _paging = paging.Value;
+    }
+
+    /// <summary>RR-API-002 List (S2-002): paging plus an optional status filter, within the caller's Repair Request scope.</summary>
+    [HttpGet]
+    [Authorize(Policy = AuthorizationPolicies.RepairRequestRead)]
+    [ProducesResponseType<PagedResponse<RepairRequestDraftResponse>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> List([FromQuery] RepairRequestListRequest request, CancellationToken cancellationToken)
+    {
+        if (!PageRequests.TryCreate(request.Page, request.PageSize, _paging, HttpContext, out var paging, out var problem))
+        {
+            return problem;
+        }
+
+        RepairRequestStatus? status = null;
+        if (request.Status is not null)
+        {
+            if (!RepairRequestStatusCodes.TryParse(request.Status, out var parsed))
+            {
+                return ApiProblemResults.BadRequest(HttpContext, "status is not a recognised Repair Request status.");
+            }
+
+            status = parsed;
+        }
+
+        var page = await _drafts.ListAsync(await CallerAsync(cancellationToken), new RepairRequestListQuery(paging, status), cancellationToken);
+        return Ok(new PagedResponse<RepairRequestDraftResponse>(
+            page.Items.Select(RepairRequestResponses.ToResponse).ToList(), page.Page, page.PageSize, page.TotalCount));
     }
 
     [HttpPost]
@@ -176,5 +219,31 @@ public sealed class RepairRequestsController : CommandControllerBase
         var result = await _cancels.CancelAsync(
             await CommandContextAsync(cancellationToken), repairRequestId, rowVersion, request?.Reason, cancellationToken);
         return CommandResult(result, ResourceType, RepairRequestResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// RR-API-010 Convert (ST-RR-008) by a Coordinator of an APPROVED request within their Site scope. If-Match is
+    /// required and there is no body. Success creates exactly one Work Order (OPEN) and returns it directly (S2-001's
+    /// WorkOrderResponse shape) with a fresh ETag, so the caller can open it immediately.
+    /// </summary>
+    [HttpPost("{repairRequestId:guid}/convert-to-work-order")]
+    [Authorize(Policy = AuthorizationPolicies.RepairRequestConvert)]
+    [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ConvertToWorkOrder(Guid repairRequestId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _converts.ConvertAsync(context, repairRequestId, rowVersion, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        var workOrder = await _workOrders.GetAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(workOrder, "WorkOrder", WorkOrderResponses.ToResponse, dto => dto.RowVersion);
     }
 }

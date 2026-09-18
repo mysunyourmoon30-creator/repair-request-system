@@ -72,6 +72,9 @@ public sealed class PostSubmitFailureApiFactory : AuthApiFactory
                 ? throw new InvalidOperationException("Simulated final-state read-back failure")
                 : inner.GetAsync(user, repairRequestId, cancellationToken);
 
+        public Task<PagedResult<RepairRequestDraftDto>> ListAsync(CurrentUser user, RepairRequestListQuery query, CancellationToken cancellationToken) =>
+            inner.ListAsync(user, query, cancellationToken);
+
         public Task<RepairRequestAggregate?> FindOwnAsync(CurrentUser user, Guid repairRequestId, CancellationToken cancellationToken) =>
             inner.FindOwnAsync(user, repairRequestId, cancellationToken);
 

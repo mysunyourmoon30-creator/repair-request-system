@@ -93,7 +93,12 @@ try
                 policy.WithOrigins(allowedOrigins)
                     .AllowAnyHeader()
                     .AllowAnyMethod()
-                    .AllowCredentials();
+                    .AllowCredentials()
+                    // ETag is not in the CORS-safelisted response headers, so without this the browser's
+                    // JS can never read it (confirmed live: RepairRequestService.get() always saw null,
+                    // silently blocking Convert's If-Match guard) even though curl/HttpClient/tests never
+                    // notice, since CORS exposure is enforced only by real browsers.
+                    .WithExposedHeaders("ETag");
             }
         });
     });

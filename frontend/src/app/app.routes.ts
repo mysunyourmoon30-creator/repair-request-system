@@ -11,4 +11,16 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/work-orders/work-order-detail.component').then((m) => m.WorkOrderDetailComponent),
   },
+  {
+    path: 'repair-requests',
+    loadComponent: () =>
+      import('./features/repair-requests/repair-request-list.component').then((m) => m.RepairRequestListComponent),
+  },
+  {
+    path: 'repair-requests/:id',
+    loadComponent: () =>
+      import('./features/repair-requests/repair-request-detail.component').then(
+        (m) => m.RepairRequestDetailComponent,
+      ),
+  },
 ];

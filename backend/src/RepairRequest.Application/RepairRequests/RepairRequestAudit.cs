@@ -3,14 +3,15 @@ using RepairRequest.Application.Common;
 using RepairRequest.Domain.Approvals;
 using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.RepairRequests;
+using RepairRequest.Domain.WorkOrders;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
 namespace RepairRequest.Application.RepairRequests;
 
 /// <summary>
 /// Audit records for Draft create/edit (UC-RR-001 "Audit create/edit"; ST-RR-001), Submit and Resubmit (UC-RR-002 "Audit
-/// submit/reason"; ST-RR-002), decisions (ST-RR-004..006) and Cancel (ST-RR-007), written through the append-only
-/// audit_history table in the same transaction as the change. Failed commands are not audited.
+/// submit/reason"; ST-RR-002), decisions (ST-RR-004..006), Cancel (ST-RR-007) and Convert (ST-RR-008; S2-002), written
+/// through the append-only audit_history table in the same transaction as the change. Failed commands are not audited.
 /// </summary>
 public static class RepairRequestAudit
 {
@@ -23,10 +24,13 @@ public static class RepairRequestAudit
     public const string CancelledAction = "REPAIR_REQUEST_CANCELLED";
     public const string ReturnedForCorrectionAction = "REPAIR_REQUEST_RETURNED_FOR_CORRECTION";
     public const string ResubmittedAction = "REPAIR_REQUEST_RESUBMITTED";
+    public const string ConvertedAction = "REPAIR_REQUEST_CONVERTED";
 
     public const string ApprovalIdField = "approvalId";
     public const string ApprovalStepNoField = "approvalStepNo";
     public const string ApprovalCycleNoField = "approvalCycleNo";
+    public const string WorkOrderIdField = "workOrderId";
+    public const string WorkOrderNoField = "workOrderNo";
 
     public static AuditHistory DraftCreated(CommandContext context, RepairRequestAggregate draft, DateTime occurredAt)
     {
@@ -177,6 +181,30 @@ public static class RepairRequestAudit
             oldValueJson: null,
             newValueJson: null,
             reason: request.CancelReason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-RR-008 success: APPROVED -> CONVERTED. No reason applies (absent from BR-04's list). The new Work Order is
+    /// referenced by id and number, embedded in newValueJson — the same one-row-with-embedded-reference pattern
+    /// <see cref="Decision"/> uses for the approval it references, rather than a second audit_history row.
+    /// </summary>
+    public static AuditHistory Converted(CommandContext context, RepairRequestAggregate request, WorkOrder workOrder, DateTime occurredAt) =>
+        new(
+            request.TenantId,
+            EntityType,
+            request.Id,
+            ConvertedAction,
+            fromState: RepairRequestStatusCodes.ToCode(RepairRequestStatus.Approved),
+            toState: RepairRequestStatusCodes.ToCode(RepairRequestStatus.Converted),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [WorkOrderIdField] = workOrder.Id,
+                [WorkOrderNoField] = workOrder.WorkOrderNo
+            }),
+            reason: null,
             context.User.UserId,
             occurredAt,
             context.CorrelationId);

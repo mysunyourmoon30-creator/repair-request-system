@@ -4,10 +4,10 @@ namespace RepairRequest.Domain.WorkOrders;
 
 /// <summary>
 /// Work Order aggregate root (RR-DD-001 WO-001..013; RR-DBD-001 work_order).
-/// S2-001 establishes the persisted shape for the List/Detail read endpoints only; Convert
-/// (ST-RR-008/UC-WO-001), Schedule, Reassign and every later transition are out of scope
-/// (DEC-S2-001-05, `docs/12` Section 11). <see cref="CreatedAt"/> is a technical ordering
-/// column, not one of the documented WO-001..013 business fields (DEC-S2-001-04).
+/// S2-001 establishes the persisted shape for the List/Detail read endpoints; S2-002 adds Convert
+/// (ST-RR-008/UC-WO-001). Schedule, Reassign and every later transition remain out of scope.
+/// <see cref="CreatedAt"/> is a technical ordering column, not one of the documented WO-001..013
+/// business fields (DEC-S2-001-04).
 /// </summary>
 public sealed class WorkOrder
 {
@@ -30,8 +30,8 @@ public sealed class WorkOrder
 
     /// <summary>
     /// Creates a new Work Order in OPEN state (ST-RR-008/UC-WO-001: "Atomically create WO OPEN"). Tenant, the
-    /// originating Repair Request and the generated Work Order No. are server-derived, never client input. This
-    /// factory exists for the Convert command (not yet implemented) and for S2-001 test seeding.
+    /// originating Repair Request and the generated Work Order No. are server-derived, never client input. Used
+    /// by the Convert command (S2-002) and by test seeding.
     /// </summary>
     public static WorkOrder Create(Guid tenantId, Guid repairRequestId, string workOrderNo, DateTime createdAt) =>
         new(tenantId, repairRequestId, workOrderNo, createdAt);

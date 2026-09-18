@@ -47,6 +47,9 @@ public static class ApplicationServiceCollectionExtensions
         // S2-001: Work Order List/Detail.
         services.AddScoped<WorkOrderService>();
 
+        // S2-002: Convert an APPROVED Repair Request into a Work Order (ST-RR-008).
+        services.AddScoped<RepairRequestConvertService>();
+
         return services;
     }
 }

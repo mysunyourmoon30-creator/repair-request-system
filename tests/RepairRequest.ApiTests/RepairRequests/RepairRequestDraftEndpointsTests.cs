@@ -12,6 +12,7 @@ using RepairRequest.Domain.RepairRequests;
 using RepairRequest.Domain.Security;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence;
+using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
 namespace RepairRequest.ApiTests.RepairRequests;
 
@@ -55,6 +56,112 @@ public sealed class RepairRequestDraftEndpointsTests : IClassFixture<RepairReque
     /// Site X; plus another tenant's Site O. Requesters are assigned to Sites A and X.
     /// </summary>
     private sealed record World(Guid TenantId, Site SiteA, Equipment EquipmentA1, Equipment InactiveEquipmentA2, Site SiteB, Equipment EquipmentB1, Site InactiveSiteX, Site OtherTenantSite);
+
+    public static TheoryData<string> RolesDeniedRepairRequestRead => [RoleCodes.Administrator];
+
+    // ---------------- List (S2-002) ----------------
+
+    [Fact]
+    public async Task List_FiltersByStatus_SortsNewestSubmittedFirst()
+    {
+        var world = await WorldAsync();
+        var requester = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Requester);
+        var coordinator = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Coordinator);
+        var baseTime = new DateTime(2026, 9, 17, 8, 0, 0, DateTimeKind.Utc);
+
+        var oldest = await SeedRequestAsync(world, requester.UserId, RepairRequestStatus.Approved, baseTime, "RR-2026-000001");
+        var middle = await SeedRequestAsync(world, requester.UserId, RepairRequestStatus.Rejected, baseTime.AddMinutes(1), "RR-2026-000002");
+        var newest = await SeedRequestAsync(world, requester.UserId, RepairRequestStatus.Approved, baseTime.AddMinutes(2), "RR-2026-000003");
+
+        var all = await JsonAsync(await SendAsync(HttpMethod.Get, $"{Collection}?pageSize=100", coordinator));
+        var approvedOnly = await JsonAsync(await SendAsync(HttpMethod.Get, $"{Collection}?status=APPROVED&pageSize=100", coordinator));
+
+        Assert.Equal(3, all.GetProperty("totalCount").GetInt32());
+        Assert.Equal(
+            new[] { newest, middle, oldest },
+            all.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()));
+
+        Assert.Equal(2, approvedOnly.GetProperty("totalCount").GetInt32());
+        Assert.Equal(
+            new[] { newest, oldest },
+            approvedOnly.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()));
+
+        var first = approvedOnly.GetProperty("items").EnumerateArray().First();
+        Assert.Equal("RR-2026-000003", first.GetProperty("requestNo").GetString());
+        Assert.Equal("APPROVED", first.GetProperty("status").GetString());
+    }
+
+    [Fact]
+    public async Task List_InvalidStatus_Returns400()
+    {
+        var world = await WorldAsync();
+        var coordinator = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Coordinator);
+
+        var response = await SendAsync(HttpMethod.Get, $"{Collection}?status=NOT_A_STATUS", coordinator);
+
+        await AssertProblemAsync(response, HttpStatusCode.BadRequest, "BAD_REQUEST");
+    }
+
+    [Fact]
+    public async Task List_OtherTenantRequests_AreNeverReturned()
+    {
+        var world = await WorldAsync();
+        var otherWorld = await WorldAsync();
+        var requester = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Requester);
+        var otherRequester = await CallerAsync(otherWorld.TenantId, [otherWorld.SiteA], RoleCodes.Requester);
+        await SeedRequestAsync(otherWorld, otherRequester.UserId, RepairRequestStatus.Approved, DateTime.UtcNow, "RR-FOREIGN-1");
+        var coordinator = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Coordinator);
+
+        var response = await JsonAsync(await SendAsync(HttpMethod.Get, $"{Collection}?pageSize=100", coordinator));
+
+        Assert.Equal(0, response.GetProperty("totalCount").GetInt32());
+    }
+
+    [Fact]
+    public async Task List_AuthorizedCaller_WithNoRequestsAtAll_Returns200WithEmptyItems()
+    {
+        var world = await WorldAsync();
+        var coordinator = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Coordinator);
+
+        var httpResponse = await SendAsync(HttpMethod.Get, Collection, coordinator);
+        var response = await JsonAsync(httpResponse);
+
+        Assert.Equal(HttpStatusCode.OK, httpResponse.StatusCode);
+        Assert.Equal(0, response.GetProperty("totalCount").GetInt32());
+        Assert.Empty(response.GetProperty("items").EnumerateArray());
+        Assert.Equal(1, response.GetProperty("page").GetInt32());
+    }
+
+    [Theory]
+    [MemberData(nameof(RolesDeniedRepairRequestRead))]
+    public async Task List_RoleWithoutRepairRequestReadPolicy_Returns403(string roleCode)
+    {
+        var world = await WorldAsync();
+        var caller = await CallerAsync(world.TenantId, [world.SiteA], roleCode);
+
+        var response = await SendAsync(HttpMethod.Get, Collection, caller);
+
+        await AssertProblemAsync(response, HttpStatusCode.Forbidden, "ACCESS_DENIED");
+    }
+
+    [Fact]
+    public async Task List_Requester_SeesOnlyOwnRequests_WhileCoordinatorSeesTheWholeSite()
+    {
+        var world = await WorldAsync();
+        var owner = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Requester);
+        var otherRequester = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Requester);
+        var coordinator = await CallerAsync(world.TenantId, [world.SiteA], RoleCodes.Coordinator);
+        var own = await SeedRequestAsync(world, owner.UserId, RepairRequestStatus.Approved, DateTime.UtcNow, "RR-OWN-1");
+        var others = await SeedRequestAsync(world, otherRequester.UserId, RepairRequestStatus.Approved, DateTime.UtcNow, "RR-OTHER-1");
+
+        var ownerView = await JsonAsync(await SendAsync(HttpMethod.Get, $"{Collection}?pageSize=100", owner));
+        var coordinatorView = await JsonAsync(await SendAsync(HttpMethod.Get, $"{Collection}?pageSize=100", coordinator));
+
+        Assert.Equal(new[] { own }, ownerView.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()));
+        Assert.Equal(
+            new[] { own, others }.Order(),
+            coordinatorView.GetProperty("items").EnumerateArray().Select(item => item.GetProperty("id").GetGuid()).Order());
+    }
 
     // ---------------- Create ----------------
 
@@ -486,6 +593,21 @@ public sealed class RepairRequestDraftEndpointsTests : IClassFixture<RepairReque
             return new World(tenantId, siteA, equipmentA1, equipmentA2, siteB, equipmentB1, siteX, otherTenantSite);
         });
     }
+
+    /// <summary>Directly seeds a Repair Request in an arbitrary status for List tests, bypassing the Submit/Approve flow.</summary>
+    private async Task<Guid> SeedRequestAsync(World world, Guid requesterId, RepairRequestStatus status, DateTime submittedAt, string requestNo) =>
+        await WithDbAsync(async db =>
+        {
+            var request = RepairRequestAggregate.CreateDraft(world.TenantId, requesterId);
+            request.EditDraft(world.SiteA.Id, world.EquipmentA1.Id, null, null, null, "Seeded for List", null, null);
+            var entry = db.RepairRequests.Add(request);
+            entry.Property(r => r.RequestNo).CurrentValue = requestNo;
+            entry.Property(r => r.Status).CurrentValue = status;
+            entry.Property(r => r.SubmittedAt).CurrentValue = submittedAt;
+
+            await db.SaveChangesAsync();
+            return request.Id;
+        });
 
     private async Task<Caller> CallerAsync(Guid tenantId, Site[] assignedSites, params string[] roles)
     {

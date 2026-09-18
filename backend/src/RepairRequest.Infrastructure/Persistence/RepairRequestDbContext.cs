@@ -9,6 +9,7 @@ using RepairRequest.Domain.WorkOrders;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence.Conversions;
 using RepairRequest.Infrastructure.RepairRequests;
+using RepairRequest.Infrastructure.WorkOrders;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
 namespace RepairRequest.Infrastructure.Persistence;
@@ -58,6 +59,8 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
     public DbSet<RepairRequestApproval> RepairRequestApprovals => Set<RepairRequestApproval>();
 
     public DbSet<WorkOrder> WorkOrders => Set<WorkOrder>();
+
+    public DbSet<WorkOrderNumberCounter> WorkOrderNumberCounters => Set<WorkOrderNumberCounter>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
