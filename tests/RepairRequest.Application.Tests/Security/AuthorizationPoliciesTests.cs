@@ -21,7 +21,9 @@ public class AuthorizationPoliciesTests
             AuthorizationPolicies.WorkOrderRead,
             [RoleCodes.Requester, RoleCodes.Approver, RoleCodes.Coordinator, RoleCodes.TeamLead, RoleCodes.Supervisor]
         },
-        { AuthorizationPolicies.RepairRequestConvert, [RoleCodes.Coordinator] }
+        { AuthorizationPolicies.RepairRequestConvert, [RoleCodes.Coordinator] },
+        { AuthorizationPolicies.WorkOrderSchedule, [RoleCodes.Coordinator] },
+        { AuthorizationPolicies.ServiceVisitManage, [RoleCodes.Coordinator] }
     };
 
     [Theory]
@@ -34,7 +36,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(8, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(10, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -43,6 +45,8 @@ public class AuthorizationPoliciesTests
     [InlineData(AuthorizationPolicies.RepairRequestReview)]
     [InlineData(AuthorizationPolicies.WorkOrderRead)]
     [InlineData(AuthorizationPolicies.RepairRequestConvert)]
+    [InlineData(AuthorizationPolicies.WorkOrderSchedule)]
+    [InlineData(AuthorizationPolicies.ServiceVisitManage)]
     public void Administrator_IsNotGrantedRepairRequestCapabilities(string policyName)
     {
         Assert.DoesNotContain(RoleCodes.Administrator, AuthorizationPolicies.AllowedRoles[policyName]);
@@ -53,6 +57,14 @@ public class AuthorizationPoliciesTests
     {
         // BR-03; ST-RR-008; UC-WO-001 — Convert is a Coordinator-only action.
         Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.RepairRequestConvert]);
+    }
+
+    [Fact]
+    public void WorkOrderSchedule_AndServiceVisitManage_AreCoordinatorOnly()
+    {
+        // ST-WO-001; ST-SV-004..009; UC-WO-003/005..009 — Schedule and every Visit-management action are Coordinator-only.
+        Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderSchedule]);
+        Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.ServiceVisitManage]);
     }
 
     [Fact]

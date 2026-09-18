@@ -80,4 +80,21 @@ public sealed class WorkOrder
     /// WO-001..013; set once at construction and never changed.
     /// </summary>
     public DateTime CreatedAt { get; private set; }
+
+    /// <summary>
+    /// ST-WO-001 Schedule (OPEN -&gt; SCHEDULED) by a Coordinator (S2-003; UC-WO-003). Aggregate-local guard only:
+    /// current state OPEN. Sets the required owner team (WO-006); the first Service Visit itself is created by the
+    /// Application layer in the same transaction, mirroring how Convert creates its Work Order alongside (not
+    /// inside) the Repair Request's own transition.
+    /// </summary>
+    public void Schedule(Guid ownerTeamId)
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.Scheduled))
+        {
+            throw new DomainRuleViolationException("Only an OPEN Work Order can be scheduled.");
+        }
+
+        OwnerTeamId = DomainGuard.NotEmpty(ownerTeamId, nameof(ownerTeamId));
+        Status = WorkOrderStatus.Scheduled;
+    }
 }

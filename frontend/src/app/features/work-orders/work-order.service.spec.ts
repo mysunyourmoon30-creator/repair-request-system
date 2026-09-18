@@ -44,4 +44,45 @@ describe('WorkOrderService', () => {
     expect(req.request.method).toBe('GET');
     req.flush({});
   });
+
+  it('schedules with the given If-Match header and body', () => {
+    service
+      .schedule('wo-1', '"v1"', {
+        ownerTeamId: 'team-1',
+        assignedTechnicianId: 'tech-1',
+        scheduledStartAt: '2026-10-01T08:00:00Z',
+        scheduledEndAt: '2026-10-01T10:00:00Z',
+      })
+      .subscribe();
+
+    const req = httpMock.expectOne(`${baseUrl}/wo-1/schedule`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('If-Match')).toBe('"v1"');
+    expect(req.request.body.ownerTeamId).toBe('team-1');
+    req.flush({});
+  });
+
+  it('posts Service Visit actions to /api/v1/service-visits/{id}/{action}', () => {
+    const visitsBaseUrl = `${environment.apiBaseUrl}/v1/service-visits`;
+
+    service.cancelVisit('visit-1', '"vv1"', { reason: 'No longer needed' }).subscribe();
+    const cancelReq = httpMock.expectOne(`${visitsBaseUrl}/visit-1/cancel`);
+    expect(cancelReq.request.headers.get('If-Match')).toBe('"vv1"');
+    expect(cancelReq.request.body).toEqual({ reason: 'No longer needed' });
+    cancelReq.flush({});
+
+    service.markMissed('visit-1', '"vv1"', { reason: 'No access' }).subscribe();
+    httpMock.expectOne(`${visitsBaseUrl}/visit-1/mark-missed`).flush({});
+
+    service.reassign('visit-1', '"vv1"', { reason: 'x', assignedTeamId: 't', assignedTechnicianId: 'u' }).subscribe();
+    httpMock.expectOne(`${visitsBaseUrl}/visit-1/reassign`).flush({});
+
+    service
+      .reschedule('visit-1', '"vv1"', { reason: 'x', scheduledStartAt: '2026-10-02T08:00:00Z', scheduledEndAt: '2026-10-02T10:00:00Z' })
+      .subscribe();
+    httpMock.expectOne(`${visitsBaseUrl}/visit-1/reschedule`).flush({});
+
+    service.decideMissed('visit-1', '"vv1"', { decision: 'NO_FOLLOW_UP', reason: 'done', newSchedule: null }).subscribe();
+    httpMock.expectOne(`${visitsBaseUrl}/visit-1/missed-decision`).flush({});
+  });
 });

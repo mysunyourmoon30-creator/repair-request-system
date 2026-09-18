@@ -41,6 +41,16 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string WorkOrderRead = "WorkOrder.Read";
 
+    /// <summary>Schedule an OPEN Work Order, creating its first Service Visit (S2-003; ST-WO-001; UC-WO-003: Coordinator only).</summary>
+    public const string WorkOrderSchedule = "WorkOrder.Schedule";
+
+    /// <summary>
+    /// Reschedule / Reassign / Cancel / Mark Missed / Decide Missed a Service Visit (S2-003; ST-SV-004..009;
+    /// UC-WO-005..009: Coordinator only). A separate policy from <see cref="WorkOrderSchedule"/> since it acts on
+    /// the Service Visit resource, not the Work Order.
+    /// </summary>
+    public const string ServiceVisitManage = "ServiceVisit.Manage";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -66,7 +76,9 @@ public static class AuthorizationPolicies
                 RoleCodes.Coordinator,
                 RoleCodes.TeamLead,
                 RoleCodes.Supervisor
-            ]
+            ],
+            [WorkOrderSchedule] = [RoleCodes.Coordinator],
+            [ServiceVisitManage] = [RoleCodes.Coordinator]
         };
 }
 

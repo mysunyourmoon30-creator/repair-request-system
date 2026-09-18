@@ -3,8 +3,9 @@ using RepairRequest.Domain.WorkOrders;
 namespace RepairRequest.Domain.Tests.WorkOrders;
 
 /// <summary>
-/// S2-001 persisted shape (RR-DD-001 WO-001..013). Only Create is implemented; Convert, Schedule, Reassign and
-/// every later transition are out of scope (DEC-S2-001-05).
+/// S2-001 persisted shape (RR-DD-001 WO-001..013). Create only; Schedule is covered by
+/// <see cref="WorkOrderScheduleDomainTests"/> (S2-003). Reassign at the Work Order level and every later transition
+/// remain out of scope.
 /// </summary>
 public class WorkOrderTests
 {

@@ -17,10 +17,46 @@ public sealed record WorkOrderDto(
     string? CustomerCode,
     string? SiteCode,
     string? EquipmentCode,
+    byte[] RowVersion,
+    IReadOnlyList<ServiceVisitDto> Visits);
+
+/// <summary>
+/// Service Visit projection (S2-003; RR-DD-001 SV-001..018), embedded in the Work Order detail response — no
+/// dedicated Service Visit list/detail resource exists (Portfolio Project Owner directive, S2-003
+/// pre-implementation). Newest-first by <see cref="ScheduledStartAt"/> so a MISSED visit and its follow-up (if
+/// any) are both visible.
+/// </summary>
+public sealed record ServiceVisitDto(
+    Guid ServiceVisitId,
+    Guid WorkOrderId,
+    ServiceVisitType VisitType,
+    ServiceVisitStatus Status,
+    Guid? AssignedTeamId,
+    Guid? AssignedTechnicianId,
+    DateTime? ScheduledStartAt,
+    DateTime? ScheduledEndAt,
+    string? RescheduleReason,
+    string? ReassignReason,
+    string? CancelReason,
+    string? MissedReason,
+    DateTime? CompletedAt,
+    Guid? SourceMissedVisitId,
+    MissedVisitDecisionCode? MissedDecisionCode,
+    DateTime? MissedDecidedAt,
     byte[] RowVersion);
 
 /// <summary>List query: paging plus an optional status filter. Sort is fixed newest-first (DEC-S2-001-04).</summary>
 public sealed record WorkOrderListQuery(PageRequest Paging, WorkOrderStatus? Status);
+
+/// <summary>
+/// The new follow-up Visit's schedule for a Decide Missed decision (`newSchedule`, RR-API-009 WO-API-007) — required
+/// only for RESCHEDULE/FOLLOW_UP/REASSIGN, absent for NO_FOLLOW_UP.
+/// </summary>
+public sealed record MissedVisitFollowUpSchedule(
+    Guid? AssignedTeamId,
+    Guid? AssignedTechnicianId,
+    DateTimeOffset? ScheduledStartAt,
+    DateTimeOffset? ScheduledEndAt);
 
 /// <summary>Canonical upper-snake Work Order status codes (RR-DD-001 WO-005; RR-STS-001 section 3).</summary>
 public static class WorkOrderStatusCodes
@@ -61,8 +97,76 @@ public static class WorkOrderStatusCodes
     }
 }
 
-/// <summary>API field names used as keys of the 400 BAD_REQUEST error for the list query string.</summary>
+/// <summary>API field names used as keys of the 400 BAD_REQUEST error for the list query string, and of Schedule's 422 errors.</summary>
 public static class WorkOrderFields
 {
     public const string Status = "status";
+    public const string OwnerTeamId = "ownerTeamId";
+    public const string AssignedTechnicianId = "assignedTechnicianId";
+    public const string ScheduledStartAt = "scheduledStartAt";
+    public const string ScheduledEndAt = "scheduledEndAt";
+}
+
+/// <summary>Canonical upper-snake Service Visit status codes (RR-DD-001 SV-005; RR-STS-001 section 1).</summary>
+public static class ServiceVisitStatusCodes
+{
+    public static string ToCode(ServiceVisitStatus status) => status switch
+    {
+        ServiceVisitStatus.Scheduled => "SCHEDULED",
+        ServiceVisitStatus.Rescheduled => "RESCHEDULED",
+        ServiceVisitStatus.InProgress => "IN_PROGRESS",
+        ServiceVisitStatus.Completed => "COMPLETED",
+        ServiceVisitStatus.Missed => "MISSED",
+        ServiceVisitStatus.Cancelled => "CANCELLED",
+        _ => throw new ArgumentOutOfRangeException(nameof(status))
+    };
+}
+
+/// <summary>Canonical upper-snake Service Visit type codes (RR-DD-001 SV-004).</summary>
+public static class ServiceVisitTypeCodes
+{
+    public static string ToCode(ServiceVisitType visitType) => visitType switch
+    {
+        ServiceVisitType.Initial => "INITIAL",
+        ServiceVisitType.FollowUp => "FOLLOW_UP",
+        ServiceVisitType.Corrective => "CORRECTIVE",
+        _ => throw new ArgumentOutOfRangeException(nameof(visitType))
+    };
+}
+
+/// <summary>Canonical upper-snake Missed Decision codes (RR-DD-001 SV-017; D-15).</summary>
+public static class MissedVisitDecisionCodes
+{
+    public static string ToCode(MissedVisitDecisionCode decision) => decision switch
+    {
+        MissedVisitDecisionCode.Reschedule => "RESCHEDULE",
+        MissedVisitDecisionCode.FollowUp => "FOLLOW_UP",
+        MissedVisitDecisionCode.Reassign => "REASSIGN",
+        MissedVisitDecisionCode.NoFollowUp => "NO_FOLLOW_UP",
+        _ => throw new ArgumentOutOfRangeException(nameof(decision))
+    };
+
+    public static bool TryParse(string? code, out MissedVisitDecisionCode decision)
+    {
+        switch (code)
+        {
+            case "RESCHEDULE": decision = MissedVisitDecisionCode.Reschedule; return true;
+            case "FOLLOW_UP": decision = MissedVisitDecisionCode.FollowUp; return true;
+            case "REASSIGN": decision = MissedVisitDecisionCode.Reassign; return true;
+            case "NO_FOLLOW_UP": decision = MissedVisitDecisionCode.NoFollowUp; return true;
+            default: decision = default; return false;
+        }
+    }
+}
+
+/// <summary>API field names used as keys of Service Visit actions' 422 errors.</summary>
+public static class ServiceVisitFields
+{
+    public const string Reason = "reason";
+    public const string AssignedTeamId = "assignedTeamId";
+    public const string AssignedTechnicianId = "assignedTechnicianId";
+    public const string ScheduledStartAt = "scheduledStartAt";
+    public const string ScheduledEndAt = "scheduledEndAt";
+    public const string Decision = "decision";
+    public const string NewSchedule = "newSchedule";
 }

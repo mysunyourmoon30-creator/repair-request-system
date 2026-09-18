@@ -1,7 +1,6 @@
 /**
- * Work Order list/detail shape (S2-001). Matches `WorkOrderResponse` on the backend exactly.
- * Scheduled Date and Assigned Team/Technician are intentionally absent (DEC-S2-001-02/03,
- * `docs/12` Section 11) — Customer/Site/Equipment are codes, not display names.
+ * Work Order list/detail shape (S2-001; extended S2-003 with `visits`). Matches `WorkOrderResponse` on the
+ * backend exactly. Customer/Site/Equipment are codes, not display names.
  */
 export interface WorkOrder {
   workOrderId: string;
@@ -13,7 +12,35 @@ export interface WorkOrder {
   siteCode: string | null;
   equipmentCode: string | null;
   rowVersion: string;
+  visits: ServiceVisit[];
 }
+
+/**
+ * Service Visit shape (S2-003). Matches `ServiceVisitResponse` on the backend exactly. Team/technician are raw
+ * ids — there is no directory to resolve a display name from (no Team master data exists at all).
+ */
+export interface ServiceVisit {
+  serviceVisitId: string;
+  workOrderId: string;
+  visitType: string;
+  status: string;
+  assignedTeamId: string | null;
+  assignedTechnicianId: string | null;
+  scheduledStartAt: string | null;
+  scheduledEndAt: string | null;
+  rescheduleReason: string | null;
+  reassignReason: string | null;
+  cancelReason: string | null;
+  missedReason: string | null;
+  completedAt: string | null;
+  sourceMissedVisitId: string | null;
+  missedDecisionCode: string | null;
+  missedDecidedAt: string | null;
+  rowVersion: string;
+}
+
+/** Canonical Missed Decision codes (RR-DD-001 SV-017; D-15), for the Decide Missed form. */
+export const MISSED_VISIT_DECISIONS: readonly string[] = ['RESCHEDULE', 'FOLLOW_UP', 'REASSIGN', 'NO_FOLLOW_UP'];
 
 export interface PagedResponse<T> {
   items: T[];
