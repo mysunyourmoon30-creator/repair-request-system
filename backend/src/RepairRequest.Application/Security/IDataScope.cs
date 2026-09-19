@@ -55,6 +55,18 @@ public interface IDataScope
     /// </summary>
     IQueryable<WorkOrder> WorkOrders(CurrentUser user);
 
+    /// <summary>
+    /// Service Visits assigned to a Technician caller ("My Visits", S3-001): every Visit whose
+    /// <c>AssignedTechnicianId</c> is the caller's own id, correlated through the Visit's Work Order and Repair
+    /// Request to confirm the caller's Site scope is still current — a defense-in-depth check beyond the
+    /// assignment itself, which was only validated once at Schedule/Reassign time and could since have been
+    /// revoked. Every non-Technician caller sees none; this is not a general Work Order/Visit read scope
+    /// (contrast <see cref="WorkOrders"/>, which deliberately excludes TECHNICIAN per DEC-S2-001-03). "Primary
+    /// team" plays no part here — no Team master-data entity exists (Portfolio Project Owner directive,
+    /// confirmed again pre-S3-001).
+    /// </summary>
+    IQueryable<ServiceVisit> AssignedServiceVisits(CurrentUser user);
+
     /// <summary>Validates a client-supplied Site id against the caller's <see cref="BusinessSites"/> scope in a single query.</summary>
     Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken);
 }

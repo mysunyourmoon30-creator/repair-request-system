@@ -51,6 +51,16 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string ServiceVisitManage = "ServiceVisit.Manage";
 
+    /// <summary>"My Visits" — a Technician's own assigned Service Visits (S3-001; UI-040). Technician only.</summary>
+    public const string MyVisitsRead = "MyVisits.Read";
+
+    /// <summary>
+    /// Check-in to a SCHEDULED Service Visit assigned to the caller (S3-001; ST-WS-001; UC-WO-016: Assigned
+    /// Technician only). A separate policy from <see cref="ServiceVisitManage"/> since it is Technician-only,
+    /// not Coordinator-only, and acts on a different resource (the new Work Session).
+    /// </summary>
+    public const string WorkSessionCheckIn = "WorkSession.CheckIn";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -78,7 +88,9 @@ public static class AuthorizationPolicies
                 RoleCodes.Supervisor
             ],
             [WorkOrderSchedule] = [RoleCodes.Coordinator],
-            [ServiceVisitManage] = [RoleCodes.Coordinator]
+            [ServiceVisitManage] = [RoleCodes.Coordinator],
+            [MyVisitsRead] = [RoleCodes.Technician],
+            [WorkSessionCheckIn] = [RoleCodes.Technician]
         };
 }
 

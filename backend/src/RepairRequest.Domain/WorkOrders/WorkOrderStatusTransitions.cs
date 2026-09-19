@@ -9,13 +9,15 @@ public sealed record WorkOrderStatusTransition(
 
 /// <summary>
 /// Work Order transition matrix (RR-STS-001, ST-WO-001..011), mirroring <c>RepairRequestStatusTransitions</c>.
-/// S2-003 introduces the first entry (Schedule); every later Work Order transition remains out of scope.
+/// S2-003 introduces the first entry (Schedule); S3-001 adds Check-in. Every later Work Order transition
+/// remains out of scope.
 /// </summary>
 public static class WorkOrderStatusTransitions
 {
     public static IReadOnlyList<WorkOrderStatusTransition> All { get; } =
     [
         new("ST-WO-001", WorkOrderStatus.Open, "Schedule", WorkOrderStatus.Scheduled),
+        new("ST-WO-002", WorkOrderStatus.Scheduled, "CheckIn", WorkOrderStatus.InProgress),
     ];
 
     public static bool IsAllowed(WorkOrderStatus from, WorkOrderStatus to) =>

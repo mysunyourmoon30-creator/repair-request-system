@@ -21,4 +21,7 @@ public sealed class WorkOrderService
 
     public Task<WorkOrderDto?> GetAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
         _store.GetAsync(user, workOrderId, cancellationToken);
+
+    public Task<WorkOrderDto?> GetForTechnicianAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
+        _store.GetForTechnicianAsync(user, workOrderId, cancellationToken);
 }

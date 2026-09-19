@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { technicianOnlyGuard } from './core/auth/technician-only.guard';
 
 export const routes: Routes = [
   {
@@ -10,6 +11,11 @@ export const routes: Routes = [
     path: 'work-orders/:id',
     loadComponent: () =>
       import('./features/work-orders/work-order-detail.component').then((m) => m.WorkOrderDetailComponent),
+  },
+  {
+    path: 'my-visits',
+    canActivate: [technicianOnlyGuard],
+    loadComponent: () => import('./features/technician/my-visits.component').then((m) => m.MyVisitsComponent),
   },
   {
     path: 'repair-requests',

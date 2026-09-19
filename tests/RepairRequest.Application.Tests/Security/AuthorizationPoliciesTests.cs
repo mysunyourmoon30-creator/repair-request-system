@@ -23,7 +23,9 @@ public class AuthorizationPoliciesTests
         },
         { AuthorizationPolicies.RepairRequestConvert, [RoleCodes.Coordinator] },
         { AuthorizationPolicies.WorkOrderSchedule, [RoleCodes.Coordinator] },
-        { AuthorizationPolicies.ServiceVisitManage, [RoleCodes.Coordinator] }
+        { AuthorizationPolicies.ServiceVisitManage, [RoleCodes.Coordinator] },
+        { AuthorizationPolicies.MyVisitsRead, [RoleCodes.Technician] },
+        { AuthorizationPolicies.WorkSessionCheckIn, [RoleCodes.Technician] }
     };
 
     [Theory]
@@ -36,7 +38,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(10, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(12, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -65,6 +67,14 @@ public class AuthorizationPoliciesTests
         // ST-WO-001; ST-SV-004..009; UC-WO-003/005..009 — Schedule and every Visit-management action are Coordinator-only.
         Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderSchedule]);
         Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.ServiceVisitManage]);
+    }
+
+    [Fact]
+    public void MyVisitsRead_AndWorkSessionCheckIn_AreTechnicianOnly()
+    {
+        // ST-WS-001; UC-WO-016; BR-05; S3-001 — My Visits and Check-in are Technician-only.
+        Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.MyVisitsRead]);
+        Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkSessionCheckIn]);
     }
 
     [Fact]

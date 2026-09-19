@@ -49,6 +49,26 @@ public sealed record ServiceVisitDto(
 public sealed record WorkOrderListQuery(PageRequest Paging, WorkOrderStatus? Status);
 
 /// <summary>
+/// "My Visits" list projection (S3-001; UI-040): a lightweight, technician-facing summary — never the full
+/// Work Order aggregate graph, per `docs/09` section 9's "no full aggregate graph for list" principle. Always
+/// scoped to the caller's own <see cref="IDataScope.AssignedServiceVisits"/>; no status filter is offered
+/// since the list is meant to show only actionable (SCHEDULED) visits.
+/// </summary>
+public sealed record MyVisitSummaryDto(
+    Guid ServiceVisitId,
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    ServiceVisitStatus Status,
+    string? SiteCode,
+    string? EquipmentCode,
+    DateTime? ScheduledStartAt,
+    DateTime? ScheduledEndAt,
+    byte[] RowVersion);
+
+/// <summary>My Visits list query: paging only (S3-001) — always the caller's own SCHEDULED visits, newest-first by scheduled start.</summary>
+public sealed record MyVisitsQuery(PageRequest Paging);
+
+/// <summary>
 /// The new follow-up Visit's schedule for a Decide Missed decision (`newSchedule`, RR-API-009 WO-API-007) — required
 /// only for RESCHEDULE/FOLLOW_UP/REASSIGN, absent for NO_FOLLOW_UP.
 /// </summary>

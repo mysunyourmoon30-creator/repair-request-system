@@ -64,6 +64,8 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
 
     public DbSet<ServiceVisit> ServiceVisits => Set<ServiceVisit>();
 
+    public DbSet<WorkSession> WorkSessions => Set<WorkSession>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

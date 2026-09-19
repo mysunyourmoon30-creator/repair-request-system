@@ -85,6 +85,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IWorkOrderScheduleStore, WorkOrderScheduleStore>();
         services.AddScoped<IServiceVisitStore, ServiceVisitStore>();
 
+        // S3-001: "My Visits" (read) and Check-in (ST-WS-001) persistence port.
+        services.AddScoped<IWorkSessionStore, WorkSessionStore>();
+
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();
         services.AddOptions<FileStorageOptions>()

@@ -1,6 +1,8 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Options;
 using RepairRequest.Api.Contracts.WorkOrders;
+using RepairRequest.Api.Http;
 using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
 using RepairRequest.Application.WorkOrders;
@@ -13,6 +15,8 @@ namespace RepairRequest.Api.Controllers;
 /// (COORDINATOR) within the Work Order's Site scope; If-Match is required on every action, checked against the
 /// Visit's own RowVersion. Every action returns the Visit's parent Work Order (including the full <c>visits</c>
 /// array) so the caller never needs a separate fetch — there is no dedicated Service Visit list/detail resource.
+/// S3-001 adds the Technician-only "My Visits" list (<see cref="Mine"/>) and Check-in (<see cref="CheckIn"/>,
+/// WS-API-001, ST-WS-001).
 /// </summary>
 [ApiController]
 [Route("api/v1/service-visits")]
@@ -22,12 +26,64 @@ public sealed class ServiceVisitsController : CommandControllerBase
 
     private readonly ServiceVisitManageService _manage;
     private readonly WorkOrderService _workOrders;
+    private readonly TechnicianCheckInService _checkIn;
+    private readonly PagingOptions _paging;
 
-    public ServiceVisitsController(ServiceVisitManageService manage, WorkOrderService workOrders, ICurrentUserAccessor currentUserAccessor)
+    public ServiceVisitsController(
+        ServiceVisitManageService manage,
+        WorkOrderService workOrders,
+        TechnicianCheckInService checkIn,
+        ICurrentUserAccessor currentUserAccessor,
+        IOptions<PagingOptions> paging)
         : base(currentUserAccessor)
     {
         _manage = manage;
         _workOrders = workOrders;
+        _checkIn = checkIn;
+        _paging = paging.Value;
+    }
+
+    /// <summary>"My Visits" (S3-001; UI-040): the caller's own assigned, SCHEDULED Service Visits, newest-first by scheduled start.</summary>
+    [HttpGet("mine")]
+    [Authorize(Policy = AuthorizationPolicies.MyVisitsRead)]
+    [ProducesResponseType<PagedResponse<MyVisitSummaryResponse>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Mine([FromQuery] MyVisitsListRequest request, CancellationToken cancellationToken)
+    {
+        if (!PageRequests.TryCreate(request.Page, request.PageSize, _paging, HttpContext, out var paging, out var problem))
+        {
+            return problem;
+        }
+
+        var page = await _checkIn.ListMineAsync(await CallerAsync(cancellationToken), new MyVisitsQuery(paging), cancellationToken);
+        return Ok(new PagedResponse<MyVisitSummaryResponse>(
+            page.Items.Select(MyVisitSummaryResponses.ToResponse).ToList(), page.Page, page.PageSize, page.TotalCount));
+    }
+
+    /// <summary>
+    /// WS-API-001 Check-in (ST-WS-001; BR-05): only the assigned Technician, only a SCHEDULED Visit with no
+    /// active Work Session elsewhere. Empty request body — the client supplies neither status nor Check-in time.
+    /// </summary>
+    [HttpPost("{serviceVisitId:guid}/check-in")]
+    [Authorize(Policy = AuthorizationPolicies.WorkSessionCheckIn)]
+    [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> CheckIn(Guid serviceVisitId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _checkIn.CheckInAsync(context, serviceVisitId, rowVersion, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        // Not RespondAsync/_workOrders.GetAsync: that scope (IDataScope.WorkOrders) deliberately excludes
+        // TECHNICIAN (DEC-S2-001-03) — see IWorkOrderStore.GetForTechnicianAsync's own doc comment.
+        var workOrder = await _workOrders.GetForTechnicianAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(workOrder, "WorkOrder", WorkOrderResponses.ToResponse, dto => dto.RowVersion);
     }
 
     /// <summary>WO-API-004 Reschedule (ST-SV-004/005): reason and the new window are required.</summary>

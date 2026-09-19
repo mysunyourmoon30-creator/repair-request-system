@@ -226,6 +226,33 @@ public class ServiceVisitDomainTests
         Assert.Equal(status, visit.Status);
     }
 
+    // ---------------- Check-in (ST-SV-002, S3-001) ----------------
+
+    [Fact]
+    public void CheckIn_FromScheduled_MovesToInProgress()
+    {
+        var visit = CreateVisit();
+
+        visit.CheckIn();
+
+        Assert.Equal(ServiceVisitStatus.InProgress, visit.Status);
+    }
+
+    [Theory]
+    [InlineData(ServiceVisitStatus.Rescheduled)]
+    [InlineData(ServiceVisitStatus.InProgress)]
+    [InlineData(ServiceVisitStatus.Completed)]
+    [InlineData(ServiceVisitStatus.Missed)]
+    [InlineData(ServiceVisitStatus.Cancelled)]
+    public void CheckIn_FromAnyStateOtherThanScheduled_IsDenied(ServiceVisitStatus status)
+    {
+        var visit = VisitIn(status);
+
+        Assert.Throws<DomainRuleViolationException>(() => visit.CheckIn());
+
+        Assert.Equal(status, visit.Status);
+    }
+
     // ---------------- Decide Missed (ST-SV-009/D-15) ----------------
 
     [Theory]

@@ -55,6 +55,25 @@ internal sealed class WorkOrderStore : IWorkOrderStore
         Project(_scope.WorkOrders(user).AsNoTracking().Where(workOrder => workOrder.Id == workOrderId))
             .SingleOrDefaultAsync(cancellationToken);
 
+    public async Task<WorkOrderDto?> GetForTechnicianAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken)
+    {
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        var scoped = _db.WorkOrders
+            .Where(workOrder => workOrder.TenantId == tenantId
+                && _db.ServiceVisits.Any(visit => visit.WorkOrderId == workOrder.Id && visit.AssignedTechnicianId == userId));
+
+        var dto = await Project(scoped.AsNoTracking().Where(workOrder => workOrder.Id == workOrderId))
+            .SingleOrDefaultAsync(cancellationToken);
+
+        // A Technician sees only Visits assigned to them: the Work Order's other Visits (other technicians'
+        // ids, Coordinator-entered reschedule/reassign/cancel/missed reasons) are not part of their scope.
+        return dto is null
+            ? null
+            : dto with { Visits = dto.Visits.Where(visit => visit.AssignedTechnicianId == userId).ToList() };
+    }
+
     private IQueryable<WorkOrderDto> Project(IQueryable<WorkOrder> workOrders) =>
         from workOrder in workOrders
         join request in _db.RepairRequests on workOrder.RepairRequestId equals request.Id
