@@ -97,4 +97,19 @@ public sealed class WorkOrder
         OwnerTeamId = DomainGuard.NotEmpty(ownerTeamId, nameof(ownerTeamId));
         Status = WorkOrderStatus.Scheduled;
     }
+
+    /// <summary>
+    /// ST-WO-002 Check-in begins work (S3-001; UC-WO-016; BR-05): SCHEDULED -&gt; IN_PROGRESS, triggered by the
+    /// assigned Technician's Check-in on one of this Work Order's Service Visits. Aggregate-local guard only:
+    /// current state SCHEDULED.
+    /// </summary>
+    public void BeginWork()
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.InProgress))
+        {
+            throw new DomainRuleViolationException("Only a SCHEDULED Work Order can begin work.");
+        }
+
+        Status = WorkOrderStatus.InProgress;
+    }
 }

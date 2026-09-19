@@ -8,9 +8,9 @@ namespace RepairRequest.Domain.WorkOrders;
 /// (S2-001/S2-002 scaffolding left <see cref="WorkOrder.OwnerTeamId"/> a bare, unvalidated Guid) — Portfolio
 /// Project Owner directive, S2-003 pre-implementation: <see cref="AssignedTeamId"/> stays an unvalidated
 /// caller-supplied identifier; only <see cref="AssignedTechnicianId"/> is checked against a real user
-/// (TECHNICIAN role, Site-scoped). Check-in/Check-out (ST-SV-002/003, IN_PROGRESS/COMPLETED) are out of scope
-/// for S2-003 (FR-06 Work Session, a separate ticket); those statuses exist on <see cref="ServiceVisitStatus"/>
-/// for schema fidelity only and are unreachable by any method here.
+/// (TECHNICIAN role, Site-scoped). Check-in (ST-SV-002) is added by S3-001; Check-out (ST-SV-003, COMPLETED)
+/// remains a later ticket — <see cref="ServiceVisitStatus.Completed"/> exists for schema fidelity only and is
+/// still unreachable by any method here.
 /// </summary>
 public sealed class ServiceVisit
 {
@@ -187,6 +187,21 @@ public sealed class ServiceVisit
 
         MissedDecisionCode = decision;
         MissedDecidedAt = DomainGuard.Utc(decidedAt, nameof(decidedAt));
+    }
+
+    /// <summary>
+    /// ST-SV-002 Check-in (S3-001; UC-WO-016; BR-05). Only from SCHEDULED. Eligibility (the caller is the
+    /// assigned Technician, within tenant/site scope) and the "no active overlap" guard are both checked by the
+    /// Application service before this is called — this method only enforces the aggregate-local state guard.
+    /// </summary>
+    public void CheckIn()
+    {
+        if (!ServiceVisitStatusTransitions.IsAllowed(Status, ServiceVisitStatus.InProgress))
+        {
+            throw new DomainRuleViolationException("Only a SCHEDULED Service Visit can be checked into.");
+        }
+
+        Status = ServiceVisitStatus.InProgress;
     }
 
     private void SetSchedule(DateTime start, DateTime end)

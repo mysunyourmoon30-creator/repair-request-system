@@ -18,14 +18,17 @@ public static class WorkOrderAudit
     public const string ServiceVisitEntityType = "SERVICE_VISIT";
 
     public const string ScheduledAction = "WORK_ORDER_SCHEDULED";
+    public const string WorkStartedAction = "WORK_ORDER_STARTED";
     public const string RescheduledAction = "SERVICE_VISIT_RESCHEDULED";
     public const string ReassignedAction = "SERVICE_VISIT_REASSIGNED";
     public const string CancelledAction = "SERVICE_VISIT_CANCELLED";
     public const string MarkedMissedAction = "SERVICE_VISIT_MARKED_MISSED";
     public const string MissedDecidedAction = "SERVICE_VISIT_MISSED_DECIDED";
+    public const string CheckedInAction = "SERVICE_VISIT_CHECKED_IN";
 
     public const string ServiceVisitIdField = "serviceVisitId";
     public const string NewServiceVisitIdField = "newServiceVisitId";
+    public const string WorkSessionIdField = "workSessionId";
 
     /// <summary>ST-WO-001 success: OPEN -&gt; SCHEDULED, with the new first Service Visit referenced. No reason applies.</summary>
     public static AuditHistory Scheduled(CommandContext context, WorkOrder workOrder, ServiceVisit visit, DateTime occurredAt) =>
@@ -45,6 +48,38 @@ public static class WorkOrderAudit
                 [WorkOrderFields.ScheduledStartAt] = visit.ScheduledStartAt,
                 [WorkOrderFields.ScheduledEndAt] = visit.ScheduledEndAt
             }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>ST-WO-002 success (S3-001): SCHEDULED -&gt; IN_PROGRESS, triggered by the Technician's Check-in. No reason applies.</summary>
+    public static AuditHistory WorkStarted(CommandContext context, WorkOrder workOrder, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            WorkStartedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Scheduled),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.InProgress),
+            oldValueJson: null,
+            newValueJson: null,
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>ST-SV-002 success (S3-001): SCHEDULED -&gt; IN_PROGRESS, with the new Work Session referenced. No reason applies.</summary>
+    public static AuditHistory CheckedIn(CommandContext context, ServiceVisit visit, WorkSession session, DateTime occurredAt) =>
+        new(
+            visit.TenantId,
+            ServiceVisitEntityType,
+            visit.Id,
+            CheckedInAction,
+            fromState: ServiceVisitStatusCodes.ToCode(ServiceVisitStatus.Scheduled),
+            toState: ServiceVisitStatusCodes.ToCode(ServiceVisitStatus.InProgress),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?> { [WorkSessionIdField] = session.Id }),
             reason: null,
             context.User.UserId,
             occurredAt,

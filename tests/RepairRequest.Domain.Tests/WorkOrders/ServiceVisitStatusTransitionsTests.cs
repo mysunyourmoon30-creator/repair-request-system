@@ -3,9 +3,10 @@ using RepairRequest.Domain.WorkOrders;
 namespace RepairRequest.Domain.Tests.WorkOrders;
 
 /// <summary>
-/// Verifies the encoded matrix against RR-STS-001 (ST-SV-001..009). S2-003 registers only the true cross-state
-/// transitions (Cancel, Mark Missed) — Reschedule/Reassign/Decide Missed are same-state actions guarded directly by
-/// <see cref="ServiceVisit"/>'s own methods (see <see cref="ServiceVisitStatusTransitions"/>'s doc comment).
+/// Verifies the encoded matrix against RR-STS-001 (ST-SV-001..009). S2-003 registers the true cross-state
+/// transitions Cancel and Mark Missed; S3-001 adds Check-in (ST-SV-002). Reschedule/Reassign/Decide Missed are
+/// same-state actions guarded directly by <see cref="ServiceVisit"/>'s own methods (see
+/// <see cref="ServiceVisitStatusTransitions"/>'s doc comment).
 /// </summary>
 public class ServiceVisitStatusTransitionsTests
 {
@@ -18,6 +19,7 @@ public class ServiceVisitStatusTransitionsTests
     }
 
     [Theory]
+    [InlineData("ST-SV-002", ServiceVisitStatus.Scheduled, ServiceVisitStatus.InProgress)]
     [InlineData("ST-SV-007", ServiceVisitStatus.Scheduled, ServiceVisitStatus.Cancelled)]
     [InlineData("ST-SV-008", ServiceVisitStatus.Scheduled, ServiceVisitStatus.Missed)]
     public void AllowedTransition_IsPresentWithCanonicalId(string transitionId, ServiceVisitStatus from, ServiceVisitStatus to)
@@ -29,15 +31,15 @@ public class ServiceVisitStatusTransitionsTests
     }
 
     [Fact]
-    public void Matrix_ContainsExactlyTheS2003Transitions()
+    public void Matrix_ContainsExactlyTheImplementedTransitions()
     {
-        Assert.Equal(2, ServiceVisitStatusTransitions.All.Count);
+        Assert.Equal(3, ServiceVisitStatusTransitions.All.Count);
     }
 
     [Theory]
     [InlineData(ServiceVisitStatus.Scheduled, ServiceVisitStatus.Rescheduled)]
     [InlineData(ServiceVisitStatus.Rescheduled, ServiceVisitStatus.Scheduled)]
-    [InlineData(ServiceVisitStatus.Scheduled, ServiceVisitStatus.InProgress)]
+    [InlineData(ServiceVisitStatus.InProgress, ServiceVisitStatus.Completed)]
     [InlineData(ServiceVisitStatus.Missed, ServiceVisitStatus.Scheduled)]
     [InlineData(ServiceVisitStatus.Cancelled, ServiceVisitStatus.Scheduled)]
     public void TransitionOutsideMatrix_IsNotAllowed(ServiceVisitStatus from, ServiceVisitStatus to)

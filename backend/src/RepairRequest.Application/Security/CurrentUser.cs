@@ -56,6 +56,8 @@ public sealed class CurrentUser
 
     public bool IsRequester => IsInRole(RoleCodes.Requester);
 
+    public bool IsTechnician => IsInRole(RoleCodes.Technician);
+
     /// <summary>
     /// Holds a role permitted to read Work Orders (S2-001 / DEC-S2-001-03): mirrors <see cref="HasBusinessRole"/>
     /// but excludes TECHNICIAN until Work Order/Visit assignment rules are defined.

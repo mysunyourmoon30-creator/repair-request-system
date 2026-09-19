@@ -54,6 +54,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<WorkOrderScheduleService>();
         services.AddScoped<ServiceVisitManageService>();
 
+        // S3-001: "My Visits" (read) and Check-in (ST-WS-001) by the assigned Technician.
+        services.AddScoped<TechnicianCheckInService>();
+
         return services;
     }
 }

@@ -31,4 +31,11 @@ internal sealed class FakeWorkOrderStore : IWorkOrderStore
         LastGetId = workOrderId;
         return Task.FromResult(GetResult);
     }
+
+    public Task<WorkOrderDto?> GetForTechnicianAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken)
+    {
+        LastGetUser = user;
+        LastGetId = workOrderId;
+        return Task.FromResult(GetResult);
+    }
 }

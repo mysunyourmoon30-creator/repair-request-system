@@ -77,6 +77,26 @@ public sealed record MarkMissedServiceVisitRequest(string? Reason);
 /// <summary>WO-API-007 Decide Missed body. <see cref="NewSchedule"/> is required only for RESCHEDULE/FOLLOW_UP/REASSIGN.</summary>
 public sealed record MissedDecisionRequest(string? Decision, string? Reason, NewVisitScheduleRequest? NewSchedule);
 
+/// <summary>My Visits list query: paging only (S3-001) — always the caller's own SCHEDULED visits.</summary>
+public sealed class MyVisitsListRequest
+{
+    public int? Page { get; init; }
+
+    public int? PageSize { get; init; }
+}
+
+/// <summary>My Visits list item (S3-001; UI-040) — a lightweight projection, not the full Work Order graph.</summary>
+public sealed record MyVisitSummaryResponse(
+    Guid ServiceVisitId,
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    string Status,
+    string? SiteCode,
+    string? EquipmentCode,
+    DateTime? ScheduledStartAt,
+    DateTime? ScheduledEndAt,
+    string RowVersion);
+
 public sealed record NewVisitScheduleRequest(
     Guid? AssignedTeamId,
     Guid? AssignedTechnicianId,
@@ -98,6 +118,21 @@ public static class WorkOrderResponses
             dto.EquipmentCode,
             Convert.ToBase64String(dto.RowVersion),
             dto.Visits.Select(ServiceVisitResponses.ToResponse).ToList());
+}
+
+public static class MyVisitSummaryResponses
+{
+    public static MyVisitSummaryResponse ToResponse(MyVisitSummaryDto dto) =>
+        new(
+            dto.ServiceVisitId,
+            dto.WorkOrderId,
+            dto.WorkOrderNo,
+            ServiceVisitStatusCodes.ToCode(dto.Status),
+            dto.SiteCode,
+            dto.EquipmentCode,
+            dto.ScheduledStartAt,
+            dto.ScheduledEndAt,
+            Convert.ToBase64String(dto.RowVersion));
 }
 
 public static class ServiceVisitResponses

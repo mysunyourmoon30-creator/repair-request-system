@@ -11,10 +11,10 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Document ID | RR-API-001-ADD |
 | Version | 1.0 |
 | Status | Approved for Portfolio Development (documentation reconciliation) |
-| Revision Date | 17 September 2026 — reconciled with the S2-001 implementation (Work Order List/Detail); previously 15 September 2026 (S1-007) |
+| Revision Date | 18 September 2026 — reconciled with the S3-001 implementation (My Visits / Check-in; working tree, not yet committed — see note below); previously 17 September 2026 (S2-001) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
-| Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001 |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8) |
+| Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001; Portfolio Project Owner pre-implementation directives for S3-001 (eligibility is `assigned_technician_id` only — no "Primary team"; location capture out of scope) for My Visits / Check-in |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8), S2-003 Schedule/Service Visit management (9a05ca0, PR #5) — WO-API-002..007 implemented but **not yet reconciled into this addendum's §1/§4** (pre-existing gap, out of scope of this revision), S3-001 My Visits / Check-in (working tree — see §4.11) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -41,8 +41,10 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | RR-API-010 | convert | NOT IMPLEMENTED |
 | FILE-API-001 | POST `/api/v1/repair-requests/{id}/attachments` | IMPLEMENTED (S1-006) |
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
-| WO-API-001 | GET `/api/v1/work-orders/{id}` | IMPLEMENTED (S2-001) — read-only List/Detail; Convert/Schedule/Reassign not implemented, see §4.10 |
-| WS-*, ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WO-API-002..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
+| WO-API-001 | GET `/api/v1/work-orders/{id}` | IMPLEMENTED (S2-001) — read-only List/Detail; see §4.10 |
+| WO-API-002..007 | schedule / reassign / reschedule / cancel / mark-missed / missed-decision | IMPLEMENTED (S2-003, PR #5, commit 9a05ca0) — Coordinator-only; **not yet reconciled into this addendum's detail sections** (pre-existing documentation gap, out of scope of this S3-001 revision) |
+| WS-API-001 | POST `/api/v1/service-visits/{id}/check-in` | IMPLEMENTED (S3-001, working tree) — Technician-only; see §4.11 |
+| ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WS-API-002..004, WO-API-008..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
 
 ## 2. Implemented Endpoints Missing From the RR-API-001 v1.2 Catalog
 
@@ -80,6 +82,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | ROUTING-API-001 | GET | `/api/v1/routing-issues` | SUBMITTED requests not yet routed or with a routing failure (routing metadata only) | Routing.Recovery | — | DEC-PRE-S1-007R-10 |
 | ROUTING-API-002 | POST | `/api/v1/repair-requests/{id}/retry-routing` | Admin Retry Routing (server-side route and approver) | Routing.Recovery | If-Match | DEC-PRE-S1-007R-07/08 |
 | WO-API-ADD-001 | GET | `/api/v1/work-orders` | List Work Orders (paged; `status` filter; fixed newest-first sort) | WorkOrder.Read | — | DEC-S2-001-01..05 (`docs/12` Section 11) |
+| WS-API-ADD-001 | GET | `/api/v1/service-visits/mine` | "My Visits" (UI-040): the caller's own assigned, SCHEDULED Service Visits (paged, fixed soonest-first sort) | MyVisits.Read | — | S3-001 pre-implementation decision — no `docs/09` catalog ID exists for a Service Visit list endpoint at all; this ID is a new technical routing addition, not a new business rule (mirrors how WO-API-ADD-001 formalized the S2-001 list) |
 
 ---
 
@@ -92,6 +95,29 @@ Response fields are `workOrderId, workOrderNo, status, repairRequestId, repairRe
 `GET /api/v1/work-orders` query string: `page`, `pageSize` (existing `Paging:DefaultPageSize`/`MaxPageSize` convention) and an optional `status` (one of the `WorkOrderStatus` codes; an unrecognised value is `400 BAD_REQUEST`). Sort is fixed newest-first via a technical `created_at` column added to `work_order` for this purpose only (not one of the RR-DD-001 WO-001..013 business fields, DEC-S2-001-04); there is no client-selectable sort in this ticket.
 
 Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, Reassign and every other Work Order mutation are **not implemented** — `work_order` is empty in production until Convert exists. Automated tests seed `RepairRequest`/`WorkOrder` rows directly through EF Core.
+
+### 4.11 S3-001 My Visits / Check-in (working tree, not yet committed)
+
+**WS-API-ADD-001 GET `/api/v1/service-visits/mine` — MyVisits.Read (TECHNICIAN only)**
+- Query: `page`, `pageSize` (§3.4 convention; no `status` filter — the list always returns only `SCHEDULED` visits, since that is the only actionable state for Check-in).
+- Scope: `IDataScope.AssignedServiceVisits` — every Service Visit whose `assigned_technician_id` is the caller's own id, **and** whose Work Order's Repair Request Site is still in the caller's current `user_site_scope` (a defense-in-depth re-check; the assignment itself was only validated once, at Schedule/Reassign time, and Site scope could have been revoked since). A caller without TECHNICIAN is denied `403 ACCESS_DENIED` by the `MyVisits.Read` policy before any query runs, and the scope query independently returns none for any non-technician — this is not a general Work Order/Visit read scope and does not reuse `WorkOrder.Read`/`IDataScope.WorkOrders`, which deliberately excludes TECHNICIAN (DEC-S2-001-03).
+- Sort: fixed soonest-scheduled-first (`scheduled_start_at`, then id) — no client-selectable sort.
+- **Response item:** `{ serviceVisitId, workOrderId, workOrderNo, status, siteCode, equipmentCode, scheduledStartAt, scheduledEndAt, rowVersion }` — a lightweight projection, never the full Work Order aggregate graph (`docs/09` §9 "no full aggregate graph for list" principle). `status` is always `SCHEDULED` in practice, returned for shape-consistency with other Service Visit responses.
+- Response body: `{ items, page, pageSize, totalCount }` (§3.4).
+- "Primary team" plays no part in this scope — no Team/TeamMembership master-data entity exists anywhere in the codebase or docs (confirmed again pre-implementation, same finding as `ServiceVisit.AssignedTeamId`'s own doc comment); eligibility is `assigned_technician_id == caller` only.
+
+**WS-API-001 POST `/api/v1/service-visits/{id}/check-in` — WorkSession.CheckIn (TECHNICIAN only), If-Match, empty body**
+- **Client supplies neither status nor Check-in time** — both are server-derived (`docs/09` §1 convention, same as every other action in the codebase). The request body is empty; a body is neither required nor read.
+- **Checks, in order:**
+  1. Visit not assigned to the caller, out of the caller's tenant, or Site scope no longer current → 404 NOT_FOUND (identical, non-leaking response — same convention as every other Service Visit action).
+  2. Stale `If-Match` (checked against the Visit's own `row_version`, not the Work Order's) → 409 CONCURRENCY_CONFLICT.
+  3. Visit not `SCHEDULED`, or its Work Order not `SCHEDULED` (ST-WO-002) → 409 STATE_CONFLICT.
+  4. Caller already holds a non-`CHECKED_OUT` Work Session on **any** other Visit (BR-05 "no active overlap") → 409 STATE_CONFLICT. A true concurrent race between two Check-in requests for the same technician on two different Visits is additionally backstopped by a DB-level unique filtered index (`IX_work_session_tenant_id_technician_id_active` on `(tenant_id, technician_id) WHERE status <> 'CHECKED_OUT'`), translated to the same 409 CONCURRENCY_CONFLICT if the app-level check alone did not catch it.
+- **Success → `200`** with the `WorkOrderResponse` shape (same shape as every other Service Visit action, **except** that `visits` contains only the Visits assigned to the caller — other technicians' Visits and the Coordinator-entered reschedule/reassign/cancel/missed reasons are never returned to a Technician) and a fresh `ETag`. The Work Order and the Visit both move to `IN_PROGRESS`; a new `work_session` row is created, `CHECKED_IN`.
+  - **Response scope note:** the success response is fetched via a Technician-scoped read (`WorkOrderService.GetForTechnicianAsync` — "the Work Order has at least one Visit assigned to the caller"), not the Coordinator-oriented `WorkOrder.Read`/`GetAsync` every other Service Visit action's response reuses (which would incorrectly 404 for a Technician caller, since it excludes TECHNICIAN per DEC-S2-001-03). This was found and fixed during S3-001 acceptance testing.
+- **Written atomically (one transaction):** `work_order.status` → `IN_PROGRESS`; `service_visit.status` → `IN_PROGRESS`; new `work_session` row (`CHECKED_IN`, `check_in_at` = server clock); two audit rows — `WORK_ORDER_STARTED` (entity Work Order, from `SCHEDULED` to `IN_PROGRESS`) and `SERVICE_VISIT_CHECKED_IN` (entity Service Visit, from `SCHEDULED` to `IN_PROGRESS`, referencing the new `work_session_id`).
+- **Not in S3-001:** Pause, Resume, Check-out (`WS-API-002..004`, `ST-WS-002..004`) and location/GPS capture (`docs/01` §2 lists GPS route optimization as explicit Out of Scope; confirmed with the Portfolio Project Owner pre-implementation — no location field exists on `work_session`).
+- Trace: ST-WS-001; ST-SV-002; ST-WO-002; BR-05; UC-WO-016 (Check-in half only).
 
 ---
 
@@ -107,6 +133,10 @@ Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, 
 | RepairRequest.Draft | REQUESTER | RR-REQ-001 §13 |
 | RepairRequest.Review | APPROVER — Approve/Reject (S1-008); the assigned-approver and self-decision rules are enforced by the command | RR-REQ-001 §13; DEC-PRE-S1-008-01/03 |
 | Routing.Recovery | ADMINISTRATOR — routing-issue list and Retry Routing only; never Repair Request detail, Approve or Reject | DEC-PRE-S1-007R-07/10 |
+| WorkOrder.Schedule | COORDINATOR | S2-003; ST-WO-001; UC-WO-003 |
+| ServiceVisit.Manage | COORDINATOR | S2-003; ST-SV-004..009; UC-WO-005..009 |
+| MyVisits.Read | TECHNICIAN | S3-001; UI-040 |
+| WorkSession.CheckIn | TECHNICIAN | S3-001; ST-WS-001; BR-05; UC-WO-016 |
 
 - Every non-anonymous endpoint is deny-by-default and needs an authenticated principal (JWT bearer, DEC-PS1-004).
 - Tenant, actor and scope are always derived on the server (D-11 / BR-16). Unknown JSON members such as `tenantId`, `customerId` or `status` are ignored.
@@ -466,3 +496,4 @@ These come from the Pre-S1-007 requirement resolution (RR-DEC-001 §7). **All of
 | Submit (S1-007) | FR-02; BR-01/02/14/16; D-12; RR-DD-001 RR-014/018; DEC-PRE-S1-007-01..12 (ACTIVE contact deferred → REQ-FU-USR-001) | ST-RR-002 (SLA start = `submitted_at`); SLA calculation / EV-SLA-001..005 deferred | RR-API-001/002/004/005 (§4.1, §5) | TC-RR-003/004; TC-SEC-001/002 (TC-SLA-\* deferred) | RepairRequestSubmitEndpointsTests, RepairRequestSubmitServiceTests, RepairRequestSubmitStoreTests, RepairRequestSubmitTests, RequestNumberAndLookupTests, MigrationSeedTests, DevelopmentMalwareScanningTestingTests, DevelopmentMalwareScanningDevelopmentTests, DevelopmentMalwareScanningProductionTests |
 | Approval routing (S1-007R) | ST-RR-003; UC-RR-002/003; RR-DD-001 ARC-*/APR-*; DEC-PRE-S1-007R-01..10; DEC-PRE-S1-008-01 (routing portion) | ST-RR-003 SUBMITTED → UNDER_REVIEW (System); failure stays SUBMITTED | RR-API-005 response status (§4.1); ROUTE-API-001..005; ROUTING-API-001/002 (§4.6) | TC-RR-005; TC-SEC-001/002 | ApprovalRoutingEndpointsTests, ApprovalRoutingTests, RepairRequestRoutingServiceTests, ApprovalRouteServiceTests, ApprovalRoutingRulesTests, ApprovalRoutingDomainTests, PersistenceModelTests |
 | Return for Correction & Resubmit (S1-010) | UC-RR-002/003; BR-01/14; D-12; RR-DD-001 RR-003/011/014, APR-005 (amended)..010; DEC-PRE-S1-010-01..04 | ST-RR-006 UNDER_REVIEW → DRAFT; ST-RR-002 again; ST-RR-003 into the next approval cycle | RR-API-008; RR-API-005 resubmission (§4.1, §4.9) | TC-RR-008; TC-RR-004; TC-SEC-001 | RepairRequestReturnForCorrectionEndpointsTests, RepairRequestReturnResubmitTests, RepairRequestReturnForCorrectionServiceTests, RepairRequestResubmitServiceTests, RepairRequestReturnForCorrectionDomainTests |
+| My Visits / Check-in (S3-001, working tree) | BR-05; ST-WS-001; ST-SV-002; ST-WO-002; UC-WO-016 (Check-in half only) — "Primary team"/location out of scope, confirmed pre-implementation | Visit/WO SCHEDULED → IN_PROGRESS; Work Session — CHECKED_IN | WS-API-ADD-001; WS-API-001 (§4.11) | Not yet authored in RR-TC-001 | WorkSessionEndpointsTests, WorkSessionDomainTests, WorkOrderCheckInDomainTests |

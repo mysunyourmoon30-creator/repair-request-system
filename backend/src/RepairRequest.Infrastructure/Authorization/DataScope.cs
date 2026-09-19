@@ -162,6 +162,29 @@ internal sealed class DataScope : IDataScope
             request.Id == workOrder.RepairRequestId && request.CreatedBy == userId));
     }
 
+    public IQueryable<ServiceVisit> AssignedServiceVisits(CurrentUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        var visits = _db.ServiceVisits.Where(visit => visit.TenantId == tenantId);
+
+        // Only TECHNICIAN holds this scope (S3-001); every other role sees none.
+        if (!user.IsTechnician)
+        {
+            return visits.Where(_ => false);
+        }
+
+        return visits.Where(visit =>
+            visit.AssignedTechnicianId == userId
+            && _db.WorkOrders.Any(workOrder => workOrder.Id == visit.WorkOrderId
+                && _db.RepairRequests.Any(request => request.Id == workOrder.RepairRequestId
+                    && request.SiteId != null
+                    && _db.UserSiteScopes.Any(scope =>
+                        scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId))));
+    }
+
     public Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken) =>
         BusinessSites(user).AnyAsync(site => site.Id == siteId, cancellationToken);
 }
