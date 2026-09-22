@@ -81,12 +81,19 @@ describe('ActiveWorkSessionComponent', () => {
     expect(root.querySelector('[role="dialog"]')).toBeNull();
   });
 
-  it('shows the recorded pause and no Pause button for a PAUSED session', () => {
+  it('shows the recorded pause, no Pause button, and a Resume button for a PAUSED session', () => {
     const { root } = load(paused);
 
     expect(root.textContent).toContain('Waiting for a part');
     expect(root.textContent).toContain('PAUSED');
     expect(buttonNamed(root, 'Pause')).toBeUndefined();
+    expect(buttonNamed(root, 'Resume')).toBeDefined();
+  });
+
+  it('shows no Resume button for a CHECKED_IN session', () => {
+    const { root } = load(checkedIn);
+
+    expect(buttonNamed(root, 'Resume')).toBeUndefined();
   });
 
   it('opens a dialog that keeps Confirm disabled for an empty or whitespace-only reason', () => {
@@ -206,5 +213,62 @@ describe('ActiveWorkSessionComponent', () => {
 
     expect(root.querySelector('[role="dialog"]')).toBeNull();
     expect(buttonNamed(root, 'Pause')).toBeDefined();
+  });
+
+  // ---------------- Resume ----------------
+
+  it('resumes with the quoted rowVersion and no body, and re-renders as CHECKED_IN', () => {
+    const { fixture, root } = load(paused);
+
+    buttonNamed(root, 'Resume')!.click();
+
+    const req = httpMock.expectOne(`${baseUrl}/session-1/resume`);
+    expect(req.request.headers.get('If-Match')).toBe('"v2"');
+    expect(req.request.body).toBeNull();
+    req.flush(checkedIn);
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('CHECKED_IN');
+    expect(buttonNamed(root, 'Resume')).toBeUndefined();
+    expect(buttonNamed(root, 'Pause')).toBeDefined();
+  });
+
+  it('shows the server message and reloads the real state when the session is already resumed (409 STATE_CONFLICT)', () => {
+    const { fixture, root } = load(paused);
+
+    buttonNamed(root, 'Resume')!.click();
+    httpMock
+      .expectOne(`${baseUrl}/session-1/resume`)
+      .flush({ code: 'STATE_CONFLICT', detail: 'This Work Session is not paused.' }, { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne(`${baseUrl}/current`).flush(checkedIn);
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('This Work Session is not paused.');
+    expect(buttonNamed(root, 'Resume')).toBeUndefined();
+  });
+
+  it('shows a plain not-found message for Resume 404 and reloads', () => {
+    const { fixture, root } = load(paused);
+
+    buttonNamed(root, 'Resume')!.click();
+    httpMock.expectOne(`${baseUrl}/session-1/resume`).flush('Not Found', { status: 404, statusText: 'Not Found' });
+    httpMock.expectOne(`${baseUrl}/current`).flush(null, { status: 204, statusText: 'No Content' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('no longer belongs to you');
+    expect(root.textContent).not.toContain('Http failure');
+  });
+
+  it('shows a generic message, not the raw HTTP error, for a Resume server error', () => {
+    const { fixture, root } = load(paused);
+
+    buttonNamed(root, 'Resume')!.click();
+    httpMock.expectOne(`${baseUrl}/session-1/resume`).flush('boom', { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('Something went wrong');
+    expect(root.textContent).not.toContain('Http failure');
+    // No reload on a generic failure — the session is still shown as PAUSED with its Resume button.
+    expect(buttonNamed(root, 'Resume')).toBeDefined();
   });
 });

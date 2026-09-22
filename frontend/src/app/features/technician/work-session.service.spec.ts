@@ -38,4 +38,15 @@ describe('WorkSessionService', () => {
     expect(req.request.body).toEqual({ reason: 'Waiting for a part' });
     req.flush({});
   });
+
+  it('resumes with the quoted If-Match header and no body', () => {
+    service.resume('session-1', '"v2"').subscribe();
+
+    const req = httpMock.expectOne(`${baseUrl}/session-1/resume`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('If-Match')).toBe('"v2"');
+    // Resume has no fields of its own: no status, no time, no body at all.
+    expect(req.request.body).toBeNull();
+    req.flush({});
+  });
 });

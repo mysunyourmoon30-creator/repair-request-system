@@ -8,11 +8,12 @@ using RepairRequest.Application.WorkOrders;
 namespace RepairRequest.Api.Controllers;
 
 /// <summary>
-/// Work Session endpoints (S3-002; ST-WS-002; UC-WO-012): Pause (WS-API-002) and the read of the caller's own
-/// current session. Technician only, and only the caller's own session within their tenant and current Site scope
-/// — anyone else's, cross-tenant or nonexistent id is the same non-leaking 404. If-Match is checked against the
-/// session's own RowVersion. Check-in (WS-API-001) lives on <see cref="ServiceVisitsController"/> since it acts on
-/// a Visit and creates the session; Resume and Check-out are later tickets.
+/// Work Session endpoints (S3-002/S3-003; ST-WS-002/003; UC-WO-012): Pause (WS-API-002), Resume (WS-API-003) and
+/// the read of the caller's own current session. Technician only, and only the caller's own session within their
+/// tenant and current Site scope — anyone else's, cross-tenant or nonexistent id is the same non-leaking 404.
+/// If-Match is checked against the session's own RowVersion. Check-in (WS-API-001) lives on
+/// <see cref="ServiceVisitsController"/> since it acts on a Visit and creates the session; Check-out is a later
+/// ticket.
 /// </summary>
 [ApiController]
 [Route("api/v1/work-sessions")]
@@ -64,6 +65,32 @@ public sealed class WorkSessionsController : CommandControllerBase
 
         var context = await CommandContextAsync(cancellationToken);
         var result = await _sessions.PauseAsync(context, workSessionId, rowVersion, request.Reason, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        var session = await _sessions.GetAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(session, ResourceType, WorkSessionResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// WS-API-003 Resume (ST-WS-003): the owning Technician only, a PAUSED session with an open pause only. Empty
+    /// request body — the client supplies neither status nor time. Closes the open pause period and returns the
+    /// session to CHECKED_IN.
+    /// </summary>
+    [HttpPost("{workSessionId:guid}/resume")]
+    [Authorize(Policy = AuthorizationPolicies.WorkSessionResume)]
+    [ProducesResponseType<WorkSessionResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Resume(Guid workSessionId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _sessions.ResumeAsync(context, workSessionId, rowVersion, cancellationToken);
         if (!result.Succeeded)
         {
             return ProblemFor(result.Error!, ResourceType);
