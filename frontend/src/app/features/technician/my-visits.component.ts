@@ -1,5 +1,6 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, inject, signal, viewChild } from '@angular/core';
+import { ActiveWorkSessionComponent } from './active-work-session.component';
 import { MyVisitSummary } from './my-visits.models';
 import { MyVisitsService } from './my-visits.service';
 
@@ -14,9 +15,12 @@ const PAGE_SIZE = 20;
 @Component({
   selector: 'app-my-visits',
   standalone: true,
+  imports: [ActiveWorkSessionComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <h1>My Visits</h1>
+
+    <app-active-work-session />
 
     @if (loading()) {
       <p>Loading…</p>
@@ -68,6 +72,7 @@ const PAGE_SIZE = 20;
 })
 export class MyVisitsComponent {
   private readonly myVisits = inject(MyVisitsService);
+  private readonly activeSession = viewChild(ActiveWorkSessionComponent);
 
   protected readonly items = signal<MyVisitSummary[]>([]);
   protected readonly page = signal(1);
@@ -97,6 +102,8 @@ export class MyVisitsComponent {
       next: () => {
         this.checkingIn.set(null);
         this.load();
+        // The new session is not in the visits list; the Active Work Session panel picks it up.
+        this.activeSession()?.refresh();
       },
       error: (response: HttpErrorResponse) => {
         this.checkingIn.set(null);

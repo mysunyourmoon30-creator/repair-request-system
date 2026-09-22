@@ -97,6 +97,34 @@ public sealed record MyVisitSummaryResponse(
     DateTime? ScheduledEndAt,
     string RowVersion);
 
+/// <summary>
+/// WS-API-002 Pause body (S3-002). Only the reason: the session's status and the pause time are always
+/// server-derived, so any other member a client sends (e.g. <c>status</c>, <c>pausedAt</c>) is ignored.
+/// </summary>
+public sealed record PauseWorkSessionRequest(string? Reason);
+
+/// <summary>One pause period (S3-002), newest first in <see cref="WorkSessionResponse.Pauses"/>.</summary>
+public sealed record WorkSessionPauseResponse(Guid WorkSessionPauseId, DateTime PausedAt, string PauseReason, DateTime? ResumedAt);
+
+/// <summary>
+/// Work Session response (S3-002; RR-DD-001 WS-001..010): returned by Pause and by the current-session read.
+/// <see cref="RowVersion"/> is the session's own token, the If-Match value of the next session action.
+/// </summary>
+public sealed record WorkSessionResponse(
+    Guid WorkSessionId,
+    Guid ServiceVisitId,
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    string? SiteCode,
+    string? EquipmentCode,
+    string Status,
+    DateTime CheckInAt,
+    DateTime? PauseStartAt,
+    DateTime? ResumeAt,
+    DateTime? CheckOutAt,
+    IReadOnlyList<WorkSessionPauseResponse> Pauses,
+    string RowVersion);
+
 public sealed record NewVisitScheduleRequest(
     Guid? AssignedTeamId,
     Guid? AssignedTechnicianId,
@@ -118,6 +146,25 @@ public static class WorkOrderResponses
             dto.EquipmentCode,
             Convert.ToBase64String(dto.RowVersion),
             dto.Visits.Select(ServiceVisitResponses.ToResponse).ToList());
+}
+
+public static class WorkSessionResponses
+{
+    public static WorkSessionResponse ToResponse(WorkSessionDto dto) =>
+        new(
+            dto.WorkSessionId,
+            dto.ServiceVisitId,
+            dto.WorkOrderId,
+            dto.WorkOrderNo,
+            dto.SiteCode,
+            dto.EquipmentCode,
+            WorkSessionStatusCodes.ToCode(dto.Status),
+            dto.CheckInAt,
+            dto.PauseStartAt,
+            dto.ResumeAt,
+            dto.CheckOutAt,
+            dto.Pauses.Select(pause => new WorkSessionPauseResponse(pause.WorkSessionPauseId, pause.PausedAt, pause.PauseReason, pause.ResumedAt)).ToList(),
+            Convert.ToBase64String(dto.RowVersion));
 }
 
 public static class MyVisitSummaryResponses

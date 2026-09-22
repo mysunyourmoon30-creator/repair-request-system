@@ -185,6 +185,32 @@ internal sealed class DataScope : IDataScope
                         scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId))));
     }
 
+    public IQueryable<WorkSession> OwnWorkSessions(CurrentUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        var sessions = _db.WorkSessions.Where(session => session.TenantId == tenantId);
+
+        // Only TECHNICIAN holds this scope (S3-002); every other role sees none.
+        if (!user.IsTechnician)
+        {
+            return sessions.Where(_ => false);
+        }
+
+        return sessions.Where(session =>
+            session.TechnicianId == userId
+            && _db.ServiceVisits.Any(visit => visit.Id == session.ServiceVisitId
+                && visit.TenantId == tenantId
+                && visit.AssignedTechnicianId == userId
+                && _db.WorkOrders.Any(workOrder => workOrder.Id == visit.WorkOrderId
+                    && _db.RepairRequests.Any(request => request.Id == workOrder.RepairRequestId
+                        && request.SiteId != null
+                        && _db.UserSiteScopes.Any(scope =>
+                            scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId)))));
+    }
+
     public Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken) =>
         BusinessSites(user).AnyAsync(site => site.Id == siteId, cancellationToken);
 }

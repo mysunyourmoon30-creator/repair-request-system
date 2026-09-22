@@ -6,11 +6,11 @@ namespace RepairRequest.Domain.WorkOrders;
 /// Work Session aggregate (RR-DD-001 WS-001, WS-003..010; ST-WS-001; S3-001). One Work Session is opened per
 /// Check-in. <see cref="TenantId"/> is not one of the documented WS-* fields (the Data Dictionary's numbering
 /// jumps from WS-001 to WS-003) but is carried here anyway, matching every other transactional aggregate in
-/// this codebase and `docs/05` section 2's own "tenant_id on transactional/control data" convention. Pause,
-/// Resume and Check-out (ST-WS-002..004) are a later ticket; <see cref="WorkSessionStatus"/> carries their
-/// values for schema fidelity only, and this aggregate exposes no method that reaches them yet — same
-/// "unreachable by any method here" convention S2-003's <see cref="ServiceVisit"/> used for its own
-/// then-out-of-scope states.
+/// this codebase and `docs/05` section 2's own "tenant_id on transactional/control data" convention.
+/// S3-002 adds Pause (ST-WS-002). Resume and Check-out (ST-WS-003/004) are later tickets;
+/// <see cref="WorkSessionStatus.CheckedOut"/> exists for schema fidelity only, and this aggregate exposes no
+/// method that reaches it yet — same "unreachable by any method here" convention S2-003's
+/// <see cref="ServiceVisit"/> used for its own then-out-of-scope states.
 /// </summary>
 public sealed class WorkSession
 {
@@ -36,6 +36,27 @@ public sealed class WorkSession
     public static WorkSession Create(Guid tenantId, Guid serviceVisitId, Guid technicianId, DateTime checkInAt) =>
         new(tenantId, serviceVisitId, technicianId, checkInAt);
 
+    /// <summary>
+    /// ST-WS-002 Pause (S3-002; UC-WO-012). Only from CHECKED_IN — which is also the "no active pause" guard, since
+    /// a paused session is PAUSED. <paramref name="pausedAt"/> is always the server clock. Sets WS-007
+    /// <see cref="PauseStartAt"/> and returns the new pause-period row, so history lives in
+    /// <see cref="WorkSessionPause"/> and is never replaced by a later pause. The reason is required and must
+    /// be non-blank; the caller trims it first.
+    /// </summary>
+    public WorkSessionPause Pause(string reason, DateTime pausedAt)
+    {
+        if (!WorkSessionStatusTransitions.IsAllowed(Status, WorkSessionStatus.Paused))
+        {
+            throw new DomainRuleViolationException("Only a CHECKED_IN Work Session can be paused.");
+        }
+
+        var pause = WorkSessionPause.Create(TenantId, Id, pausedAt, reason);
+
+        Status = WorkSessionStatus.Paused;
+        PauseStartAt = pausedAt;
+        return pause;
+    }
+
     /// <summary>WS-001. Assigned on insert (sequential GUID).</summary>
     public Guid Id { get; private set; }
 
@@ -54,7 +75,10 @@ public sealed class WorkSession
     /// <summary>WS-006. Set once, at Check-in; server-derived.</summary>
     public DateTime CheckInAt { get; private set; }
 
-    /// <summary>WS-007. Set on Pause; out of scope for S3-001, always null here.</summary>
+    /// <summary>
+    /// WS-007. Start of the current (open) pause, set by <see cref="Pause"/>. The full pause history is in
+    /// <see cref="WorkSessionPause"/>; a later Resume ticket decides how this column is reset.
+    /// </summary>
     public DateTime? PauseStartAt { get; private set; }
 
     /// <summary>WS-008. Set on Resume; out of scope for S3-001, always null here.</summary>

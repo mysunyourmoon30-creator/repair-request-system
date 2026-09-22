@@ -57,6 +57,9 @@ public static class ApplicationServiceCollectionExtensions
         // S3-001: "My Visits" (read) and Check-in (ST-WS-001) by the assigned Technician.
         services.AddScoped<TechnicianCheckInService>();
 
+        // S3-002: Pause of the Technician's own Work Session (ST-WS-002) and the read of their current session.
+        services.AddScoped<WorkSessionService>();
+
         return services;
     }
 }

@@ -11,10 +11,10 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Document ID | RR-API-001-ADD |
 | Version | 1.0 |
 | Status | Approved for Portfolio Development (documentation reconciliation) |
-| Revision Date | 18 September 2026 — reconciled with the S3-001 implementation (My Visits / Check-in; working tree, not yet committed — see note below); previously 17 September 2026 (S2-001) |
+| Revision Date | 19 September 2026 — reconciled with the S3-002 implementation (Pause Work Session; working tree, not yet committed); previously 18 September 2026 (S3-001) and 17 September 2026 (S2-001) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
 | Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001; Portfolio Project Owner pre-implementation directives for S3-001 (eligibility is `assigned_technician_id` only — no "Primary team"; location capture out of scope) for My Visits / Check-in |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8), S2-003 Schedule/Service Visit management (9a05ca0, PR #5) — WO-API-002..007 implemented but **not yet reconciled into this addendum's §1/§4** (pre-existing gap, out of scope of this revision), S3-001 My Visits / Check-in (working tree — see §4.11) |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8), S2-003 Schedule/Service Visit management (9a05ca0, PR #5) — WO-API-002..007 implemented but **not yet reconciled into this addendum's §1/§4** (pre-existing gap, out of scope of this revision), S3-001 My Visits / Check-in (ee115a8, PR #6 — see §4.11), S3-002 Pause Work Session (working tree — see §4.12) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -43,8 +43,9 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | FILE-API-002 | GET `/api/v1/files/{fileAssetId}` | IMPLEMENTED (S1-006) |
 | WO-API-001 | GET `/api/v1/work-orders/{id}` | IMPLEMENTED (S2-001) — read-only List/Detail; see §4.10 |
 | WO-API-002..007 | schedule / reassign / reschedule / cancel / mark-missed / missed-decision | IMPLEMENTED (S2-003, PR #5, commit 9a05ca0) — Coordinator-only; **not yet reconciled into this addendum's detail sections** (pre-existing documentation gap, out of scope of this S3-001 revision) |
-| WS-API-001 | POST `/api/v1/service-visits/{id}/check-in` | IMPLEMENTED (S3-001, working tree) — Technician-only; see §4.11 |
-| ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WS-API-002..004, WO-API-008..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
+| WS-API-001 | POST `/api/v1/service-visits/{id}/check-in` | IMPLEMENTED (S3-001, PR #6, commit ee115a8) — Technician-only; see §4.11 |
+| WS-API-002 | POST `/api/v1/work-sessions/{id}/pause` | IMPLEMENTED (S3-002, working tree) — Technician-only, own CHECKED_IN session only, reason required; see §4.12 |
+| ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WS-API-003..004, WO-API-008..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
 
 ## 2. Implemented Endpoints Missing From the RR-API-001 v1.2 Catalog
 
@@ -82,6 +83,7 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | ROUTING-API-001 | GET | `/api/v1/routing-issues` | SUBMITTED requests not yet routed or with a routing failure (routing metadata only) | Routing.Recovery | — | DEC-PRE-S1-007R-10 |
 | ROUTING-API-002 | POST | `/api/v1/repair-requests/{id}/retry-routing` | Admin Retry Routing (server-side route and approver) | Routing.Recovery | If-Match | DEC-PRE-S1-007R-07/08 |
 | WO-API-ADD-001 | GET | `/api/v1/work-orders` | List Work Orders (paged; `status` filter; fixed newest-first sort) | WorkOrder.Read | — | DEC-S2-001-01..05 (`docs/12` Section 11) |
+| WS-API-ADD-002 | GET | `/api/v1/work-sessions/current` | The caller's own non-CHECKED_OUT Work Session with its pause history, or `204 No Content` when there is none | WorkSession.Read | ETag | S3-002 pre-implementation decision — needed because "My Visits" (WS-API-ADD-001) lists only SCHEDULED visits, so a checked-in technician would otherwise have no way to reach their own session or its `rowVersion`; a technical routing addition, not a new business rule |
 | WS-API-ADD-001 | GET | `/api/v1/service-visits/mine` | "My Visits" (UI-040): the caller's own assigned, SCHEDULED Service Visits (paged, fixed soonest-first sort) | MyVisits.Read | — | S3-001 pre-implementation decision — no `docs/09` catalog ID exists for a Service Visit list endpoint at all; this ID is a new technical routing addition, not a new business rule (mirrors how WO-API-ADD-001 formalized the S2-001 list) |
 
 ---
@@ -96,7 +98,7 @@ Response fields are `workOrderId, workOrderNo, status, repairRequestId, repairRe
 
 Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, Reassign and every other Work Order mutation are **not implemented** — `work_order` is empty in production until Convert exists. Automated tests seed `RepairRequest`/`WorkOrder` rows directly through EF Core.
 
-### 4.11 S3-001 My Visits / Check-in (working tree, not yet committed)
+### 4.11 S3-001 My Visits / Check-in (PR #6, commit ee115a8)
 
 **WS-API-ADD-001 GET `/api/v1/service-visits/mine` — MyVisits.Read (TECHNICIAN only)**
 - Query: `page`, `pageSize` (§3.4 convention; no `status` filter — the list always returns only `SCHEDULED` visits, since that is the only actionable state for Check-in).
@@ -119,6 +121,34 @@ Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, 
 - **Not in S3-001:** Pause, Resume, Check-out (`WS-API-002..004`, `ST-WS-002..004`) and location/GPS capture (`docs/01` §2 lists GPS route optimization as explicit Out of Scope; confirmed with the Portfolio Project Owner pre-implementation — no location field exists on `work_session`).
 - Trace: ST-WS-001; ST-SV-002; ST-WO-002; BR-05; UC-WO-016 (Check-in half only).
 
+### 4.12 S3-002 Pause Work Session (working tree, not yet committed)
+
+**Deviations from the RR-* baseline (Portfolio Project Owner directives for S3-002, recorded here rather than silently applied):**
+- **"ACTIVE" means `CHECKED_IN`.** The baseline has no ACTIVE status; `CHECKED_IN` is the only state ST-WS-002 allows Pause from, and no status is added.
+- **A pause reason is required.** It is not in the baseline: BR-04's reason list does not include Pause and RR-DD-001 WS-001..010 has no reason column. Reason handling here (trimmed, 1–1000 characters, blank or whitespace-only rejected) follows the other BR-04 reason fields.
+- **Every pause is its own row.** RR-DD-001 keeps a single `pause_start_at`/`resume_at` pair on `work_session` (WS-007/008), which a second pause would overwrite. A new table `work_session_pause` (`work_session_pause_id`, `tenant_id`, `work_session_id`, `paused_at`, `pause_reason`, `resumed_at`) keeps each pause period so history is never replaced. `work_session.pause_start_at` is still set (WS-007) to the start of the current pause. How Resume resets it is left to that ticket.
+
+**WS-API-002 POST `/api/v1/work-sessions/{id}/pause` — WorkSession.Pause (TECHNICIAN only), If-Match, body `{ "reason": "string" }`**
+- **The client supplies only `reason`.** The resulting status and the pause time are server-derived; any other member in the body (e.g. `status`, `pausedAt`) is ignored.
+- **Scope (`IDataScope.OwnWorkSessions`):** the session's `technician_id` is the caller, in the caller's tenant, and its Visit is still assigned to the caller within their *current* Site scope. Another technician's session, another tenant's, a revoked Site scope and a nonexistent id all return the same non-leaking `404 NOT_FOUND`.
+- **Checks, in order** (the same order as the Service Visit actions):
+  1. 400 missing/invalid `If-Match`; 401; 403 ACCESS_DENIED without TECHNICIAN;
+  2. 404 NOT_FOUND (scope above);
+  3. 409 CONCURRENCY_CONFLICT — stale `If-Match`, checked against the **session's own** `row_version`;
+  4. 409 STATE_CONFLICT — session not `CHECKED_IN` (a second Pause of a `PAUSED` session: "This Work Session is already paused.");
+  5. 422 VALIDATION_FAILED on `reason` — missing, blank, whitespace-only, or longer than 1000 characters after trimming.
+- **Success → `200`** with the `WorkSessionResponse` below and a fresh `ETag` (the session's row version). The Work Order and the Visit stay `IN_PROGRESS` — RR-STS-001 defines no Work Order or Visit transition for Pause.
+- **Written atomically (one transaction):** `work_session.status` → `PAUSED` and `pause_start_at`; one new `work_session_pause` row (`paused_at` = server clock, trimmed `pause_reason`, `resumed_at` null); one audit `WORK_SESSION_PAUSED` (entity `WORK_SESSION`, `CHECKED_IN` → `PAUSED`, reason = the pause reason, actor = the technician, `workSessionPauseId` and `pausedAt` in the new value, correlation id). Any failure writes nothing.
+- **Concurrency and duplicates:** two concurrent Pause requests with the same `If-Match` → exactly one `200`, the other `409`. A database unique filtered index `IX_work_session_pause_open` on `work_session_pause (work_session_id) WHERE resumed_at IS NULL` allows at most one open pause per session, and `CK_work_session_pause_reason_not_blank` rejects a blank reason, as backstops behind the application checks. BR-05 is unchanged: a `PAUSED` session is still an active session, so the technician cannot Check-in elsewhere.
+
+**WS-API-ADD-002 GET `/api/v1/work-sessions/current` — WorkSession.Read (TECHNICIAN only)**
+- Returns the caller's one non-`CHECKED_OUT` session (BR-05 allows at most one) or `204 No Content`; another technician's sessions are never returned. `ETag` = the session's row version.
+
+**WorkSessionResponse:** `{ workSessionId, serviceVisitId, workOrderId, workOrderNo, siteCode, equipmentCode, status (CHECKED_IN | PAUSED | CHECKED_OUT), checkInAt, pauseStartAt, resumeAt, checkOutAt, pauses: [{ workSessionPauseId, pausedAt, pauseReason, resumedAt }] (newest first), rowVersion }`. `docs/09` documents no response body for WS-API-002; this shape is the implementation's.
+
+- **Not in S3-002:** Resume (`WS-API-003`, `ST-WS-003`), Check-out (`WS-API-004`, `ST-WS-004`), Work Summary, Time Correction of `PAUSE_START`, and notifications (the baseline matrix defines none for Pause).
+- Trace: ST-WS-002; UC-WO-012 (Pause half only); WS-005/007/010; TC-WO-006/007 not yet authored in RR-TC-001.
+
 ---
 
 ## 3. Common Conventions (as implemented)
@@ -137,6 +167,8 @@ Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, 
 | ServiceVisit.Manage | COORDINATOR | S2-003; ST-SV-004..009; UC-WO-005..009 |
 | MyVisits.Read | TECHNICIAN | S3-001; UI-040 |
 | WorkSession.CheckIn | TECHNICIAN | S3-001; ST-WS-001; BR-05; UC-WO-016 |
+| WorkSession.Pause | TECHNICIAN | S3-002; ST-WS-002; UC-WO-012 |
+| WorkSession.Read | TECHNICIAN | S3-002 |
 
 - Every non-anonymous endpoint is deny-by-default and needs an authenticated principal (JWT bearer, DEC-PS1-004).
 - Tenant, actor and scope are always derived on the server (D-11 / BR-16). Unknown JSON members such as `tenantId`, `customerId` or `status` are ignored.
@@ -496,4 +528,5 @@ These come from the Pre-S1-007 requirement resolution (RR-DEC-001 §7). **All of
 | Submit (S1-007) | FR-02; BR-01/02/14/16; D-12; RR-DD-001 RR-014/018; DEC-PRE-S1-007-01..12 (ACTIVE contact deferred → REQ-FU-USR-001) | ST-RR-002 (SLA start = `submitted_at`); SLA calculation / EV-SLA-001..005 deferred | RR-API-001/002/004/005 (§4.1, §5) | TC-RR-003/004; TC-SEC-001/002 (TC-SLA-\* deferred) | RepairRequestSubmitEndpointsTests, RepairRequestSubmitServiceTests, RepairRequestSubmitStoreTests, RepairRequestSubmitTests, RequestNumberAndLookupTests, MigrationSeedTests, DevelopmentMalwareScanningTestingTests, DevelopmentMalwareScanningDevelopmentTests, DevelopmentMalwareScanningProductionTests |
 | Approval routing (S1-007R) | ST-RR-003; UC-RR-002/003; RR-DD-001 ARC-*/APR-*; DEC-PRE-S1-007R-01..10; DEC-PRE-S1-008-01 (routing portion) | ST-RR-003 SUBMITTED → UNDER_REVIEW (System); failure stays SUBMITTED | RR-API-005 response status (§4.1); ROUTE-API-001..005; ROUTING-API-001/002 (§4.6) | TC-RR-005; TC-SEC-001/002 | ApprovalRoutingEndpointsTests, ApprovalRoutingTests, RepairRequestRoutingServiceTests, ApprovalRouteServiceTests, ApprovalRoutingRulesTests, ApprovalRoutingDomainTests, PersistenceModelTests |
 | Return for Correction & Resubmit (S1-010) | UC-RR-002/003; BR-01/14; D-12; RR-DD-001 RR-003/011/014, APR-005 (amended)..010; DEC-PRE-S1-010-01..04 | ST-RR-006 UNDER_REVIEW → DRAFT; ST-RR-002 again; ST-RR-003 into the next approval cycle | RR-API-008; RR-API-005 resubmission (§4.1, §4.9) | TC-RR-008; TC-RR-004; TC-SEC-001 | RepairRequestReturnForCorrectionEndpointsTests, RepairRequestReturnResubmitTests, RepairRequestReturnForCorrectionServiceTests, RepairRequestResubmitServiceTests, RepairRequestReturnForCorrectionDomainTests |
-| My Visits / Check-in (S3-001, working tree) | BR-05; ST-WS-001; ST-SV-002; ST-WO-002; UC-WO-016 (Check-in half only) — "Primary team"/location out of scope, confirmed pre-implementation | Visit/WO SCHEDULED → IN_PROGRESS; Work Session — CHECKED_IN | WS-API-ADD-001; WS-API-001 (§4.11) | Not yet authored in RR-TC-001 | WorkSessionEndpointsTests, WorkSessionDomainTests, WorkOrderCheckInDomainTests |
+| My Visits / Check-in (S3-001, PR #6) | BR-05; ST-WS-001; ST-SV-002; ST-WO-002; UC-WO-016 (Check-in half only) — "Primary team"/location out of scope, confirmed pre-implementation | Visit/WO SCHEDULED → IN_PROGRESS; Work Session — CHECKED_IN | WS-API-ADD-001; WS-API-001 (§4.11) | Not yet authored in RR-TC-001 | WorkSessionEndpointsTests, WorkSessionDomainTests, WorkOrderCheckInDomainTests |
+| Pause Work Session (S3-002, working tree) | ST-WS-002; UC-WO-012 (Pause half only); RR-DD-001 WS-005/007/010 — reason and per-pause history are Project Owner directives beyond the baseline (§4.12) | Work Session CHECKED_IN → PAUSED; Visit and Work Order unchanged | WS-API-002; WS-API-ADD-002 (§4.12) | Not yet authored in RR-TC-001 | WorkSessionPauseEndpointsTests, WorkSessionPauseDomainTests, WorkSessionStatusTransitionsTests |

@@ -61,6 +61,12 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string WorkSessionCheckIn = "WorkSession.CheckIn";
 
+    /// <summary>Pause the caller's own CHECKED_IN Work Session (S3-002; ST-WS-002; UC-WO-012: Assigned Technician only).</summary>
+    public const string WorkSessionPause = "WorkSession.Pause";
+
+    /// <summary>Read the caller's own current Work Session (S3-002). Technician only.</summary>
+    public const string WorkSessionRead = "WorkSession.Read";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -90,7 +96,9 @@ public static class AuthorizationPolicies
             [WorkOrderSchedule] = [RoleCodes.Coordinator],
             [ServiceVisitManage] = [RoleCodes.Coordinator],
             [MyVisitsRead] = [RoleCodes.Technician],
-            [WorkSessionCheckIn] = [RoleCodes.Technician]
+            [WorkSessionCheckIn] = [RoleCodes.Technician],
+            [WorkSessionPause] = [RoleCodes.Technician],
+            [WorkSessionRead] = [RoleCodes.Technician]
         };
 }
 
