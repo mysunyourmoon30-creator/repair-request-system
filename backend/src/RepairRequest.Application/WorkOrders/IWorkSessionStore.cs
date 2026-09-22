@@ -31,4 +31,19 @@ public interface IWorkSessionStore
     /// <summary>Saves the Work Order (tracked, no client token — its own RowVersion is EF's normal optimistic check), the
     /// Visit (guarded by <paramref name="expectedRowVersion"/>, the client's If-Match) and the new Work Session together.</summary>
     Task<WorkOrderSaveOutcome> SaveChangesAsync(ServiceVisit visit, byte[] expectedRowVersion, CancellationToken cancellationToken);
+
+    // ---- S3-002 Pause / current session (all restricted by IDataScope.OwnWorkSessions) ----
+
+    /// <summary>The caller's own Work Session, tracked for update; null when nonexistent, someone else's, cross-tenant or out of Site scope.</summary>
+    Task<WorkSession?> LoadOwnForPauseAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken);
+
+    void AddPause(WorkSessionPause pause);
+
+    /// <summary>Saves the session (guarded by <paramref name="expectedRowVersion"/>, the client's If-Match) and the new pause period together.</summary>
+    Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkSession session, byte[] expectedRowVersion, CancellationToken cancellationToken);
+
+    Task<WorkSessionDto?> GetOwnSessionAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken);
+
+    /// <summary>The caller's one non-CHECKED_OUT session (BR-05 allows at most one), or null.</summary>
+    Task<WorkSessionDto?> GetCurrentAsync(CurrentUser user, CancellationToken cancellationToken);
 }

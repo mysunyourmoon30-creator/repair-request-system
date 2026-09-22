@@ -30,6 +30,11 @@ public static class WorkOrderAudit
     public const string NewServiceVisitIdField = "newServiceVisitId";
     public const string WorkSessionIdField = "workSessionId";
 
+    public const string WorkSessionEntityType = "WORK_SESSION";
+    public const string PausedAction = "WORK_SESSION_PAUSED";
+    public const string WorkSessionPauseIdField = "workSessionPauseId";
+    public const string PausedAtField = "pausedAt";
+
     /// <summary>ST-WO-001 success: OPEN -&gt; SCHEDULED, with the new first Service Visit referenced. No reason applies.</summary>
     public static AuditHistory Scheduled(CommandContext context, WorkOrder workOrder, ServiceVisit visit, DateTime occurredAt) =>
         new(
@@ -81,6 +86,29 @@ public static class WorkOrderAudit
             oldValueJson: null,
             newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?> { [WorkSessionIdField] = session.Id }),
             reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WS-002 success (S3-002): CHECKED_IN -&gt; PAUSED on the Work Session itself. The pause reason is recorded
+    /// as the audit reason; the new pause period and its server time are referenced in the new value.
+    /// </summary>
+    public static AuditHistory Paused(CommandContext context, WorkSession session, WorkSessionPause pause, DateTime occurredAt) =>
+        new(
+            session.TenantId,
+            WorkSessionEntityType,
+            session.Id,
+            PausedAction,
+            fromState: WorkSessionStatusCodes.ToCode(WorkSessionStatus.CheckedIn),
+            toState: WorkSessionStatusCodes.ToCode(WorkSessionStatus.Paused),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [WorkSessionPauseIdField] = pause.Id,
+                [PausedAtField] = pause.PausedAt
+            }),
+            reason: pause.PauseReason,
             context.User.UserId,
             occurredAt,
             context.CorrelationId);

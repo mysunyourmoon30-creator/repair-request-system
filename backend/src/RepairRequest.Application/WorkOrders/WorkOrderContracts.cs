@@ -68,6 +68,47 @@ public sealed record MyVisitSummaryDto(
 /// <summary>My Visits list query: paging only (S3-001) — always the caller's own SCHEDULED visits, newest-first by scheduled start.</summary>
 public sealed record MyVisitsQuery(PageRequest Paging);
 
+/// <summary>One pause period of a Work Session (S3-002). Newest first in <see cref="WorkSessionDto.Pauses"/>; history is never replaced.</summary>
+public sealed record WorkSessionPauseDto(Guid WorkSessionPauseId, DateTime PausedAt, string PauseReason, DateTime? ResumedAt);
+
+/// <summary>
+/// Work Session projection for the owning Technician (S3-002; RR-DD-001 WS-001..010): the session, a small summary
+/// of the Visit/Work Order it belongs to, and its pause history. <see cref="RowVersion"/> is the session's own
+/// token — the If-Match value of Pause (WS-API-002).
+/// </summary>
+public sealed record WorkSessionDto(
+    Guid WorkSessionId,
+    Guid ServiceVisitId,
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    string? SiteCode,
+    string? EquipmentCode,
+    WorkSessionStatus Status,
+    DateTime CheckInAt,
+    DateTime? PauseStartAt,
+    DateTime? ResumeAt,
+    DateTime? CheckOutAt,
+    IReadOnlyList<WorkSessionPauseDto> Pauses,
+    byte[] RowVersion);
+
+/// <summary>Canonical upper-snake Work Session status codes (RR-DD-001 WS-005; RR-STS-001 section 1).</summary>
+public static class WorkSessionStatusCodes
+{
+    public static string ToCode(WorkSessionStatus status) => status switch
+    {
+        WorkSessionStatus.CheckedIn => "CHECKED_IN",
+        WorkSessionStatus.Paused => "PAUSED",
+        WorkSessionStatus.CheckedOut => "CHECKED_OUT",
+        _ => throw new ArgumentOutOfRangeException(nameof(status))
+    };
+}
+
+/// <summary>API field names used as keys of Work Session actions' 422 errors.</summary>
+public static class WorkSessionFields
+{
+    public const string Reason = "reason";
+}
+
 /// <summary>
 /// The new follow-up Visit's schedule for a Decide Missed decision (`newSchedule`, RR-API-009 WO-API-007) — required
 /// only for RESCHEDULE/FOLLOW_UP/REASSIGN, absent for NO_FOLLOW_UP.

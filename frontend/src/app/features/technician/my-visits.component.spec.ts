@@ -30,7 +30,32 @@ describe('MyVisitsComponent', () => {
     return TestBed.createComponent(MyVisitsComponent);
   }
 
-  afterEach(() => httpMock.verify());
+  const sessionUrl = `${environment.apiBaseUrl}/v1/work-sessions/current`;
+
+  afterEach(() => {
+    // The embedded Active Work Session panel loads the current session on init and after a Check-in. These specs
+    // are about the visits list, so answer any such request with "no session" before verifying nothing is left.
+    httpMock.match((request) => request.url === sessionUrl).forEach((request) => request.flush(null));
+    httpMock.verify();
+  });
+
+  it('asks the Active Work Session panel to reload after a successful Check-in', () => {
+    const fixture = createComponent();
+    fixture.detectChanges();
+    httpMock.expectOne((request) => request.url === `${baseUrl}/mine`).flush({ items: [visit], page: 1, pageSize: 20, totalCount: 1 });
+    fixture.detectChanges();
+    // The panel's own initial load (before any Check-in).
+    expect(httpMock.match((request) => request.url === sessionUrl).length).toBe(1);
+
+    (fixture.nativeElement as HTMLElement).querySelector('button')!.dispatchEvent(new Event('click'));
+    httpMock.expectOne(`${baseUrl}/visit-1/check-in`).flush({});
+
+    // After the Check-in the panel reloads the current session (a new session is not in the visits list).
+    const reload = httpMock.match((request) => request.url === sessionUrl);
+    expect(reload.length).toBe(1);
+    reload[0].flush(null);
+    httpMock.expectOne((request) => request.url === `${baseUrl}/mine`).flush({ items: [], page: 1, pageSize: 20, totalCount: 0 });
+  });
 
   it('requests the list on init and renders each visit', () => {
     const fixture = createComponent();

@@ -144,6 +144,68 @@ internal sealed class WorkSessionStore : IWorkSessionStore
         }
     }
 
+    public Task<WorkSession?> LoadOwnForPauseAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken) =>
+        _scope.OwnWorkSessions(user).SingleOrDefaultAsync(session => session.Id == workSessionId, cancellationToken);
+
+    public void AddPause(WorkSessionPause pause) => _db.WorkSessionPauses.Add(pause);
+
+    public async Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkSession session, byte[] expectedRowVersion, CancellationToken cancellationToken)
+    {
+        // The UPDATE applies only WHERE row_version = the client's If-Match token (the session's own).
+        _db.Entry(session).Property(item => item.RowVersion).OriginalValue = expectedRowVersion;
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            return WorkOrderSaveOutcome.Saved;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _db.ChangeTracker.Clear();
+            return WorkOrderSaveOutcome.ConcurrencyConflict;
+        }
+        catch (DbUpdateException exception) when (SqlErrorNumber(exception) is UniqueIndexViolation or UniqueConstraintViolation or DeadlockVictim)
+        {
+            // Backstop: IX_work_session_pause_open allows one open pause per session, so a second concurrent Pause
+            // that slipped past the row-version check still cannot create a second open period.
+            _db.ChangeTracker.Clear();
+            return WorkOrderSaveOutcome.ConcurrencyConflict;
+        }
+    }
+
+    public Task<WorkSessionDto?> GetOwnSessionAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken) =>
+        ProjectSession(_scope.OwnWorkSessions(user).AsNoTracking().Where(session => session.Id == workSessionId))
+            .SingleOrDefaultAsync(cancellationToken);
+
+    public Task<WorkSessionDto?> GetCurrentAsync(CurrentUser user, CancellationToken cancellationToken) =>
+        ProjectSession(_scope.OwnWorkSessions(user).AsNoTracking().Where(session => session.Status != WorkSessionStatus.CheckedOut))
+            .SingleOrDefaultAsync(cancellationToken);
+
+    private IQueryable<WorkSessionDto> ProjectSession(IQueryable<WorkSession> sessions) =>
+        from session in sessions
+        join visit in _db.ServiceVisits on session.ServiceVisitId equals visit.Id
+        join workOrder in _db.WorkOrders on visit.WorkOrderId equals workOrder.Id
+        join request in _db.RepairRequests on workOrder.RepairRequestId equals request.Id
+        select new WorkSessionDto(
+            session.Id,
+            visit.Id,
+            workOrder.Id,
+            workOrder.WorkOrderNo,
+            _db.Sites.Where(site => site.Id == request.SiteId).Select(site => site.SiteCode).FirstOrDefault(),
+            _db.Equipment.Where(item => item.Id == request.EquipmentId).Select(item => item.EquipmentCode).FirstOrDefault(),
+            session.Status,
+            session.CheckInAt,
+            session.PauseStartAt,
+            session.ResumeAt,
+            session.CheckOutAt,
+            _db.WorkSessionPauses
+                .Where(pause => pause.WorkSessionId == session.Id)
+                .OrderByDescending(pause => pause.PausedAt)
+                .ThenByDescending(pause => pause.Id)
+                .Select(pause => new WorkSessionPauseDto(pause.Id, pause.PausedAt, pause.PauseReason, pause.ResumedAt))
+                .ToList(),
+            session.RowVersion);
+
     private static int? SqlErrorNumber(Exception exception) =>
         exception switch
         {
