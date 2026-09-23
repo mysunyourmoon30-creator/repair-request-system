@@ -176,6 +176,38 @@ internal sealed class WorkSessionStore : IWorkSessionStore
         }
     }
 
+    public async Task<WorkSessionForCheckOut?> LoadOwnForCheckOutAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken)
+    {
+        var row = await (
+            from session in _scope.OwnWorkSessions(user)
+            join visit in _db.ServiceVisits on session.ServiceVisitId equals visit.Id
+            where session.Id == workSessionId
+            select new { Session = session, Visit = visit })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return row is null ? null : new WorkSessionForCheckOut(row.Session, row.Visit);
+    }
+
+    public async Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkSession session, ServiceVisit visit, byte[] expectedRowVersion, CancellationToken cancellationToken)
+    {
+        // The UPDATE applies only WHERE row_version = the client's If-Match token (the session's own). The Visit
+        // was loaded fresh in this same transaction (no client token for it), so EF's ordinary optimistic-
+        // concurrency check on its own RowVersion is sufficient without an explicit override — same treatment
+        // Check-in gives the parent Work Order.
+        _db.Entry(session).Property(item => item.RowVersion).OriginalValue = expectedRowVersion;
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            return WorkOrderSaveOutcome.Saved;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _db.ChangeTracker.Clear();
+            return WorkOrderSaveOutcome.ConcurrencyConflict;
+        }
+    }
+
     public Task<WorkSessionDto?> GetOwnSessionAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken) =>
         ProjectSession(_scope.OwnWorkSessions(user).AsNoTracking().Where(session => session.Id == workSessionId))
             .SingleOrDefaultAsync(cancellationToken);

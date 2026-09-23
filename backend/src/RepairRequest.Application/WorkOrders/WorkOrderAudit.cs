@@ -33,6 +33,8 @@ public static class WorkOrderAudit
     public const string WorkSessionEntityType = "WORK_SESSION";
     public const string PausedAction = "WORK_SESSION_PAUSED";
     public const string ResumedAction = "WORK_SESSION_RESUMED";
+    public const string CheckedOutAction = "WORK_SESSION_CHECKED_OUT";
+    public const string VisitCompletedAction = "SERVICE_VISIT_COMPLETED";
     public const string WorkSessionPauseIdField = "workSessionPauseId";
     public const string PausedAtField = "pausedAt";
     public const string ResumedAtField = "resumedAt";
@@ -133,6 +135,46 @@ public static class WorkOrderAudit
                 [WorkSessionPauseIdField] = pause.Id,
                 [ResumedAtField] = pause.ResumedAt
             }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WS-004 success (S3-004): CHECKED_IN -&gt; CHECKED_OUT on the Work Session itself. No reason applies —
+    /// BR-06's summary/outcome/evidence half is not part of this ticket (see <see cref="WorkSession.CheckOut"/>'s
+    /// own doc comment).
+    /// </summary>
+    public static AuditHistory CheckedOut(CommandContext context, WorkSession session, DateTime occurredAt) =>
+        new(
+            session.TenantId,
+            WorkSessionEntityType,
+            session.Id,
+            CheckedOutAction,
+            fromState: WorkSessionStatusCodes.ToCode(WorkSessionStatus.CheckedIn),
+            toState: WorkSessionStatusCodes.ToCode(WorkSessionStatus.CheckedOut),
+            oldValueJson: null,
+            newValueJson: null,
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-SV-003 success (S3-004): IN_PROGRESS -&gt; COMPLETED on the Service Visit, triggered by the Technician's
+    /// Check-out. The Work Session that closed it is referenced in the new value, mirroring how <see cref="CheckedIn"/>
+    /// references the session it opened.
+    /// </summary>
+    public static AuditHistory VisitCompleted(CommandContext context, ServiceVisit visit, WorkSession session, DateTime occurredAt) =>
+        new(
+            visit.TenantId,
+            ServiceVisitEntityType,
+            visit.Id,
+            VisitCompletedAction,
+            fromState: ServiceVisitStatusCodes.ToCode(ServiceVisitStatus.InProgress),
+            toState: ServiceVisitStatusCodes.ToCode(ServiceVisitStatus.Completed),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?> { [WorkSessionIdField] = session.Id }),
             reason: null,
             context.User.UserId,
             occurredAt,

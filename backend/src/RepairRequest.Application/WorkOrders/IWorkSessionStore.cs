@@ -8,6 +8,9 @@ namespace RepairRequest.Application.WorkOrders;
 /// <summary>A Service Visit loaded for Check-in, with its (tracked) parent Work Order.</summary>
 public sealed record ServiceVisitForCheckIn(ServiceVisit Visit, WorkOrder WorkOrder);
 
+/// <summary>A Work Session loaded for Check-out (S3-004), with its (tracked) parent Service Visit.</summary>
+public sealed record WorkSessionForCheckOut(WorkSession Session, ServiceVisit Visit);
+
 /// <summary>
 /// Persistence port for "My Visits" (read) and Check-in (S3-001; ST-WS-001). The read side is a focused
 /// projection (mirrors <see cref="IWorkOrderStore"/>); the write side follows the same one-transaction,
@@ -32,7 +35,7 @@ public interface IWorkSessionStore
     /// Visit (guarded by <paramref name="expectedRowVersion"/>, the client's If-Match) and the new Work Session together.</summary>
     Task<WorkOrderSaveOutcome> SaveChangesAsync(ServiceVisit visit, byte[] expectedRowVersion, CancellationToken cancellationToken);
 
-    // ---- S3-002/S3-003 Pause, Resume, current session (all restricted by IDataScope.OwnWorkSessions) ----
+    // ---- S3-002/S3-003/S3-004 Pause, Resume, Check-out, current session (all restricted by IDataScope.OwnWorkSessions) ----
 
     /// <summary>The caller's own Work Session, tracked for update; null when nonexistent, someone else's, cross-tenant or out of Site scope.</summary>
     Task<WorkSession?> LoadOwnForUpdateAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken);
@@ -53,4 +56,15 @@ public interface IWorkSessionStore
 
     /// <summary>The caller's one non-CHECKED_OUT session (BR-05 allows at most one), or null.</summary>
     Task<WorkSessionDto?> GetCurrentAsync(CurrentUser user, CancellationToken cancellationToken);
+
+    /// <summary>The caller's own Work Session with its (tracked) parent Visit, both loaded for Check-out (S3-004); null under the same conditions as <see cref="LoadOwnForUpdateAsync"/>.</summary>
+    Task<WorkSessionForCheckOut?> LoadOwnForCheckOutAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Saves the session (guarded by <paramref name="expectedRowVersion"/>, the client's If-Match) and the Visit
+    /// together. The Visit carries no client token of its own — freshly loaded in this same transaction, EF's
+    /// ordinary optimistic-concurrency check on its own RowVersion is sufficient, the same treatment Check-in
+    /// gives the parent Work Order in <see cref="SaveChangesAsync(ServiceVisit, byte[], CancellationToken)"/>.
+    /// </summary>
+    Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkSession session, ServiceVisit visit, byte[] expectedRowVersion, CancellationToken cancellationToken);
 }

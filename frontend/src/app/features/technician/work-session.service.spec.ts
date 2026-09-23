@@ -49,4 +49,15 @@ describe('WorkSessionService', () => {
     expect(req.request.body).toBeNull();
     req.flush({});
   });
+
+  it('checks out with the quoted If-Match header and no body', () => {
+    service.checkOut('session-1', '"v3"').subscribe();
+
+    const req = httpMock.expectOne(`${baseUrl}/session-1/check-out`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('If-Match')).toBe('"v3"');
+    // Check-out has no fields of its own: no status, no time, no body at all.
+    expect(req.request.body).toBeNull();
+    req.flush({});
+  });
 });

@@ -67,6 +67,9 @@ public static class AuthorizationPolicies
     /// <summary>Resume the caller's own PAUSED Work Session (S3-003; ST-WS-003; UC-WO-012: Assigned Technician only).</summary>
     public const string WorkSessionResume = "WorkSession.Resume";
 
+    /// <summary>Check out the caller's own CHECKED_IN Work Session (S3-004; ST-WS-004; UC-WO-016: Assigned Technician only).</summary>
+    public const string WorkSessionCheckOut = "WorkSession.CheckOut";
+
     /// <summary>Read the caller's own current Work Session (S3-002). Technician only.</summary>
     public const string WorkSessionRead = "WorkSession.Read";
 
@@ -102,6 +105,7 @@ public static class AuthorizationPolicies
             [WorkSessionCheckIn] = [RoleCodes.Technician],
             [WorkSessionPause] = [RoleCodes.Technician],
             [WorkSessionResume] = [RoleCodes.Technician],
+            [WorkSessionCheckOut] = [RoleCodes.Technician],
             [WorkSessionRead] = [RoleCodes.Technician]
         };
 }

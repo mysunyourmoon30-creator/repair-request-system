@@ -7,10 +7,10 @@ namespace RepairRequest.Domain.WorkOrders;
 /// Check-in. <see cref="TenantId"/> is not one of the documented WS-* fields (the Data Dictionary's numbering
 /// jumps from WS-001 to WS-003) but is carried here anyway, matching every other transactional aggregate in
 /// this codebase and `docs/05` section 2's own "tenant_id on transactional/control data" convention.
-/// S3-002 adds Pause (ST-WS-002); S3-003 adds Resume (ST-WS-003). Check-out (ST-WS-004) is a later ticket;
-/// <see cref="WorkSessionStatus.CheckedOut"/> exists for schema fidelity only, and this aggregate exposes no
-/// method that reaches it yet — same "unreachable by any method here" convention S2-003's
-/// <see cref="ServiceVisit"/> used for its own then-out-of-scope states.
+/// S3-002 adds Pause (ST-WS-002); S3-003 adds Resume (ST-WS-003); S3-004 adds Check-out (ST-WS-004) as a pure
+/// status transition — RR-DD-001 BR-06 ties Check-out's guard to Summary/Outcome/CLEAN evidence, but that data
+/// lives in the separate <c>work_summary</c> table and is captured by a later use case (UC-WO-020); Portfolio
+/// Project Owner directive, S3-004 pre-implementation: <see cref="CheckOut"/> enforces only the state guard.
 /// </summary>
 public sealed class WorkSession
 {
@@ -83,6 +83,25 @@ public sealed class WorkSession
         PauseStartAt = null;
     }
 
+    /// <summary>
+    /// ST-WS-004 Check-out (S3-004; UC-WO-016). Only from CHECKED_IN — which is also the "no active pause" guard,
+    /// same reasoning <see cref="Pause"/> already uses. <paramref name="checkOutAt"/> is always the server clock.
+    /// Per the class remarks' Portfolio Project Owner directive, this enforces only the state guard: BR-06's
+    /// summary/outcome/evidence half is not part of this ticket.
+    /// </summary>
+    public void CheckOut(DateTime checkOutAt)
+    {
+        if (!WorkSessionStatusTransitions.IsAllowed(Status, WorkSessionStatus.CheckedOut))
+        {
+            throw new DomainRuleViolationException("Only a CHECKED_IN Work Session can be checked out.");
+        }
+
+        var utcCheckOutAt = DomainGuard.Utc(checkOutAt, nameof(checkOutAt));
+
+        Status = WorkSessionStatus.CheckedOut;
+        CheckOutAt = utcCheckOutAt;
+    }
+
     /// <summary>WS-001. Assigned on insert (sequential GUID).</summary>
     public Guid Id { get; private set; }
 
@@ -110,7 +129,7 @@ public sealed class WorkSession
     /// <summary>WS-008. Set by <see cref="Resume"/> (S3-003) to that Resume's own time; overwritten by a later Resume.</summary>
     public DateTime? ResumeAt { get; private set; }
 
-    /// <summary>WS-009. Set on Check-out; out of scope for S3-001, always null here.</summary>
+    /// <summary>WS-009. Set by <see cref="CheckOut"/> (S3-004).</summary>
     public DateTime? CheckOutAt { get; private set; }
 
     /// <summary>WS-010. Optimistic concurrency token.</summary>

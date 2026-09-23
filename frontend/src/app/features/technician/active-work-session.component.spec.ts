@@ -33,6 +33,13 @@ describe('ActiveWorkSessionComponent', () => {
     rowVersion: 'v2',
   };
 
+  const checkedOut: WorkSession = {
+    ...checkedIn,
+    status: 'CHECKED_OUT',
+    checkOutAt: '2026-10-01T17:00:00Z',
+    rowVersion: 'v3',
+  };
+
   function load(session: WorkSession | null): { fixture: ComponentFixture<ActiveWorkSessionComponent>; root: HTMLElement } {
     TestBed.configureTestingModule({
       imports: [ActiveWorkSessionComponent],
@@ -73,11 +80,12 @@ describe('ActiveWorkSessionComponent', () => {
     expect(root.querySelector('button')).toBeNull();
   });
 
-  it('shows the Pause button only for a CHECKED_IN session', () => {
+  it('shows the Pause and Check-out buttons for a CHECKED_IN session', () => {
     const { root } = load(checkedIn);
 
     expect(root.textContent).toContain('WO-1');
     expect(buttonNamed(root, 'Pause')).toBeDefined();
+    expect(buttonNamed(root, 'Check-out')).toBeDefined();
     expect(root.querySelector('[role="dialog"]')).toBeNull();
   });
 
@@ -94,6 +102,22 @@ describe('ActiveWorkSessionComponent', () => {
     const { root } = load(checkedIn);
 
     expect(buttonNamed(root, 'Resume')).toBeUndefined();
+  });
+
+  it('shows no Pause or Check-out button for a PAUSED session', () => {
+    const { root } = load(paused);
+
+    expect(buttonNamed(root, 'Pause')).toBeUndefined();
+    expect(buttonNamed(root, 'Check-out')).toBeUndefined();
+  });
+
+  it('shows no buttons at all for a CHECKED_OUT session', () => {
+    const { root } = load(checkedOut);
+
+    expect(root.textContent).toContain('CHECKED_OUT');
+    expect(buttonNamed(root, 'Pause')).toBeUndefined();
+    expect(buttonNamed(root, 'Resume')).toBeUndefined();
+    expect(buttonNamed(root, 'Check-out')).toBeUndefined();
   });
 
   it('opens a dialog that keeps Confirm disabled for an empty or whitespace-only reason', () => {
@@ -270,5 +294,63 @@ describe('ActiveWorkSessionComponent', () => {
     expect(root.textContent).not.toContain('Http failure');
     // No reload on a generic failure — the session is still shown as PAUSED with its Resume button.
     expect(buttonNamed(root, 'Resume')).toBeDefined();
+  });
+
+  // ---------------- Check-out ----------------
+
+  it('checks out with the quoted rowVersion and no body, and re-renders as CHECKED_OUT with no buttons', () => {
+    const { fixture, root } = load(checkedIn);
+
+    buttonNamed(root, 'Check-out')!.click();
+
+    const req = httpMock.expectOne(`${baseUrl}/session-1/check-out`);
+    expect(req.request.headers.get('If-Match')).toBe('"v1"');
+    expect(req.request.body).toBeNull();
+    req.flush(checkedOut);
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('CHECKED_OUT');
+    expect(buttonNamed(root, 'Check-out')).toBeUndefined();
+    expect(buttonNamed(root, 'Pause')).toBeUndefined();
+    expect(buttonNamed(root, 'Resume')).toBeUndefined();
+  });
+
+  it('shows the server message and reloads the real state when the session is already checked out (409 STATE_CONFLICT)', () => {
+    const { fixture, root } = load(checkedIn);
+
+    buttonNamed(root, 'Check-out')!.click();
+    httpMock
+      .expectOne(`${baseUrl}/session-1/check-out`)
+      .flush({ code: 'STATE_CONFLICT', detail: 'This Work Session is already checked out.' }, { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne(`${baseUrl}/current`).flush(checkedOut);
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('This Work Session is already checked out.');
+    expect(buttonNamed(root, 'Check-out')).toBeUndefined();
+  });
+
+  it('shows a plain not-found message for Check-out 404 and reloads', () => {
+    const { fixture, root } = load(checkedIn);
+
+    buttonNamed(root, 'Check-out')!.click();
+    httpMock.expectOne(`${baseUrl}/session-1/check-out`).flush('Not Found', { status: 404, statusText: 'Not Found' });
+    httpMock.expectOne(`${baseUrl}/current`).flush(null, { status: 204, statusText: 'No Content' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('no longer belongs to you');
+    expect(root.textContent).not.toContain('Http failure');
+  });
+
+  it('shows a generic message, not the raw HTTP error, for a Check-out server error', () => {
+    const { fixture, root } = load(checkedIn);
+
+    buttonNamed(root, 'Check-out')!.click();
+    httpMock.expectOne(`${baseUrl}/session-1/check-out`).flush('boom', { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('Something went wrong');
+    expect(root.textContent).not.toContain('Http failure');
+    // No reload on a generic failure — the session is still shown as CHECKED_IN with its Check-out button.
+    expect(buttonNamed(root, 'Check-out')).toBeDefined();
   });
 });

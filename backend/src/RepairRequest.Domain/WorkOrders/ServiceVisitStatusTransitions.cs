@@ -11,14 +11,14 @@ public sealed record ServiceVisitStatusTransition(
 /// Service Visit transition matrix (RR-STS-001, ST-SV-001..009), limited to the true cross-state transitions
 /// implemented so far. Reschedule and Reassign are same-state actions (guarded directly by <see cref="ServiceVisit"/>'s
 /// own methods, since a from==to row does not fit this table); Decide Missed likewise never changes the original
-/// Visit's own status. S3-001 adds Check-in (ST-SV-002); Check-out (ST-SV-003) is a later ticket and is not
-/// listed here.
+/// Visit's own status. S3-001 adds Check-in (ST-SV-002); S3-004 adds Check-out (ST-SV-003).
 /// </summary>
 public static class ServiceVisitStatusTransitions
 {
     public static IReadOnlyList<ServiceVisitStatusTransition> All { get; } =
     [
         new("ST-SV-002", ServiceVisitStatus.Scheduled, "CheckIn", ServiceVisitStatus.InProgress),
+        new("ST-SV-003", ServiceVisitStatus.InProgress, "CheckOut", ServiceVisitStatus.Completed),
         new("ST-SV-007", ServiceVisitStatus.Scheduled, "Cancel", ServiceVisitStatus.Cancelled),
         new("ST-SV-008", ServiceVisitStatus.Scheduled, "MarkMissed", ServiceVisitStatus.Missed),
     ];

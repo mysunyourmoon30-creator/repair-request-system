@@ -8,12 +8,12 @@ using RepairRequest.Application.WorkOrders;
 namespace RepairRequest.Api.Controllers;
 
 /// <summary>
-/// Work Session endpoints (S3-002/S3-003; ST-WS-002/003; UC-WO-012): Pause (WS-API-002), Resume (WS-API-003) and
-/// the read of the caller's own current session. Technician only, and only the caller's own session within their
-/// tenant and current Site scope — anyone else's, cross-tenant or nonexistent id is the same non-leaking 404.
-/// If-Match is checked against the session's own RowVersion. Check-in (WS-API-001) lives on
-/// <see cref="ServiceVisitsController"/> since it acts on a Visit and creates the session; Check-out is a later
-/// ticket.
+/// Work Session endpoints (S3-002/S3-003/S3-004; ST-WS-002/003/004; UC-WO-012/016): Pause (WS-API-002), Resume
+/// (WS-API-003), Check-out (WS-API-004) and the read of the caller's own current session. Technician only, and
+/// only the caller's own session within their tenant and current Site scope — anyone else's, cross-tenant or
+/// nonexistent id is the same non-leaking 404. If-Match is checked against the session's own RowVersion.
+/// Check-in (WS-API-001) lives on <see cref="ServiceVisitsController"/> since it acts on a Visit and creates the
+/// session.
 /// </summary>
 [ApiController]
 [Route("api/v1/work-sessions")]
@@ -91,6 +91,33 @@ public sealed class WorkSessionsController : CommandControllerBase
 
         var context = await CommandContextAsync(cancellationToken);
         var result = await _sessions.ResumeAsync(context, workSessionId, rowVersion, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        var session = await _sessions.GetAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(session, ResourceType, WorkSessionResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// WS-API-004 Check-out (ST-WS-004): the owning Technician only, a CHECKED_IN session only. Empty request
+    /// body — the client supplies neither status nor time. Moves the session to CHECKED_OUT and the Visit to
+    /// COMPLETED (ST-SV-003); BR-06's summary/outcome/evidence half is not part of this ticket (see
+    /// <see cref="RepairRequest.Domain.WorkOrders.WorkSession.CheckOut"/>'s own doc comment).
+    /// </summary>
+    [HttpPost("{workSessionId:guid}/check-out")]
+    [Authorize(Policy = AuthorizationPolicies.WorkSessionCheckOut)]
+    [ProducesResponseType<WorkSessionResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> CheckOut(Guid workSessionId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _sessions.CheckOutAsync(context, workSessionId, rowVersion, cancellationToken);
         if (!result.Succeeded)
         {
             return ProblemFor(result.Error!, ResourceType);
