@@ -27,6 +27,7 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.MyVisitsRead, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionCheckIn, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionPause, [RoleCodes.Technician] },
+        { AuthorizationPolicies.WorkSessionResume, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionRead, [RoleCodes.Technician] }
     };
 
@@ -40,7 +41,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(14, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(15, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -85,6 +86,13 @@ public class AuthorizationPoliciesTests
         // ST-WS-002; UC-WO-012; S3-002 — Pause and the current-session read are Technician-only.
         Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkSessionPause]);
         Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkSessionRead]);
+    }
+
+    [Fact]
+    public void WorkSessionResume_IsTechnicianOnly()
+    {
+        // ST-WS-003; UC-WO-012; S3-003 — Resume is Technician-only.
+        Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkSessionResume]);
     }
 
     [Fact]

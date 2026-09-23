@@ -68,10 +68,11 @@ public interface IDataScope
     IQueryable<ServiceVisit> AssignedServiceVisits(CurrentUser user);
 
     /// <summary>
-    /// Work Sessions owned by a Technician caller (S3-002): <c>technician_id</c> is the caller's own id, and the
-    /// session's Visit is still assigned to the caller within their current Site scope (the same re-check as
-    /// <see cref="AssignedServiceVisits"/>, applied at Pause time too). Every non-Technician caller sees none;
-    /// another technician's, cross-tenant and nonexistent sessions are indistinguishable (non-leaking 404).
+    /// Work Sessions owned by a Technician caller (S3-002; reused unchanged by Resume, S3-003):
+    /// <c>technician_id</c> is the caller's own id, and the session's Visit is still assigned to the caller
+    /// within their current Site scope (the same re-check as <see cref="AssignedServiceVisits"/>). Every
+    /// non-Technician caller sees none; another technician's, cross-tenant and nonexistent sessions are
+    /// indistinguishable (non-leaking 404).
     /// </summary>
     IQueryable<WorkSession> OwnWorkSessions(CurrentUser user);
 

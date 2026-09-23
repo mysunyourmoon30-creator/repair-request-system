@@ -144,10 +144,13 @@ internal sealed class WorkSessionStore : IWorkSessionStore
         }
     }
 
-    public Task<WorkSession?> LoadOwnForPauseAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken) =>
+    public Task<WorkSession?> LoadOwnForUpdateAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken) =>
         _scope.OwnWorkSessions(user).SingleOrDefaultAsync(session => session.Id == workSessionId, cancellationToken);
 
     public void AddPause(WorkSessionPause pause) => _db.WorkSessionPauses.Add(pause);
+
+    public Task<WorkSessionPause?> LoadOpenPauseAsync(Guid workSessionId, CancellationToken cancellationToken) =>
+        _db.WorkSessionPauses.SingleOrDefaultAsync(pause => pause.WorkSessionId == workSessionId && pause.ResumedAt == null, cancellationToken);
 
     public async Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkSession session, byte[] expectedRowVersion, CancellationToken cancellationToken)
     {

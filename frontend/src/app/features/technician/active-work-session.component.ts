@@ -6,11 +6,12 @@ import { WorkSessionService } from './work-session.service';
 const REASON_MAX_LENGTH = 1000;
 
 /**
- * S3-002: the Technician's own current Work Session, with a Pause control. The Pause button shows only for a
- * `CHECKED_IN` session (the only state ST-WS-002 allows); a `PAUSED` session shows what was recorded and no
- * button (Resume is a later ticket). Pausing opens a dialog that requires a reason — blank or whitespace-only
- * input keeps the confirm button disabled, but that is convenience only: the backend is the authority and
- * rejects a blank reason with 422. The request carries only the reason; status and time come from the backend.
+ * S3-002/S3-003: the Technician's own current Work Session, with Pause and Resume controls. Pause shows only for
+ * a `CHECKED_IN` session (the only state ST-WS-002 allows) and opens a dialog that requires a reason — blank or
+ * whitespace-only input keeps the confirm button disabled, but that is convenience only: the backend is the
+ * authority and rejects a blank reason with 422. Resume shows only for a `PAUSED` session (ST-WS-003) and acts
+ * immediately — it has no reason field, so there is no dialog. Both requests carry only what each action needs
+ * (Pause: the reason; Resume: nothing); status and time always come from the backend.
  */
 @Component({
   selector: 'app-active-work-session',
@@ -41,6 +42,9 @@ const REASON_MAX_LENGTH = 1000;
 
         @if (current.status === 'CHECKED_IN') {
           <button type="button" [disabled]="submitting()" (click)="openDialog()">Pause</button>
+        }
+        @if (current.status === 'PAUSED') {
+          <button type="button" [disabled]="submitting()" (click)="onResume(current)">Resume</button>
         }
       </section>
 
@@ -156,6 +160,27 @@ export class ActiveWorkSessionComponent {
         }
 
         this.dialogError.set(this.describe(response));
+      },
+    });
+  }
+
+  protected onResume(session: WorkSession): void {
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    this.sessions.resume(session.workSessionId, `"${session.rowVersion}"`).subscribe({
+      next: (updated) => {
+        this.session.set(updated);
+        this.submitting.set(false);
+      },
+      error: (response: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.actionError.set(this.describe(response));
+
+        if (response.status === 404 || response.status === 409) {
+          // The session changed or is gone: show the real state instead of leaving a stale Resume button.
+          this.refresh();
+        }
       },
     });
   }

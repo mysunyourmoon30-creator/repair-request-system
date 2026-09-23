@@ -32,8 +32,10 @@ public static class WorkOrderAudit
 
     public const string WorkSessionEntityType = "WORK_SESSION";
     public const string PausedAction = "WORK_SESSION_PAUSED";
+    public const string ResumedAction = "WORK_SESSION_RESUMED";
     public const string WorkSessionPauseIdField = "workSessionPauseId";
     public const string PausedAtField = "pausedAt";
+    public const string ResumedAtField = "resumedAt";
 
     /// <summary>ST-WO-001 success: OPEN -&gt; SCHEDULED, with the new first Service Visit referenced. No reason applies.</summary>
     public static AuditHistory Scheduled(CommandContext context, WorkOrder workOrder, ServiceVisit visit, DateTime occurredAt) =>
@@ -109,6 +111,29 @@ public static class WorkOrderAudit
                 [PausedAtField] = pause.PausedAt
             }),
             reason: pause.PauseReason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WS-003 success (S3-003): PAUSED -&gt; CHECKED_IN on the Work Session itself. No reason applies (Resume
+    /// has none, unlike Pause); the closed pause period and its server time are referenced in the new value.
+    /// </summary>
+    public static AuditHistory Resumed(CommandContext context, WorkSession session, WorkSessionPause pause, DateTime occurredAt) =>
+        new(
+            session.TenantId,
+            WorkSessionEntityType,
+            session.Id,
+            ResumedAction,
+            fromState: WorkSessionStatusCodes.ToCode(WorkSessionStatus.Paused),
+            toState: WorkSessionStatusCodes.ToCode(WorkSessionStatus.CheckedIn),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [WorkSessionPauseIdField] = pause.Id,
+                [ResumedAtField] = pause.ResumedAt
+            }),
+            reason: null,
             context.User.UserId,
             occurredAt,
             context.CorrelationId);

@@ -11,10 +11,10 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Document ID | RR-API-001-ADD |
 | Version | 1.0 |
 | Status | Approved for Portfolio Development (documentation reconciliation) |
-| Revision Date | 19 September 2026 — reconciled with the S3-002 implementation (Pause Work Session; working tree, not yet committed); previously 18 September 2026 (S3-001) and 17 September 2026 (S2-001) |
+| Revision Date | 22 September 2026 — reconciled with the S3-003 implementation (Resume Work Session; working tree, not yet committed); previously 19 September 2026 (S3-002, PR #7, commit db6bc5b), 18 September 2026 (S3-001) and 17 September 2026 (S2-001) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
 | Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001; Portfolio Project Owner pre-implementation directives for S3-001 (eligibility is `assigned_technician_id` only — no "Primary team"; location capture out of scope) for My Visits / Check-in |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8), S2-003 Schedule/Service Visit management (9a05ca0, PR #5) — WO-API-002..007 implemented but **not yet reconciled into this addendum's §1/§4** (pre-existing gap, out of scope of this revision), S3-001 My Visits / Check-in (ee115a8, PR #6 — see §4.11), S3-002 Pause Work Session (working tree — see §4.12) |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8), S2-003 Schedule/Service Visit management (9a05ca0, PR #5) — WO-API-002..007 implemented but **not yet reconciled into this addendum's §1/§4** (pre-existing gap, out of scope of this revision), S3-001 My Visits / Check-in (ee115a8, PR #6 — see §4.11), S3-002 Pause Work Session (db6bc5b, PR #7 — see §4.12), S3-003 Resume Work Session (working tree — see §4.13) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -44,8 +44,9 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | WO-API-001 | GET `/api/v1/work-orders/{id}` | IMPLEMENTED (S2-001) — read-only List/Detail; see §4.10 |
 | WO-API-002..007 | schedule / reassign / reschedule / cancel / mark-missed / missed-decision | IMPLEMENTED (S2-003, PR #5, commit 9a05ca0) — Coordinator-only; **not yet reconciled into this addendum's detail sections** (pre-existing documentation gap, out of scope of this S3-001 revision) |
 | WS-API-001 | POST `/api/v1/service-visits/{id}/check-in` | IMPLEMENTED (S3-001, PR #6, commit ee115a8) — Technician-only; see §4.11 |
-| WS-API-002 | POST `/api/v1/work-sessions/{id}/pause` | IMPLEMENTED (S3-002, working tree) — Technician-only, own CHECKED_IN session only, reason required; see §4.12 |
-| ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WS-API-003..004, WO-API-008..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
+| WS-API-002 | POST `/api/v1/work-sessions/{id}/pause` | IMPLEMENTED (S3-002, PR #7, commit db6bc5b) — Technician-only, own CHECKED_IN session only, reason required; see §4.12 |
+| WS-API-003 | POST `/api/v1/work-sessions/{id}/resume` | IMPLEMENTED (S3-003, working tree) — Technician-only, own PAUSED session only, no body; see §4.13 |
+| ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WS-API-004, WO-API-008..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
 
 ## 2. Implemented Endpoints Missing From the RR-API-001 v1.2 Catalog
 
@@ -146,8 +147,37 @@ Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, 
 
 **WorkSessionResponse:** `{ workSessionId, serviceVisitId, workOrderId, workOrderNo, siteCode, equipmentCode, status (CHECKED_IN | PAUSED | CHECKED_OUT), checkInAt, pauseStartAt, resumeAt, checkOutAt, pauses: [{ workSessionPauseId, pausedAt, pauseReason, resumedAt }] (newest first), rowVersion }`. `docs/09` documents no response body for WS-API-002; this shape is the implementation's.
 
-- **Not in S3-002:** Resume (`WS-API-003`, `ST-WS-003`), Check-out (`WS-API-004`, `ST-WS-004`), Work Summary, Time Correction of `PAUSE_START`, and notifications (the baseline matrix defines none for Pause).
+- **Not in S3-002:** Resume (`WS-API-003`, `ST-WS-003`, implemented S3-003, see §4.13), Check-out (`WS-API-004`, `ST-WS-004`), Work Summary, Time Correction of `PAUSE_START`, and notifications (the baseline matrix defines none for Pause).
 - Trace: ST-WS-002; UC-WO-012 (Pause half only); WS-005/007/010; TC-WO-006/007 not yet authored in RR-TC-001.
+
+### 4.13 S3-003 Resume Work Session (working tree, not yet committed)
+
+No schema change: `work_session.resume_at` (WS-008) and `work_session_pause.resumed_at` already exist (added by
+the S3-001 and S3-002 migrations respectively, both previously unused columns).
+
+**Deviations from the RR-* baseline (Portfolio Project Owner directives for S3-003, recorded here rather than silently applied):**
+- **No Business Rule (BR-01..BR-19) is scoped to Resume.** BR-05's "no active overlap" guard traces only to ST-WS-001 (Check-in). Resume introduces no new overlap check: a `PAUSED` session already counts as active for BR-05 (the existing §4.12 decision that `GET /current` treats `PAUSED` as non-`CHECKED_OUT`), so Resume does not reopen that question.
+- **`work_session.pause_start_at` (WS-007) is cleared to null on Resume.** The baseline data dictionary is silent on this (§4.12 line "How Resume resets it is left to that ticket"); clearing it reflects that no pause is open any more, matching the "one unmatched pause" description WS-007 already carries. Full pause history is unaffected — it lives entirely in `work_session_pause` and is never rewritten.
+- **`work_session.resume_at` (WS-008) holds only the latest Resume's time**, the same "single latest event" column shape as `check_in_at`/`check_out_at`; it is overwritten by a later Resume. The per-pause `resumed_at` on `work_session_pause` is the source of full history.
+
+**WS-API-003 POST `/api/v1/work-sessions/{id}/resume` — WorkSession.Resume (TECHNICIAN only), If-Match, empty body**
+- **The client supplies nothing.** Resume has no fields of its own (no reason, unlike Pause); a body is neither required nor read, same convention as Check-in (WS-API-001).
+- **Scope (`IDataScope.OwnWorkSessions`, unchanged from S3-002):** the session's `technician_id` is the caller, in the caller's tenant, and its Visit is still assigned to the caller within their *current* Site scope. Another technician's session, another tenant's, a revoked Site scope and a nonexistent id all return the same non-leaking `404 NOT_FOUND`.
+- **Checks, in order** (the same order as Pause):
+  1. 400 missing/invalid `If-Match`; 401; 403 ACCESS_DENIED without TECHNICIAN;
+  2. 404 NOT_FOUND (scope above);
+  3. 409 CONCURRENCY_CONFLICT — stale `If-Match`, checked against the **session's own** `row_version`;
+  4. 409 STATE_CONFLICT — session not `PAUSED` (a Resume of a `CHECKED_IN` session: "This Work Session is not paused."; a second Resume lands here too, since the session is `CHECKED_IN` again after the first);
+  5. defensive 409 STATE_CONFLICT if a `PAUSED` session is somehow found with no open pause row — unreachable in practice (Pause and Resume are the session's only writers) but handled rather than left to crash.
+- **Success → `200`** with the `WorkSessionResponse` below and a fresh `ETag` (the session's row version). The Work Order and the Visit stay `IN_PROGRESS` — RR-STS-001 defines no Work Order or Visit transition for Resume, same as Pause.
+- **Written atomically (one transaction):** `work_session.status` → `CHECKED_IN`, `resume_at` = server clock, `pause_start_at` cleared; the open `work_session_pause` row's `resumed_at` = the same server clock (its `paused_at`/`pause_reason` are never touched); one audit `WORK_SESSION_RESUMED` (entity `WORK_SESSION`, `PAUSED` → `CHECKED_IN`, no reason, actor = the technician, `workSessionPauseId` and `resumedAt` in the new value, correlation id). Any failure writes nothing.
+- **Concurrency and duplicates:** two concurrent Resume requests with the same `If-Match` → exactly one `200`, the other `409`. Unlike Pause, Resume is an UPDATE of the existing session and pause rows, not an INSERT, so the session's own RowVersion compare-and-swap alone is sufficient — no new unique index is needed (`IX_work_session_pause_open` already exists from S3-002 and continues to allow the *next* Pause once this Resume closes the current period).
+- **Multiple Pause/Resume cycles:** each Pause after a Resume creates its own new `work_session_pause` row (S3-002's "every pause is its own row" design already supports this); earlier periods' `paused_at`/`pause_reason`/`resumed_at` are never modified by a later cycle.
+
+**WorkSessionResponse** is unchanged from §4.12 — `resumeAt` (top-level, latest Resume only) and each pause period's own `resumedAt` are now both populated by a real Resume instead of always being null.
+
+- **Not in S3-003:** Check-out (`WS-API-004`, `ST-WS-004`), Work Summary, Time Correction of `RESUME`, and notifications (the baseline matrix defines none for Resume).
+- Trace: ST-WS-003; UC-WO-012 (Resume half); WS-005/007/008/010.
 
 ---
 
@@ -168,6 +198,7 @@ Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, 
 | MyVisits.Read | TECHNICIAN | S3-001; UI-040 |
 | WorkSession.CheckIn | TECHNICIAN | S3-001; ST-WS-001; BR-05; UC-WO-016 |
 | WorkSession.Pause | TECHNICIAN | S3-002; ST-WS-002; UC-WO-012 |
+| WorkSession.Resume | TECHNICIAN | S3-003; ST-WS-003; UC-WO-012 |
 | WorkSession.Read | TECHNICIAN | S3-002 |
 
 - Every non-anonymous endpoint is deny-by-default and needs an authenticated principal (JWT bearer, DEC-PS1-004).

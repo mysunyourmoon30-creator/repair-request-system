@@ -32,14 +32,21 @@ public interface IWorkSessionStore
     /// Visit (guarded by <paramref name="expectedRowVersion"/>, the client's If-Match) and the new Work Session together.</summary>
     Task<WorkOrderSaveOutcome> SaveChangesAsync(ServiceVisit visit, byte[] expectedRowVersion, CancellationToken cancellationToken);
 
-    // ---- S3-002 Pause / current session (all restricted by IDataScope.OwnWorkSessions) ----
+    // ---- S3-002/S3-003 Pause, Resume, current session (all restricted by IDataScope.OwnWorkSessions) ----
 
     /// <summary>The caller's own Work Session, tracked for update; null when nonexistent, someone else's, cross-tenant or out of Site scope.</summary>
-    Task<WorkSession?> LoadOwnForPauseAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken);
+    Task<WorkSession?> LoadOwnForUpdateAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken);
 
     void AddPause(WorkSessionPause pause);
 
-    /// <summary>Saves the session (guarded by <paramref name="expectedRowVersion"/>, the client's If-Match) and the new pause period together.</summary>
+    /// <summary>
+    /// The session's currently open pause period (S3-003), tracked for update; null if none. A PAUSED session
+    /// invariantly has exactly one (Pause and Resume are its only writers), so null here means a data integrity
+    /// fault, not a normal outcome — the caller treats it defensively, not as a crash.
+    /// </summary>
+    Task<WorkSessionPause?> LoadOpenPauseAsync(Guid workSessionId, CancellationToken cancellationToken);
+
+    /// <summary>Saves the session (guarded by <paramref name="expectedRowVersion"/>, the client's If-Match) and any tracked pause period together.</summary>
     Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkSession session, byte[] expectedRowVersion, CancellationToken cancellationToken);
 
     Task<WorkSessionDto?> GetOwnSessionAsync(CurrentUser user, Guid workSessionId, CancellationToken cancellationToken);
