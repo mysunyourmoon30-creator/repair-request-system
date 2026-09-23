@@ -28,6 +28,7 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.WorkSessionCheckIn, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionPause, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionResume, [RoleCodes.Technician] },
+        { AuthorizationPolicies.WorkSessionCheckOut, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionRead, [RoleCodes.Technician] }
     };
 
@@ -41,7 +42,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(15, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(16, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -93,6 +94,13 @@ public class AuthorizationPoliciesTests
     {
         // ST-WS-003; UC-WO-012; S3-003 — Resume is Technician-only.
         Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkSessionResume]);
+    }
+
+    [Fact]
+    public void WorkSessionCheckOut_IsTechnicianOnly()
+    {
+        // ST-WS-004; UC-WO-016; S3-004 — Check-out is Technician-only.
+        Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkSessionCheckOut]);
     }
 
     [Fact]

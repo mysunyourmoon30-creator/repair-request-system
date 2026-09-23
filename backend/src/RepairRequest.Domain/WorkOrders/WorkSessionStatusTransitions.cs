@@ -9,8 +9,8 @@ public sealed record WorkSessionStatusTransition(
 
 /// <summary>
 /// Work Session transition matrix (RR-STS-001, ST-WS-001..004). Check-in (ST-WS-001) creates the session and is
-/// not a from-state transition; S3-002 registers Pause (ST-WS-002), S3-003 adds Resume (ST-WS-003). Check-out is
-/// a later ticket.
+/// not a from-state transition; S3-002 registers Pause (ST-WS-002), S3-003 adds Resume (ST-WS-003), S3-004 adds
+/// Check-out (ST-WS-004).
 /// </summary>
 public static class WorkSessionStatusTransitions
 {
@@ -18,6 +18,7 @@ public static class WorkSessionStatusTransitions
     [
         new("ST-WS-002", WorkSessionStatus.CheckedIn, "Pause", WorkSessionStatus.Paused),
         new("ST-WS-003", WorkSessionStatus.Paused, "Resume", WorkSessionStatus.CheckedIn),
+        new("ST-WS-004", WorkSessionStatus.CheckedIn, "CheckOut", WorkSessionStatus.CheckedOut),
     ];
 
     public static bool IsAllowed(WorkSessionStatus from, WorkSessionStatus to) =>

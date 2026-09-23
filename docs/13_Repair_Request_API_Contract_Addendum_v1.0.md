@@ -11,10 +11,10 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Document ID | RR-API-001-ADD |
 | Version | 1.0 |
 | Status | Approved for Portfolio Development (documentation reconciliation) |
-| Revision Date | 22 September 2026 — reconciled with the S3-003 implementation (Resume Work Session; working tree, not yet committed); previously 19 September 2026 (S3-002, PR #7, commit db6bc5b), 18 September 2026 (S3-001) and 17 September 2026 (S2-001) |
+| Revision Date | 23 September 2026 — reconciled with the S3-004 implementation (Check-out Work Session; working tree, not yet committed); previously 22 September 2026 (S3-003, PR #8, commit 459501a), 19 September 2026 (S3-002, PR #7, commit db6bc5b), 18 September 2026 (S3-001) and 17 September 2026 (S2-001) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
-| Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001; Portfolio Project Owner pre-implementation directives for S3-001 (eligibility is `assigned_technician_id` only — no "Primary team"; location capture out of scope) for My Visits / Check-in |
-| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8), S2-003 Schedule/Service Visit management (9a05ca0, PR #5) — WO-API-002..007 implemented but **not yet reconciled into this addendum's §1/§4** (pre-existing gap, out of scope of this revision), S3-001 My Visits / Check-in (ee115a8, PR #6 — see §4.11), S3-002 Pause Work Session (db6bc5b, PR #7 — see §4.12), S3-003 Resume Work Session (working tree — see §4.13) |
+| Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001; Portfolio Project Owner pre-implementation directives for S3-001 (eligibility is `assigned_technician_id` only — no "Primary team"; location capture out of scope) for My Visits / Check-in; Portfolio Project Owner scope decision for S3-004 (Check-out is a pure status transition — BR-06's summary/outcome/evidence half is a later ticket) |
+| Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8), S2-003 Schedule/Service Visit management (9a05ca0, PR #5) — WO-API-002..007 implemented but **not yet reconciled into this addendum's §1/§4** (pre-existing gap, out of scope of this revision), S3-001 My Visits / Check-in (ee115a8, PR #6 — see §4.11), S3-002 Pause Work Session (db6bc5b, PR #7 — see §4.12), S3-003 Resume Work Session (459501a, PR #8 — see §4.13), S3-004 Check-out Work Session (working tree — see §4.14) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
 **Rules for this addendum:**
@@ -45,8 +45,9 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | WO-API-002..007 | schedule / reassign / reschedule / cancel / mark-missed / missed-decision | IMPLEMENTED (S2-003, PR #5, commit 9a05ca0) — Coordinator-only; **not yet reconciled into this addendum's detail sections** (pre-existing documentation gap, out of scope of this S3-001 revision) |
 | WS-API-001 | POST `/api/v1/service-visits/{id}/check-in` | IMPLEMENTED (S3-001, PR #6, commit ee115a8) — Technician-only; see §4.11 |
 | WS-API-002 | POST `/api/v1/work-sessions/{id}/pause` | IMPLEMENTED (S3-002, PR #7, commit db6bc5b) — Technician-only, own CHECKED_IN session only, reason required; see §4.12 |
-| WS-API-003 | POST `/api/v1/work-sessions/{id}/resume` | IMPLEMENTED (S3-003, working tree) — Technician-only, own PAUSED session only, no body; see §4.13 |
-| ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WS-API-004, WO-API-008..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
+| WS-API-003 | POST `/api/v1/work-sessions/{id}/resume` | IMPLEMENTED (S3-003, PR #8, commit 459501a) — Technician-only, own PAUSED session only, no body; see §4.13 |
+| WS-API-004 | POST `/api/v1/work-sessions/{id}/check-out` | IMPLEMENTED (S3-004, working tree) — Technician-only, own CHECKED_IN session only, no body, no summary/outcome/evidence (Portfolio Project Owner scope decision); see §4.14 |
+| ACC-*, CA-*, CST-*, TIME-*, SLA-*, AUD-*, REP-*, NTF-*, WO-API-008..011 | — | NOT IMPLEMENTED (later sprints / tickets) |
 
 ## 2. Implemented Endpoints Missing From the RR-API-001 v1.2 Catalog
 
@@ -150,7 +151,7 @@ Convert (WO-API-010's creation counterpart, `ST-RR-008`/`UC-WO-001`), Schedule, 
 - **Not in S3-002:** Resume (`WS-API-003`, `ST-WS-003`, implemented S3-003, see §4.13), Check-out (`WS-API-004`, `ST-WS-004`), Work Summary, Time Correction of `PAUSE_START`, and notifications (the baseline matrix defines none for Pause).
 - Trace: ST-WS-002; UC-WO-012 (Pause half only); WS-005/007/010; TC-WO-006/007 not yet authored in RR-TC-001.
 
-### 4.13 S3-003 Resume Work Session (working tree, not yet committed)
+### 4.13 S3-003 Resume Work Session (PR #8, commit 459501a)
 
 No schema change: `work_session.resume_at` (WS-008) and `work_session_pause.resumed_at` already exist (added by
 the S3-001 and S3-002 migrations respectively, both previously unused columns).
@@ -176,8 +177,63 @@ the S3-001 and S3-002 migrations respectively, both previously unused columns).
 
 **WorkSessionResponse** is unchanged from §4.12 — `resumeAt` (top-level, latest Resume only) and each pause period's own `resumedAt` are now both populated by a real Resume instead of always being null.
 
-- **Not in S3-003:** Check-out (`WS-API-004`, `ST-WS-004`), Work Summary, Time Correction of `RESUME`, and notifications (the baseline matrix defines none for Resume).
+- **Not in S3-003:** Check-out (`WS-API-004`, `ST-WS-004`, implemented S3-004, see §4.14), Work Summary, Time Correction of `RESUME`, and notifications (the baseline matrix defines none for Resume).
 - Trace: ST-WS-003; UC-WO-012 (Resume half); WS-005/007/008/010.
+
+### 4.14 S3-004 Check-out Work Session (working tree, not yet committed)
+
+No schema change: `work_session.check_out_at` (WS-009) and `service_visit.completed_at` (SV-014) already exist
+(added by the S3-001 migrations, both previously unused columns); `ServiceVisitStatus.Completed` already existed
+in the enum, unreachable until now.
+
+**Resolved scope conflict, confirmed with the Portfolio Project Owner before implementation (recorded here rather than silently applied):**
+- **BR-06 ties Check-out's own guard directly to Work Summary data** — *"Check-out / Assigned Technician —
+  Summary+Outcome + required CLEAN evidence; valid time sequence — Session/Visit completed; audit"*. ST-WS-004's
+  guard is *"No active pause; required work facts complete"*; ST-SV-003's guard is *"Summary/outcome/evidence +
+  time sequence valid"*; UC-WO-016 states *"Check-out validates summary/outcome/evidence and closes
+  session/visit"* — all four baseline sources tie summary/outcome/evidence to the same Check-out action, not to
+  a separable later step.
+- **`work_summary`/evidence are their own tables** (FK'd to `work_order_id`/`service_visit_id`, not
+  `work_session_id`), consumed by a separate, later use case (UC-WO-020, Team Lead/Supervisor, `WO-API-008`)
+  whose own precondition assumes the data already exists. Nothing in the baseline sanctions splitting "flip the
+  status" from "capture the summary" into two tickets — that split is not a baseline decision.
+- **Decision: S3-004 implements Check-out as a pure status transition.** `WorkSession.CheckOut`/`ServiceVisit.CheckOut`
+  enforce only their state guards (`CHECKED_IN`→`CHECKED_OUT` and `IN_PROGRESS`→`COMPLETED` respectively); no
+  summary/outcome/evidence is collected, validated, or required by this endpoint. BR-06's summary/outcome/evidence
+  half remains open for the Work Summary ticket.
+
+**WS-API-004 POST `/api/v1/work-sessions/{id}/check-out` — WorkSession.CheckOut (TECHNICIAN only), If-Match, empty body**
+- **The client supplies nothing.** Check-out has no fields of its own (per the resolved scope decision above); a
+  body is neither required nor read, same convention as Check-in (WS-API-001) and Resume (WS-API-003).
+- **Scope (`IDataScope.OwnWorkSessions`, unchanged from S3-002/S3-003):** the session's `technician_id` is the
+  caller, in the caller's tenant, and its Visit is still assigned to the caller within their *current* Site
+  scope. Another technician's session, another tenant's, a revoked Site scope and a nonexistent id all return the
+  same non-leaking `404 NOT_FOUND`.
+- **Checks, in order** (the same order as Pause/Resume):
+  1. 400 missing/invalid `If-Match`; 401; 403 ACCESS_DENIED without TECHNICIAN;
+  2. 404 NOT_FOUND (scope above);
+  3. 409 CONCURRENCY_CONFLICT — stale `If-Match`, checked against the **session's own** `row_version`;
+  4. 409 STATE_CONFLICT — session not `CHECKED_IN` (still `PAUSED`, or a second Check-out of an already
+     `CHECKED_OUT` session: "This Work Session is already checked out.").
+- **Success → `200`** with the `WorkSessionResponse` (unchanged shape from §4.12/§4.13) and a fresh `ETag` (the
+  session's row version). The Visit moves to `COMPLETED` (ST-SV-003) in the same call; the Work Order is **never**
+  touched (UC-WO-016 postcondition: *"WO remains IN_PROGRESS until summary submit"*).
+- **Written atomically (one transaction):** `work_session.status` → `CHECKED_OUT` and `check_out_at`;
+  `service_visit.status` → `COMPLETED` and `completed_at`; two audit rows — `WORK_SESSION_CHECKED_OUT` (entity
+  `WORK_SESSION`, `CHECKED_IN` → `CHECKED_OUT`, no reason) and `SERVICE_VISIT_COMPLETED` (entity `SERVICE_VISIT`,
+  `IN_PROGRESS` → `COMPLETED`, no reason, referencing the closing `workSessionId` in the new value). Any failure
+  writes nothing.
+- **Concurrency and duplicates:** two concurrent Check-out requests with the same `If-Match` → exactly one `200`,
+  the other `409`. Like Resume, Check-out is an UPDATE of the existing session and Visit rows, not an INSERT, so
+  the session's own RowVersion compare-and-swap is sufficient — the Visit carries no client token of its own and
+  relies on EF's ordinary optimistic check on its own `row_version` (the same treatment Check-in gives the parent
+  Work Order).
+- **Frees the technician for BR-05:** a `CHECKED_OUT` session is no longer active, so the technician can
+  Check-in elsewhere immediately afterward (`GET /current` also returns `204` once checked out).
+
+- **Not in S3-004:** Work Summary/Outcome/Evidence (BR-06's other half — a later ticket), Acceptance, Sprint 4,
+  and notifications (the baseline matrix defines none for Check-out beyond BR-06).
+- Trace: ST-WS-004; ST-SV-003; UC-WO-016 (Check-out half); WS-009; SV-014.
 
 ---
 
@@ -199,6 +255,7 @@ the S3-001 and S3-002 migrations respectively, both previously unused columns).
 | WorkSession.CheckIn | TECHNICIAN | S3-001; ST-WS-001; BR-05; UC-WO-016 |
 | WorkSession.Pause | TECHNICIAN | S3-002; ST-WS-002; UC-WO-012 |
 | WorkSession.Resume | TECHNICIAN | S3-003; ST-WS-003; UC-WO-012 |
+| WorkSession.CheckOut | TECHNICIAN | S3-004; ST-WS-004; UC-WO-016 |
 | WorkSession.Read | TECHNICIAN | S3-002 |
 
 - Every non-anonymous endpoint is deny-by-default and needs an authenticated principal (JWT bearer, DEC-PS1-004).

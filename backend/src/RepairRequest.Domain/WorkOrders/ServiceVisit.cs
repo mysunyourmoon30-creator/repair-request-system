@@ -8,9 +8,12 @@ namespace RepairRequest.Domain.WorkOrders;
 /// (S2-001/S2-002 scaffolding left <see cref="WorkOrder.OwnerTeamId"/> a bare, unvalidated Guid) — Portfolio
 /// Project Owner directive, S2-003 pre-implementation: <see cref="AssignedTeamId"/> stays an unvalidated
 /// caller-supplied identifier; only <see cref="AssignedTechnicianId"/> is checked against a real user
-/// (TECHNICIAN role, Site-scoped). Check-in (ST-SV-002) is added by S3-001; Check-out (ST-SV-003, COMPLETED)
-/// remains a later ticket — <see cref="ServiceVisitStatus.Completed"/> exists for schema fidelity only and is
-/// still unreachable by any method here.
+/// (TECHNICIAN role, Site-scoped). Check-in (ST-SV-002) is added by S3-001; Check-out (ST-SV-003, COMPLETED) is
+/// added by S3-004 as a pure status transition — RR-DD-001 BR-06 ties Check-out's guard to Summary/Outcome/CLEAN
+/// evidence, but that data lives in the separate <c>work_summary</c> table (FK'd to <c>work_order_id</c>, not
+/// this aggregate) and is captured by a later, Team-Lead/Supervisor-run use case (UC-WO-020); Portfolio Project
+/// Owner directive, S3-004 pre-implementation: this method enforces only the state guard, not BR-06's
+/// summary/outcome/evidence half.
 /// </summary>
 public sealed class ServiceVisit
 {
@@ -97,7 +100,7 @@ public sealed class ServiceVisit
     /// <summary>SV-013. Required on Mark Missed.</summary>
     public string? MissedReason { get; private set; }
 
-    /// <summary>SV-014. Set on Check-out; out of scope for S2-003, always null here.</summary>
+    /// <summary>SV-014. Set by <see cref="CheckOut"/> (S3-004).</summary>
     public DateTime? CompletedAt { get; private set; }
 
     /// <summary>SV-015. Optimistic concurrency token.</summary>
@@ -202,6 +205,26 @@ public sealed class ServiceVisit
         }
 
         Status = ServiceVisitStatus.InProgress;
+    }
+
+    /// <summary>
+    /// ST-SV-003 Check-out (S3-004; UC-WO-016). Only from IN_PROGRESS. Eligibility (the caller is the assigned
+    /// Technician) and the "no active pause" guard (implied by the Work Session's own CHECKED_IN source state,
+    /// same reasoning <see cref="WorkSession.Pause"/> already uses) are both checked by the Application service
+    /// before this is called — per the Portfolio Project Owner directive on the class doc comment, this method
+    /// enforces only the state guard, not BR-06's summary/outcome/evidence half.
+    /// </summary>
+    public void CheckOut(DateTime completedAt)
+    {
+        if (!ServiceVisitStatusTransitions.IsAllowed(Status, ServiceVisitStatus.Completed))
+        {
+            throw new DomainRuleViolationException("Only an IN_PROGRESS Service Visit can be checked out.");
+        }
+
+        var utcCompletedAt = DomainGuard.Utc(completedAt, nameof(completedAt));
+
+        Status = ServiceVisitStatus.Completed;
+        CompletedAt = utcCompletedAt;
     }
 
     private void SetSchedule(DateTime start, DateTime end)

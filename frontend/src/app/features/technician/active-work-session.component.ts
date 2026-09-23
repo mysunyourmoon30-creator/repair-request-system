@@ -6,12 +6,15 @@ import { WorkSessionService } from './work-session.service';
 const REASON_MAX_LENGTH = 1000;
 
 /**
- * S3-002/S3-003: the Technician's own current Work Session, with Pause and Resume controls. Pause shows only for
- * a `CHECKED_IN` session (the only state ST-WS-002 allows) and opens a dialog that requires a reason — blank or
- * whitespace-only input keeps the confirm button disabled, but that is convenience only: the backend is the
- * authority and rejects a blank reason with 422. Resume shows only for a `PAUSED` session (ST-WS-003) and acts
- * immediately — it has no reason field, so there is no dialog. Both requests carry only what each action needs
- * (Pause: the reason; Resume: nothing); status and time always come from the backend.
+ * S3-002/S3-003/S3-004: the Technician's own current Work Session, with Pause, Resume and Check-out controls.
+ * Pause shows only for a `CHECKED_IN` session (the only state ST-WS-002 allows) and opens a dialog that requires
+ * a reason — blank or whitespace-only input keeps the confirm button disabled, but that is convenience only: the
+ * backend is the authority and rejects a blank reason with 422. Resume shows only for a `PAUSED` session
+ * (ST-WS-003); Check-out shows only for a `CHECKED_IN` session (ST-WS-004), alongside Pause. Both act immediately
+ * — neither has a reason field, so neither opens a dialog. Every request carries only what its action needs
+ * (Pause: the reason; Resume and Check-out: nothing); status and time always come from the backend. Per the
+ * resolved Portfolio Project Owner scope decision, Check-out collects no summary/outcome/evidence — that is a
+ * later ticket (`docs/13` §4.14).
  */
 @Component({
   selector: 'app-active-work-session',
@@ -42,6 +45,7 @@ const REASON_MAX_LENGTH = 1000;
 
         @if (current.status === 'CHECKED_IN') {
           <button type="button" [disabled]="submitting()" (click)="openDialog()">Pause</button>
+          <button type="button" [disabled]="submitting()" (click)="onCheckOut(current)">Check-out</button>
         }
         @if (current.status === 'PAUSED') {
           <button type="button" [disabled]="submitting()" (click)="onResume(current)">Resume</button>
@@ -179,6 +183,27 @@ export class ActiveWorkSessionComponent {
 
         if (response.status === 404 || response.status === 409) {
           // The session changed or is gone: show the real state instead of leaving a stale Resume button.
+          this.refresh();
+        }
+      },
+    });
+  }
+
+  protected onCheckOut(session: WorkSession): void {
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    this.sessions.checkOut(session.workSessionId, `"${session.rowVersion}"`).subscribe({
+      next: (updated) => {
+        this.session.set(updated);
+        this.submitting.set(false);
+      },
+      error: (response: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.actionError.set(this.describe(response));
+
+        if (response.status === 404 || response.status === 409) {
+          // The session changed or is gone: show the real state instead of leaving a stale Check-out button.
           this.refresh();
         }
       },
