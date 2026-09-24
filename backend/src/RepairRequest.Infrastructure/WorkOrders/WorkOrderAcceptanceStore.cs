@@ -10,7 +10,7 @@ using RepairRequest.Infrastructure.Persistence;
 
 namespace RepairRequest.Infrastructure.WorkOrders;
 
-/// <summary>EF Core implementation of the Customer Accept port (ST-WO-005; UC-WO-021; `docs/13` §4.16).</summary>
+/// <summary>EF Core implementation of the Customer Accept (ST-WO-005; UC-WO-021; `docs/13` §4.16) and Customer Reject (ST-WO-007; UC-WO-022; `docs/13` §4.17) port.</summary>
 internal sealed class WorkOrderAcceptanceStore : IWorkOrderAcceptanceStore
 {
     private const int DeadlockVictim = 1205;
@@ -69,6 +69,19 @@ internal sealed class WorkOrderAcceptanceStore : IWorkOrderAcceptanceStore
     }
 
     public void AddAudit(AuditHistory audit) => _db.AuditHistory.Add(audit);
+
+    public Task<int> NextAcceptanceRoundNoAsync(Guid workOrderId, CancellationToken cancellationToken) =>
+        NextOrdinalAsync(_db.CustomerAcceptances.Where(acceptance => acceptance.WorkOrderId == workOrderId), cancellationToken);
+
+    public void Add(CustomerAcceptance acceptance) => _db.CustomerAcceptances.Add(acceptance);
+
+    public Task<int> NextCorrectiveActionCycleNoAsync(Guid workOrderId, CancellationToken cancellationToken) =>
+        NextOrdinalAsync(_db.CorrectiveActions.Where(action => action.WorkOrderId == workOrderId), cancellationToken);
+
+    public void Add(CorrectiveAction correctiveAction) => _db.CorrectiveActions.Add(correctiveAction);
+
+    private static async Task<int> NextOrdinalAsync<T>(IQueryable<T> existingRowsForWorkOrder, CancellationToken cancellationToken) =>
+        await existingRowsForWorkOrder.CountAsync(cancellationToken) + 1;
 
     public async Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkOrder workOrder, byte[] expectedRowVersion, CancellationToken cancellationToken)
     {

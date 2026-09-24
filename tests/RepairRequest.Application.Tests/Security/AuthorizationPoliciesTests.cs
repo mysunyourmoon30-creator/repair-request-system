@@ -34,7 +34,8 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.WorkOrderSubmitForAcceptance, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
         { AuthorizationPolicies.WorkOrderReadWorkSummary, [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor] },
         { AuthorizationPolicies.WorkOrderReadEligibleAcceptanceContacts, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
-        { AuthorizationPolicies.WorkOrderAccept, [RoleCodes.Requester] }
+        { AuthorizationPolicies.WorkOrderAccept, [RoleCodes.Requester] },
+        { AuthorizationPolicies.WorkOrderReject, [RoleCodes.Requester] }
     };
 
     [Theory]
@@ -47,7 +48,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(21, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(22, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -148,6 +149,14 @@ public class AuthorizationPoliciesTests
         // ST-WO-005; `docs/13` §4.16 Decision 1 — the existing REQUESTER role, not a new "Customer" role.
         // Role gate only; the real check (exact AcceptanceContactId match) is resource-specific, enforced by the service.
         Assert.Equal([RoleCodes.Requester], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderAccept]);
+    }
+
+    [Fact]
+    public void WorkOrderReject_IsRequesterOnly()
+    {
+        // ST-WO-007; `docs/13` §4.17 — the same REQUESTER role as WorkOrderAccept, its own named policy.
+        // Role gate only; the real check (exact AcceptanceContactId match) is resource-specific, enforced by the service.
+        Assert.Equal([RoleCodes.Requester], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderReject]);
     }
 
     [Fact]

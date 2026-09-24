@@ -270,4 +270,101 @@ describe('WorkOrderDetailComponent', () => {
 
     expect(root.textContent).toContain('changed or is no longer in a valid state');
   });
+
+  // ---------------- Reject (`docs/13` §4.17) ----------------
+
+  function rejectForm(root: HTMLElement): HTMLFormElement {
+    return Array.from(root.querySelectorAll('form')).find((form) => form.textContent?.includes('Reject'))!;
+  }
+
+  it('shows Reject alongside Accept, under the same designated-contact gate', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+    const root = fixture.nativeElement as HTMLElement;
+
+    expect(root.textContent).toContain('Reject');
+    expect(rejectForm(root).querySelector('input[required]')).not.toBeNull();
+  });
+
+  it('hides Reject for a different signed-in user, even if AWAITING_CUSTOMER_ACCEPTANCE', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'someone-else', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Reject');
+  });
+
+  it('rejects with the entered reason and the quoted rowVersion, and re-renders as CORRECTIVE_ACTION_REQUIRED', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+    const root = fixture.nativeElement as HTMLElement;
+
+    const form = rejectForm(root);
+    form.querySelector('input')!.value = 'Leak persists after the fix.';
+    form.dispatchEvent(new Event('submit'));
+
+    const req = httpMock.expectOne(`${baseUrl}/abc-123/reject`);
+    expect(req.request.headers.get('If-Match')).toBe('"v1"');
+    expect(req.request.body).toEqual({ decisionReason: 'Leak persists after the fix.' });
+    req.flush({ ...awaitingAcceptance, status: 'CORRECTIVE_ACTION_REQUIRED', rowVersion: 'v2' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('CORRECTIVE_ACTION_REQUIRED');
+    expect(buttonNamed(root, 'Accept')).toBeUndefined();
+  });
+
+  it('disables Accept and Reject while a Reject request is in flight, preventing a double submit', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+    const root = fixture.nativeElement as HTMLElement;
+
+    const form = rejectForm(root);
+    form.querySelector('input')!.value = 'Leak persists after the fix.';
+    form.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+
+    expect(buttonNamed(root, 'Accept')!.disabled).toBe(true);
+    expect(form.querySelector('button')!.disabled).toBe(true);
+
+    httpMock.expectOne(`${baseUrl}/abc-123/reject`).flush({ ...awaitingAcceptance, status: 'CORRECTIVE_ACTION_REQUIRED', rowVersion: 'v2' });
+  });
+
+  it('shows the 422 field error when the decision reason is rejected by the server', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+    const root = fixture.nativeElement as HTMLElement;
+
+    const form = rejectForm(root);
+    form.querySelector('input')!.value = 'x';
+    form.dispatchEvent(new Event('submit'));
+
+    httpMock
+      .expectOne(`${baseUrl}/abc-123/reject`)
+      .flush({ errors: { decisionReason: ['A reason of 1 to 1000 characters is required.'] } }, { status: 422, statusText: 'Unprocessable Entity' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('A reason of 1 to 1000 characters is required.');
+  });
+
+  it('shows a message and reloads the current Work Order when Reject returns 409 (stale/changed)', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+    const root = fixture.nativeElement as HTMLElement;
+
+    const form = rejectForm(root);
+    form.querySelector('input')!.value = 'Leak persists after the fix.';
+    form.dispatchEvent(new Event('submit'));
+
+    httpMock.expectOne(`${baseUrl}/abc-123/reject`).flush('Conflict', { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush({ ...awaitingAcceptance, status: 'COMPLETED', rowVersion: 'v2' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('changed or is no longer in a valid state');
+    expect(root.textContent).toContain('COMPLETED');
+  });
 });

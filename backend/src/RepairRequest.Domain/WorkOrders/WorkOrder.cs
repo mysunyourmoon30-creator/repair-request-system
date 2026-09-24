@@ -165,4 +165,19 @@ public sealed class WorkOrder
 
         Status = WorkOrderStatus.Completed;
     }
+
+    /// <summary>
+    /// ST-WO-007 Reject (UC-WO-022; BR-07/BR-15; `docs/13` §4.17). Only from AWAITING_CUSTOMER_ACCEPTANCE.
+    /// Aggregate-local guard only: eligibility (the caller is exactly <see cref="AcceptanceContactId"/>) and the
+    /// decision reason's own validation are both the Application service's responsibility before this is called.
+    /// </summary>
+    public void Reject()
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.CorrectiveActionRequired))
+        {
+            throw new DomainRuleViolationException("Only a Work Order awaiting customer acceptance can be rejected.");
+        }
+
+        Status = WorkOrderStatus.CorrectiveActionRequired;
+    }
 }

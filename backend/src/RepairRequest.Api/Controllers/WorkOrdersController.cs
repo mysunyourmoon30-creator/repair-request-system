@@ -224,4 +224,34 @@ public sealed class WorkOrdersController : CommandControllerBase
         var workOrder = await _workOrders.GetForAcceptanceContactAsync(context.User, result.Value, cancellationToken);
         return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
     }
+
+    /// <summary>
+    /// ACC-API-002 Customer Reject (ST-WO-007; UC-WO-022; BR-07/BR-15; `docs/13` §4.17): only the exact
+    /// designated Acceptance Contact (a REQUESTER) — the same resource-specific scope as Accept. If-Match is
+    /// checked against the Work Order's own RowVersion. <c>decisionReason</c> is required. Moves the Work Order
+    /// to CORRECTIVE_ACTION_REQUIRED, recording a REJECT decision row and a DRAFT Corrective Action row in the
+    /// same transaction.
+    /// </summary>
+    [HttpPost("{workOrderId:guid}/reject")]
+    [Authorize(Policy = AuthorizationPolicies.WorkOrderReject)]
+    [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Reject(Guid workOrderId, [FromBody] RejectWorkOrderRequest request, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _acceptance.RejectAsync(context, workOrderId, rowVersion, request.DecisionReason, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        // Same reason as Accept's own read-back: the general Requester-scoped query does not cover a Work Order
+        // the caller is only the designated Acceptance Contact of, not the creator.
+        var workOrder = await _workOrders.GetForAcceptanceContactAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
+    }
 }
