@@ -239,7 +239,8 @@ internal sealed class WorkSessionStore : IWorkSessionStore
                 .ThenByDescending(pause => pause.Id)
                 .Select(pause => new WorkSessionPauseDto(pause.Id, pause.PausedAt, pause.PauseReason, pause.ResumedAt))
                 .ToList(),
-            session.RowVersion);
+            session.RowVersion,
+            workOrder.RowVersion);
 
     private static int? SqlErrorNumber(Exception exception) =>
         exception switch

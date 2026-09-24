@@ -29,7 +29,10 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.WorkSessionPause, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionResume, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionCheckOut, [RoleCodes.Technician] },
-        { AuthorizationPolicies.WorkSessionRead, [RoleCodes.Technician] }
+        { AuthorizationPolicies.WorkSessionRead, [RoleCodes.Technician] },
+        { AuthorizationPolicies.WorkOrderSubmitWorkSummary, [RoleCodes.Technician] },
+        { AuthorizationPolicies.WorkOrderSubmitForAcceptance, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
+        { AuthorizationPolicies.WorkOrderReadWorkSummary, [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor] }
     };
 
     [Theory]
@@ -42,7 +45,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(16, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(19, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -101,6 +104,31 @@ public class AuthorizationPoliciesTests
     {
         // ST-WS-004; UC-WO-016; S3-004 — Check-out is Technician-only.
         Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkSessionCheckOut]);
+    }
+
+    [Fact]
+    public void WorkOrderSubmitWorkSummary_IsTechnicianOnly()
+    {
+        // ST-WO-003; UC-WO-020; `docs/13` §4.15 Decision 2 — Submit Work Summary is Technician-only (corrected
+        // from the baseline's "Team Lead").
+        Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderSubmitWorkSummary]);
+    }
+
+    [Fact]
+    public void WorkOrderSubmitForAcceptance_IsTeamLeadOrSupervisor()
+    {
+        // ST-WO-004; `docs/13` §4.15 Decision 2 — either the Team Lead or the Supervisor, not Supervisor alone.
+        Assert.Equal(
+            new[] { RoleCodes.TeamLead, RoleCodes.Supervisor }.Order(),
+            AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderSubmitForAcceptance].Order());
+    }
+
+    [Fact]
+    public void WorkOrderReadWorkSummary_IsTechnicianTeamLeadOrSupervisor()
+    {
+        Assert.Equal(
+            new[] { RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor }.Order(),
+            AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderReadWorkSummary].Order());
     }
 
     [Fact]

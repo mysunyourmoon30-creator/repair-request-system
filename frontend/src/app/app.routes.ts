@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { teamLeadOrSupervisorGuard } from './core/auth/team-lead-or-supervisor.guard';
 import { technicianOnlyGuard } from './core/auth/technician-only.guard';
 
 export const routes: Routes = [
@@ -16,6 +17,12 @@ export const routes: Routes = [
     path: 'my-visits',
     canActivate: [technicianOnlyGuard],
     loadComponent: () => import('./features/technician/my-visits.component').then((m) => m.MyVisitsComponent),
+  },
+  {
+    path: 'work-summary-review',
+    canActivate: [teamLeadOrSupervisorGuard],
+    loadComponent: () =>
+      import('./features/work-orders/work-summary-review.component').then((m) => m.WorkSummaryReviewComponent),
   },
   {
     path: 'repair-requests',

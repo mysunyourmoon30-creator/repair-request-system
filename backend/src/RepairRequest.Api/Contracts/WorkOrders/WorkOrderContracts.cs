@@ -109,6 +109,10 @@ public sealed record WorkSessionPauseResponse(Guid WorkSessionPauseId, DateTime 
 /// <summary>
 /// Work Session response (S3-002; RR-DD-001 WS-001..010): returned by Pause and by the current-session read.
 /// <see cref="RowVersion"/> is the session's own token, the If-Match value of the next session action.
+/// <see cref="WorkOrderRowVersion"/> is the parent Work Order's own token (added for `docs/13` §4.15) — a
+/// Technician has no other way to reach it, since `GET /work-orders/{id}` excludes TECHNICIAN
+/// (DEC-S2-001-03); it is the If-Match value of `WSM-API-001` (Submit Work Summary) once the session reaches
+/// CHECKED_OUT.
 /// </summary>
 public sealed record WorkSessionResponse(
     Guid WorkSessionId,
@@ -123,7 +127,20 @@ public sealed record WorkSessionResponse(
     DateTime? ResumeAt,
     DateTime? CheckOutAt,
     IReadOnlyList<WorkSessionPauseResponse> Pauses,
-    string RowVersion);
+    string RowVersion,
+    string WorkOrderRowVersion);
+
+/// <summary>WSM-API-001 Submit Work Summary body (`docs/13` §4.15 Decision 3). Both fields are required.</summary>
+public sealed record SubmitWorkSummaryRequest(string? SummaryText, string? RepairOutcomeCode);
+
+/// <summary>Work Summary response (UC-WO-020; `docs/13` §4.15) — returned by Submit and by the Work Summary read.</summary>
+public sealed record WorkSummaryResponse(
+    Guid WorkSummaryId,
+    Guid WorkOrderId,
+    Guid ServiceVisitId,
+    int RevisionNo,
+    string SummaryText,
+    string RepairOutcomeCode);
 
 public sealed record NewVisitScheduleRequest(
     Guid? AssignedTeamId,
@@ -164,7 +181,14 @@ public static class WorkSessionResponses
             dto.ResumeAt,
             dto.CheckOutAt,
             dto.Pauses.Select(pause => new WorkSessionPauseResponse(pause.WorkSessionPauseId, pause.PausedAt, pause.PauseReason, pause.ResumedAt)).ToList(),
-            Convert.ToBase64String(dto.RowVersion));
+            Convert.ToBase64String(dto.RowVersion),
+            Convert.ToBase64String(dto.WorkOrderRowVersion));
+}
+
+public static class WorkSummaryResponses
+{
+    public static WorkSummaryResponse ToResponse(WorkSummaryDto dto) =>
+        new(dto.WorkSummaryId, dto.WorkOrderId, dto.ServiceVisitId, dto.RevisionNo, dto.SummaryText, RepairOutcomeCodes.ToCode(dto.RepairOutcomeCode));
 }
 
 public static class MyVisitSummaryResponses
