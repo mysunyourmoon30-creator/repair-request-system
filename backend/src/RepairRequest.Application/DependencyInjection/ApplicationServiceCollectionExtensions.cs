@@ -63,6 +63,9 @@ public static class ApplicationServiceCollectionExtensions
         // Work Summary Submit (ST-WO-003; Technician) and Submit for Acceptance (ST-WO-004; Team Lead/Supervisor); `docs/13` §4.15.
         services.AddScoped<WorkSummaryService>();
 
+        // Customer Accept (ST-WO-005; UC-WO-021; the designated Acceptance Contact only); `docs/13` §4.16.
+        services.AddScoped<WorkOrderAcceptanceService>();
+
         return services;
     }
 }

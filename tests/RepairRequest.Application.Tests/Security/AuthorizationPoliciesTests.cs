@@ -32,7 +32,9 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.WorkSessionRead, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkOrderSubmitWorkSummary, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkOrderSubmitForAcceptance, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
-        { AuthorizationPolicies.WorkOrderReadWorkSummary, [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor] }
+        { AuthorizationPolicies.WorkOrderReadWorkSummary, [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor] },
+        { AuthorizationPolicies.WorkOrderReadEligibleAcceptanceContacts, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
+        { AuthorizationPolicies.WorkOrderAccept, [RoleCodes.Requester] }
     };
 
     [Theory]
@@ -45,7 +47,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(19, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(21, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -129,6 +131,23 @@ public class AuthorizationPoliciesTests
         Assert.Equal(
             new[] { RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor }.Order(),
             AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderReadWorkSummary].Order());
+    }
+
+    [Fact]
+    public void WorkOrderReadEligibleAcceptanceContacts_IsTeamLeadOrSupervisor()
+    {
+        // `docs/13` §4.16 — the lookup exists only to support Submit for Acceptance, same actors.
+        Assert.Equal(
+            new[] { RoleCodes.TeamLead, RoleCodes.Supervisor }.Order(),
+            AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderReadEligibleAcceptanceContacts].Order());
+    }
+
+    [Fact]
+    public void WorkOrderAccept_IsRequesterOnly()
+    {
+        // ST-WO-005; `docs/13` §4.16 Decision 1 — the existing REQUESTER role, not a new "Customer" role.
+        // Role gate only; the real check (exact AcceptanceContactId match) is resource-specific, enforced by the service.
+        Assert.Equal([RoleCodes.Requester], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderAccept]);
     }
 
     [Fact]

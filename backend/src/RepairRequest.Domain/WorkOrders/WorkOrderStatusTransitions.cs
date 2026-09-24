@@ -12,8 +12,11 @@ public sealed record WorkOrderStatusTransition(
 /// S2-003 introduces the first entry (Schedule); S3-001 adds Check-in. ST-WO-003/004 are added for Work Summary
 /// Submit/Review, with actors corrected from the baseline per the Portfolio Project Owner directives recorded in
 /// `docs/13` §4.15 (ST-WO-003 actor is the Technician, not the baseline's "Team Lead"; ST-WO-004 actor is Team
-/// Lead OR Supervisor, not the baseline's "Supervisor" alone — actor enforcement itself lives in the API
-/// authorization policy, not here). Every later Work Order transition (ST-WO-005..011) remains out of scope.
+/// Lead OR Supervisor, not the baseline's "Supervisor" alone). ST-WO-005 is added for Customer Accept (UC-WO-021;
+/// `docs/13` §4.16), actor the exact designated Acceptance Contact (a REQUESTER, per Decision 1 — a
+/// resource-specific check, not a role-scoped query). Actor enforcement itself always lives in the API
+/// authorization policy / Application service, not here. Every later Work Order transition (ST-WO-006..011)
+/// remains out of scope.
 /// </summary>
 public static class WorkOrderStatusTransitions
 {
@@ -23,6 +26,7 @@ public static class WorkOrderStatusTransitions
         new("ST-WO-002", WorkOrderStatus.Scheduled, "CheckIn", WorkOrderStatus.InProgress),
         new("ST-WO-003", WorkOrderStatus.InProgress, "SubmitWorkSummary", WorkOrderStatus.AwaitingSupervisorReview),
         new("ST-WO-004", WorkOrderStatus.AwaitingSupervisorReview, "SubmitForAcceptance", WorkOrderStatus.AwaitingCustomerAcceptance),
+        new("ST-WO-005", WorkOrderStatus.AwaitingCustomerAcceptance, "Accept", WorkOrderStatus.Completed),
     ];
 
     public static bool IsAllowed(WorkOrderStatus from, WorkOrderStatus to) =>

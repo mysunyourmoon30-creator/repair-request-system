@@ -69,6 +69,11 @@ export class WorkOrderService {
     return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/schedule`, body, { headers: { 'If-Match': ifMatch } });
   }
 
+  /** ACC-API-001 Customer Accept (ST-WO-005; `docs/13` §4.16). No body — the caller's identity is resource-specific, re-checked server-side. */
+  accept(workOrderId: string, ifMatch: string): Observable<WorkOrder> {
+    return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/accept`, null, { headers: { 'If-Match': ifMatch } });
+  }
+
   reschedule(serviceVisitId: string, ifMatch: string, body: RescheduleServiceVisitRequest): Observable<WorkOrder> {
     return this.post(serviceVisitId, 'reschedule', ifMatch, body);
   }

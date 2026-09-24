@@ -26,12 +26,14 @@ public sealed class WorkOrdersController : CommandControllerBase
     private readonly WorkOrderService _workOrders;
     private readonly WorkOrderScheduleService _schedule;
     private readonly WorkSummaryService _workSummaries;
+    private readonly WorkOrderAcceptanceService _acceptance;
     private readonly PagingOptions _paging;
 
     public WorkOrdersController(
         WorkOrderService workOrders,
         WorkOrderScheduleService schedule,
         WorkSummaryService workSummaries,
+        WorkOrderAcceptanceService acceptance,
         ICurrentUserAccessor currentUserAccessor,
         IOptions<PagingOptions> paging)
         : base(currentUserAccessor)
@@ -39,6 +41,7 @@ public sealed class WorkOrdersController : CommandControllerBase
         _workOrders = workOrders;
         _schedule = schedule;
         _workSummaries = workSummaries;
+        _acceptance = acceptance;
         _paging = paging.Value;
     }
 
@@ -131,14 +134,16 @@ public sealed class WorkOrdersController : CommandControllerBase
     }
 
     /// <summary>
-    /// WSM-API-002 Submit for Acceptance (ST-WO-004; `docs/13` §4.15 Decision 2): either the Team Lead or the
-    /// Supervisor, within their Work Order site scope. If-Match is checked against the Work Order's own
-    /// RowVersion. Empty request body. Moves the Work Order to AWAITING_CUSTOMER_ACCEPTANCE.
+    /// WSM-API-002 Submit for Acceptance (ST-WO-004; `docs/13` §4.15 Decision 2, §4.16 Decision 2): either the
+    /// Team Lead or the Supervisor, within their Work Order site scope. If-Match is checked against the Work
+    /// Order's own RowVersion. The caller must supply <c>acceptanceContactId</c>, validated server-side (existing
+    /// REQUESTER, correct tenant and Site) — never a client-supplied snapshot. Moves the Work Order to
+    /// AWAITING_CUSTOMER_ACCEPTANCE and designates the Acceptance Contact in the same transaction.
     /// </summary>
     [HttpPost("{workOrderId:guid}/submit-for-acceptance")]
     [Authorize(Policy = AuthorizationPolicies.WorkOrderSubmitForAcceptance)]
     [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
-    public async Task<IActionResult> SubmitForAcceptance(Guid workOrderId, CancellationToken cancellationToken)
+    public async Task<IActionResult> SubmitForAcceptance(Guid workOrderId, [FromBody] SubmitForAcceptanceRequest request, CancellationToken cancellationToken)
     {
         if (!TryReadIfMatch(out var rowVersion, out var problem))
         {
@@ -146,7 +151,7 @@ public sealed class WorkOrdersController : CommandControllerBase
         }
 
         var context = await CommandContextAsync(cancellationToken);
-        var result = await _workSummaries.SubmitForAcceptanceAsync(context, workOrderId, rowVersion, cancellationToken);
+        var result = await _workSummaries.SubmitForAcceptanceAsync(context, workOrderId, rowVersion, request.AcceptanceContactId, cancellationToken);
         if (!result.Succeeded)
         {
             return ProblemFor(result.Error!, ResourceType);
@@ -172,5 +177,51 @@ public sealed class WorkOrdersController : CommandControllerBase
         }
 
         return Ok(WorkSummaryResponses.ToResponse(summary));
+    }
+
+    /// <summary>
+    /// `ACC-API-ADD-001` eligible Acceptance Contacts (`docs/13` §4.16): every REQUESTER within the Work Order's
+    /// Site scope, for the Team Lead/Supervisor picking a contact before Submit for Acceptance. Never a
+    /// free-text id path — this is the only way the caller learns a valid <c>acceptanceContactId</c>. Returns an
+    /// empty list (not 404) when the Work Order is out of scope or has no Site, so the UI can show "no eligible
+    /// contacts" rather than an error.
+    /// </summary>
+    [HttpGet("{workOrderId:guid}/eligible-acceptance-contacts")]
+    [Authorize(Policy = AuthorizationPolicies.WorkOrderReadEligibleAcceptanceContacts)]
+    [ProducesResponseType<IReadOnlyList<EligibleAcceptanceContactResponse>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetEligibleAcceptanceContacts(Guid workOrderId, CancellationToken cancellationToken)
+    {
+        var contacts = await _workSummaries.ListEligibleAcceptanceContactsAsync(await CallerAsync(cancellationToken), workOrderId, cancellationToken);
+        return Ok(contacts.Select(EligibleAcceptanceContactResponses.ToResponse).ToList());
+    }
+
+    /// <summary>
+    /// ACC-API-001 Customer Accept (ST-WO-005; UC-WO-021; `docs/13` §4.16): only the exact designated Acceptance
+    /// Contact (a REQUESTER). If-Match is checked against the Work Order's own RowVersion. Empty request body.
+    /// Moves the Work Order to COMPLETED. Scope is resource-specific (caller id == AcceptanceContactId), not a
+    /// role-scoped query — any other Requester, even in the same tenant/Site, gets the same non-leaking 404 as a
+    /// nonexistent Work Order.
+    /// </summary>
+    [HttpPost("{workOrderId:guid}/accept")]
+    [Authorize(Policy = AuthorizationPolicies.WorkOrderAccept)]
+    [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Accept(Guid workOrderId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _acceptance.AcceptAsync(context, workOrderId, rowVersion, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        // Not _workOrders.GetAsync: IDataScope.WorkOrders()'s REQUESTER branch only covers Work Orders the
+        // caller's own Repair Request created, which the accepting contact need not be.
+        var workOrder = await _workOrders.GetForAcceptanceContactAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
     }
 }

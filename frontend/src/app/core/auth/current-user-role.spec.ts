@@ -1,4 +1,4 @@
-import { getCurrentUserRoles } from './current-user-role';
+import { getCurrentUserId, getCurrentUserRoles } from './current-user-role';
 
 function tokenWithPayload(payload: Record<string, unknown>): string {
   const base64url = (value: string) => btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -30,5 +30,28 @@ describe('getCurrentUserRoles', () => {
   it('returns an empty array when the payload has no role claim', () => {
     localStorage.setItem('accessToken', tokenWithPayload({ sub: 'u1' }));
     expect(getCurrentUserRoles()).toEqual([]);
+  });
+});
+
+describe('getCurrentUserId', () => {
+  afterEach(() => localStorage.clear());
+
+  it('returns null when there is no token', () => {
+    expect(getCurrentUserId()).toBeNull();
+  });
+
+  it('returns the sub claim', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'user-123', role: 'REQUESTER' }));
+    expect(getCurrentUserId()).toBe('user-123');
+  });
+
+  it('returns null for a malformed token', () => {
+    localStorage.setItem('accessToken', 'not-a-jwt');
+    expect(getCurrentUserId()).toBeNull();
+  });
+
+  it('returns null when the payload has no sub claim', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ role: 'REQUESTER' }));
+    expect(getCurrentUserId()).toBeNull();
   });
 });

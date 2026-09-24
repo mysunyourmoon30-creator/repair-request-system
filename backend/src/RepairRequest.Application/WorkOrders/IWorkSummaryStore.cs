@@ -53,4 +53,21 @@ public interface IWorkSummaryStore
     /// scope (identical, non-leaking response either way).
     /// </summary>
     Task<WorkSummaryDto?> GetWorkSummaryAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Validates <paramref name="acceptanceContactId"/> as an eligible Acceptance Contact (`docs/13` §4.16
+    /// Decision 1: an existing REQUESTER of <paramref name="tenantId"/>, Site-scoped to the Work Order's Site,
+    /// resolved through <paramref name="repairRequestId"/>) and, if eligible, builds the server-derived snapshot
+    /// (display name + email) to persist. Null when the Work Order's Repair Request has no Site, or the
+    /// candidate is not eligible — the caller never bypasses this with a client-supplied snapshot.
+    /// </summary>
+    Task<string?> ResolveAcceptanceContactSnapshotAsync(Guid tenantId, Guid repairRequestId, Guid acceptanceContactId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Every REQUESTER eligible to be designated as this Work Order's Acceptance Contact (`docs/13` §4.16,
+    /// technical lookup `ACC-API-ADD-001`) — Team Lead/Supervisor only, within <see cref="IDataScope.WorkOrders"/>
+    /// site-wide scope for the Work Order itself. Empty when the Work Order is out of scope, nonexistent, or its
+    /// Repair Request has no Site.
+    /// </summary>
+    Task<IReadOnlyList<EligibleAcceptanceContactDto>> ListEligibleAcceptanceContactsAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken);
 }

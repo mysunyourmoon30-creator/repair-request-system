@@ -133,15 +133,36 @@ public sealed class WorkOrder
     /// <summary>
     /// ST-WO-004 Submit for Acceptance. Only from AWAITING_SUPERVISOR_REVIEW. Per `docs/13` §4.15 Decision 2
     /// (Portfolio Project Owner directive), either the Team Lead or the Supervisor may perform this single review
-    /// step, not the baseline's "Supervisor" alone — enforced by the API authorization policy, not here.
+    /// step, not the baseline's "Supervisor" alone — enforced by the API authorization policy, not here. Per
+    /// `docs/13` §4.16, the caller also designates the Acceptance Contact (WO-008/WO-009) in this same call —
+    /// eligibility (existing REQUESTER user, correct tenant and Site scope) is the Application service's
+    /// responsibility before this is called; this method only requires both non-empty. Once set here, neither
+    /// field has any other mutator in this ticket's scope, so the contact cannot be changed afterward.
     /// </summary>
-    public void SubmitForAcceptance()
+    public void SubmitForAcceptance(Guid acceptanceContactId, string acceptanceContactSnapshot)
     {
         if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.AwaitingCustomerAcceptance))
         {
             throw new DomainRuleViolationException("Only an AWAITING_SUPERVISOR_REVIEW Work Order can be submitted for acceptance.");
         }
 
+        AcceptanceContactId = DomainGuard.NotEmpty(acceptanceContactId, nameof(acceptanceContactId));
+        AcceptanceContactSnapshot = DomainGuard.RequiredText(acceptanceContactSnapshot, int.MaxValue, nameof(acceptanceContactSnapshot));
         Status = WorkOrderStatus.AwaitingCustomerAcceptance;
+    }
+
+    /// <summary>
+    /// ST-WO-005 Accept (UC-WO-021; `docs/13` §4.16). Only from AWAITING_CUSTOMER_ACCEPTANCE. Aggregate-local
+    /// guard only: eligibility (the caller is exactly <see cref="AcceptanceContactId"/>, a resource-specific
+    /// check, not a role-scoped query) is the Application service's responsibility before this is called.
+    /// </summary>
+    public void Accept()
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.Completed))
+        {
+            throw new DomainRuleViolationException("Only a Work Order awaiting customer acceptance can be accepted.");
+        }
+
+        Status = WorkOrderStatus.Completed;
     }
 }

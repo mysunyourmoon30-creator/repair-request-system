@@ -6,6 +6,11 @@ import { environment } from '../../../environments/environment';
 import { WorkOrder } from './work-order.models';
 import { WorkOrderDetailComponent } from './work-order-detail.component';
 
+function tokenWithPayload(payload: Record<string, unknown>): string {
+  const base64url = (value: string) => btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  return `${base64url('{"alg":"HS256"}')}.${base64url(JSON.stringify(payload))}.signature`;
+}
+
 describe('WorkOrderDetailComponent', () => {
   let httpMock: HttpTestingController;
   const baseUrl = `${environment.apiBaseUrl}/v1/work-orders`;
@@ -22,6 +27,7 @@ describe('WorkOrderDetailComponent', () => {
     equipmentCode: 'EQ-1',
     rowVersion: 'v1',
     visits: [],
+    acceptanceContactId: null,
   };
 
   const scheduledVisit = {
@@ -67,7 +73,10 @@ describe('WorkOrderDetailComponent', () => {
     fixture.detectChanges();
   }
 
-  afterEach(() => httpMock.verify());
+  afterEach(() => {
+    httpMock.verify();
+    localStorage.clear();
+  });
 
   it('requests the Work Order by id and renders its fields', () => {
     const fixture = createComponent('abc-123');
@@ -186,6 +195,77 @@ describe('WorkOrderDetailComponent', () => {
     missedForm.dispatchEvent(new Event('submit'));
 
     httpMock.expectOne(`${visitsBaseUrl}/visit-1/mark-missed`).flush('Conflict', { status: 409, statusText: 'Conflict' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('changed or is no longer in a valid state');
+  });
+
+  // ---------------- Accept (`docs/13` §4.16) ----------------
+
+  const awaitingAcceptance: WorkOrder = { ...baseWorkOrder, status: 'AWAITING_CUSTOMER_ACCEPTANCE', acceptanceContactId: 'req-1' };
+
+  function buttonNamed(root: HTMLElement, text: string): HTMLButtonElement | undefined {
+    return Array.from(root.querySelectorAll('button')).find((button) => button.textContent?.trim() === text);
+  }
+
+  it('shows Accept only when the signed-in Requester is the designated contact and the Work Order awaits acceptance', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+
+    expect(buttonNamed(fixture.nativeElement as HTMLElement, 'Accept')).toBeDefined();
+  });
+
+  it('hides Accept for a different signed-in user, even if AWAITING_CUSTOMER_ACCEPTANCE', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'someone-else', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+
+    expect(buttonNamed(fixture.nativeElement as HTMLElement, 'Accept')).toBeUndefined();
+  });
+
+  it('hides Accept for the designated contact\'s own id when signed in with a non-REQUESTER role', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'SUPERVISOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+
+    expect(buttonNamed(fixture.nativeElement as HTMLElement, 'Accept')).toBeUndefined();
+  });
+
+  it('hides Accept when the Work Order is not AWAITING_CUSTOMER_ACCEPTANCE, even for the designated contact', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, { ...awaitingAcceptance, status: 'COMPLETED' });
+
+    expect(buttonNamed(fixture.nativeElement as HTMLElement, 'Accept')).toBeUndefined();
+  });
+
+  it('accepts with no body and the quoted rowVersion, and re-renders as COMPLETED', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+    const root = fixture.nativeElement as HTMLElement;
+
+    buttonNamed(root, 'Accept')!.click();
+
+    const req = httpMock.expectOne(`${baseUrl}/abc-123/accept`);
+    expect(req.request.headers.get('If-Match')).toBe('"v1"');
+    expect(req.request.body).toBeNull();
+    req.flush({ ...awaitingAcceptance, status: 'COMPLETED', rowVersion: 'v2' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('COMPLETED');
+    expect(buttonNamed(root, 'Accept')).toBeUndefined();
+  });
+
+  it('shows a distinct message when Accept returns 409, without hiding the surrounding page', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'req-1', role: 'REQUESTER' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, awaitingAcceptance);
+    const root = fixture.nativeElement as HTMLElement;
+
+    buttonNamed(root, 'Accept')!.click();
+    httpMock.expectOne(`${baseUrl}/abc-123/accept`).flush('Conflict', { status: 409, statusText: 'Conflict' });
     fixture.detectChanges();
 
     expect(root.textContent).toContain('changed or is no longer in a valid state');

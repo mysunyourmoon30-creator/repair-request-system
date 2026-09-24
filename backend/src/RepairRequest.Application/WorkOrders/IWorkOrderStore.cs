@@ -22,4 +22,13 @@ public interface IWorkOrderStore
     /// restricted to the caller's own assigned Visits.
     /// </summary>
     Task<WorkOrderDto?> GetForTechnicianAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The same projection as <see cref="GetAsync"/>, but scoped to exactly the designated Acceptance Contact
+    /// (`docs/13` §4.16; UC-WO-021): <see cref="IDataScope.WorkOrders"/>'s REQUESTER branch only covers Work
+    /// Orders the caller's own Repair Request created, which the accepting Requester need not be. Scope instead
+    /// is <c>AcceptanceContactId == caller</c> — correct immediately after a successful Accept, since that
+    /// action itself only ever succeeds for the exact designated contact.
+    /// </summary>
+    Task<WorkOrderDto?> GetForAcceptanceContactAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken);
 }

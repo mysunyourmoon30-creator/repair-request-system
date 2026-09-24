@@ -281,6 +281,41 @@ Implemented as a C# enum (`RepairOutcomeCode`, `RepairRequest.Domain.WorkOrders`
 
 - Trace: ST-WO-003/004/005/006/007; BR-06/07/11/12/15; UC-WO-020/021/022; WO-008/009/010/011/012; WSM-001/003/004/005/006/007; EVD-001/003/004/013; CAC-001..010; ACC-001..009.
 
+### 4.16 Ticket 2 — Customer Accept (ST-WO-005; UC-WO-021)
+
+**Context.** UC-WO-021's own scope is Customer Accept only. Before implementation could begin, four requirement gaps had to be resolved by explicit Portfolio Project Owner directive — none of them guessed — recorded here rather than silently applied.
+
+**Decision 1 — Acceptance Contact role: the existing REQUESTER, not a new "CUSTOMER" role.**
+No `CUSTOMER` role exists anywhere in this codebase (`RoleCodes.All` has 7 roles: Requester, Approver, Coordinator, Technician, TeamLead, Supervisor, Administrator). The baseline itself (CAC-004) names the Acceptance Contact's source role as `REQUESTER` or `SITE_CONTACT` only, and `RoleCodes.cs`'s own doc comment already states Site Contact is deliberately not a login role. Per Portfolio Project Owner directive, the Acceptance Contact is drawn exclusively from the existing `REQUESTER` role — no role added, no Change Request needed.
+
+**Decision 2 — Active-user check: deferral upheld, not reopened.**
+A prior, formal Portfolio Project Owner decision (`docs/12` §DEC-PRE-S1-007-04, 15 September 2026) deferred every ACTIVE/inactive user-state check system-wide until `REQ-FU-USR-001` is delivered, explicitly naming CAC-009 ("Must be active at acceptance") as outside that scope, and explicitly forbidding an `IsActive`/`UserStatus` column. Per Portfolio Project Owner directive, this deferral stands: Accept validates existence, tenant, Site scope and exact identity only — never account "active" status.
+
+**Decision 3 — `acceptanceContactId` is designated via `WSM-API-002`, confirmed by the caller, never free text.**
+`WorkOrder.AcceptanceContactId`/`AcceptanceContactSnapshot` (WO-008/WO-009) already existed as a real FK to `ApplicationUser(tenant_id, id)` since S2-001, dormant until now — reused unchanged, no new column. The Team Lead/Supervisor calling `WSM-API-002` (Submit for Acceptance) must supply `acceptanceContactId` in the body; the backend validates it (existing REQUESTER user, same tenant, Site-scoped to the Work Order's Site — `AcceptanceContactEligibility`, mirroring `TechnicianEligibility`'s exact shape) and builds the snapshot (`displayName`, `email` — `displayName` maps to `ApplicationUser.UserName`, the only human-readable field this codebase's user record has; there is no separate display-name column) entirely server-side. The client never supplies a snapshot. Both fields are set atomically with the ST-WO-004 transition, in the same save as the existing Work Summary review flow (§4.15) — no separate write, no way to change the contact afterward in this ticket's scope (no other mutator exists for either field). The `submitted-for-acceptance` audit row now also references `acceptanceContactId`/`acceptanceContactSnapshot`.
+
+To support the Team Lead/Supervisor picking a valid id (never a free-text guess), a new technical lookup is added:
+- `ACC-API-ADD-001` — `GET /api/v1/work-orders/{id}/eligible-acceptance-contacts` — Actor: Team Lead or Supervisor (the same actors as `WSM-API-002`, since this exists purely to support it) — returns every eligible REQUESTER's `userId`, `displayName`, `email` only. Never used as authorization by itself. Returns an empty list (not 404) when the Work Order is out of scope or has no Site. The Repair Request's own `RequestContactId`/`CreatedBy` may be offered as a UI-suggested default (since both are already-validated tenant/Site-scoped users), but the caller must still explicitly confirm — including when exactly one eligible candidate exists — and the backend re-validates regardless of any suggestion.
+
+**Decision 4 — `WorkOrderResponse` gains `acceptanceContactId` (a raw id only).**
+So an Angular caller can compare it against their own signed-in user id to decide whether to show the Accept button. Never the contact's name/email — those live only in `AcceptanceContactSnapshot`, never projected into any response. The Angular button is UX convenience only, exactly like every route guard in this codebase; the backend re-derives and re-checks identity on every request regardless of what the button's visibility implies.
+
+**ACC-API-001 Customer Accept (ST-WO-005).**
+`POST /api/v1/work-orders/{id}/accept` — Actor: the exact designated Acceptance Contact (a REQUESTER) — If-Match required (the Work Order's own RowVersion, the resource named in the URL) — no request body. Moves `AWAITING_CUSTOMER_ACCEPTANCE` → `COMPLETED`. Scope is **resource-specific** (`caller.UserId == WorkOrder.AcceptanceContactId`), not a role-scoped query — contrast `IDataScope.WorkOrders()`'s REQUESTER branch, which covers Work Orders the caller's own Repair Request created (not necessarily this contact), so a dedicated read path (`WorkOrderService.GetForAcceptanceContactAsync`) is used for the response after a successful Accept, mirroring how Check-in already needed a Technician-specific read (`GetForTechnicianAsync`) for the same reason. A different Requester (even in the same tenant and Site), a wrong role, a revoked Site scope, or a nonexistent Work Order all receive the same non-leaking `404 NOT_FOUND`. RowVersion is a true compare-and-swap (EF `OriginalValue` override, not just an app-level check); the state transition and its audit row commit in the same transaction — stale/concurrent/duplicate Accept all return `409` with no partial write.
+
+**Authorization matrix.**
+
+| Actor | Action | Scope |
+|---|---|---|
+| Team Lead / Supervisor | `ACC-API-ADD-001` read, `WSM-API-002` designate contact | site-wide (`IDataScope.WorkOrders()`, unchanged) + contact validated via `AcceptanceContactEligibility` |
+| Exact designated REQUESTER contact | `ACC-API-001` Accept | resource-specific (`AcceptanceContactId == caller`) + current Site scope re-check |
+| Any other REQUESTER | Accept | `404` (not `403` — non-leaking, same convention as every other "wrong specific person" case in this codebase) |
+| Non-REQUESTER role | Accept | `403 ACCESS_DENIED` (policy gate) |
+
+**Not in this round:** Customer Reject, Corrective Action, Work Order Close, Cost Summary, Cancel Work Order, invitation/activation for a contact with no account yet (the FK already requires an existing `ApplicationUser`, so this gap is deferred to its own future ticket, not blocking Accept).
+
+- Trace: ST-WO-005; BR-07; UC-WO-021; WO-008/009; CAC-004.
+
 ---
 
 ## 3. Common Conventions (as implemented)

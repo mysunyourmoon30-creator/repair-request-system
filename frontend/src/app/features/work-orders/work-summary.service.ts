@@ -3,7 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable, catchError, of, throwError } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { WorkOrder } from './work-order.models';
-import { WorkSummary } from './work-summary.models';
+import { EligibleAcceptanceContact, WorkSummary } from './work-summary.models';
 
 export interface SubmitWorkSummaryRequest {
   summaryText: string;
@@ -11,10 +11,11 @@ export interface SubmitWorkSummaryRequest {
 }
 
 /**
- * Calls the Work Summary Submit/Review endpoints (`docs/13` §4.15): `POST /api/v1/work-orders/{id}/submit-work-summary`
+ * Calls the Work Summary Submit/Review endpoints (`docs/13` §4.15/§4.16): `POST /api/v1/work-orders/{id}/submit-work-summary`
  * (WSM-API-001, Technician), `POST /api/v1/work-orders/{id}/submit-for-acceptance` (WSM-API-002, Team Lead/
- * Supervisor) and `GET /api/v1/work-orders/{id}/work-summary`. Both writes return the parent Work Order, the
- * same convention every other Work Order/Work Session action uses.
+ * Supervisor — now carrying `acceptanceContactId`), `GET /api/v1/work-orders/{id}/work-summary` and
+ * `GET /api/v1/work-orders/{id}/eligible-acceptance-contacts` (ACC-API-ADD-001). Both writes return the parent
+ * Work Order, the same convention every other Work Order/Work Session action uses.
  */
 @Injectable({ providedIn: 'root' })
 export class WorkSummaryService {
@@ -25,8 +26,14 @@ export class WorkSummaryService {
     return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/submit-work-summary`, body, { headers: { 'If-Match': ifMatch } });
   }
 
-  submitForAcceptance(workOrderId: string, ifMatch: string): Observable<WorkOrder> {
-    return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/submit-for-acceptance`, null, { headers: { 'If-Match': ifMatch } });
+  /** `acceptanceContactId` must come from {@link getEligibleAcceptanceContacts} — never a free-text id (`docs/13` §4.16 Decision 3). */
+  submitForAcceptance(workOrderId: string, ifMatch: string, acceptanceContactId: string): Observable<WorkOrder> {
+    return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/submit-for-acceptance`, { acceptanceContactId }, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /** ACC-API-ADD-001: every REQUESTER eligible to be designated as this Work Order's Acceptance Contact. */
+  getEligibleAcceptanceContacts(workOrderId: string): Observable<EligibleAcceptanceContact[]> {
+    return this.http.get<EligibleAcceptanceContact[]>(`${this.baseUrl}/${workOrderId}/eligible-acceptance-contacts`);
   }
 
   /** 404 (not submitted yet, or out of scope) is treated as `null`, not an error — the caller decides what to show. */

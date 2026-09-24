@@ -6,7 +6,10 @@ namespace RepairRequest.Application.WorkOrders;
 /// <summary>
 /// Work Order list/detail projection (S2-001 / DEC-S2-001-01..04). Customer/Site/Equipment are code-only
 /// (no display name exists on those entities); Scheduled Date and Assigned Team/Technician are intentionally
-/// absent (DEC-S2-001-02/03).
+/// absent (DEC-S2-001-02/03). <see cref="AcceptanceContactId"/> is added by `docs/13` §4.16 (UC-WO-021) so the
+/// caller can be told whether they are the designated Acceptance Contact — a raw id only, never the
+/// contact's name/email (those live only in <see cref="WorkOrder.AcceptanceContactSnapshot"/>, not projected
+/// here); visible only to callers who already have read scope on this Work Order.
 /// </summary>
 public sealed record WorkOrderDto(
     Guid WorkOrderId,
@@ -18,7 +21,8 @@ public sealed record WorkOrderDto(
     string? SiteCode,
     string? EquipmentCode,
     byte[] RowVersion,
-    IReadOnlyList<ServiceVisitDto> Visits);
+    IReadOnlyList<ServiceVisitDto> Visits,
+    Guid? AcceptanceContactId);
 
 /// <summary>
 /// Service Visit projection (S2-003; RR-DD-001 SV-001..018), embedded in the Work Order detail response — no
@@ -112,8 +116,8 @@ public static class WorkSessionFields
 
 /// <summary>
 /// Work Summary projection (UC-WO-020; RR-DD-001 WSM-001/003..007; `docs/13` §4.15). Returned by the Technician's
-/// Submit action, the Team-Lead/Supervisor review read, and embedded nowhere else — <see cref="WorkOrderDto"/> is
-/// deliberately left unchanged so the existing S2-001 List/Detail projection is untouched by this ticket.
+/// Submit action, the Team-Lead/Supervisor review read, and embedded nowhere else. `WorkOrderDto` itself was left
+/// unchanged by this ticket (see `docs/13` §4.16 for the later `AcceptanceContactId` addition).
 /// </summary>
 public sealed record WorkSummaryDto(
     Guid WorkSummaryId,
@@ -224,6 +228,19 @@ public static class WorkOrderFields
     public const string AssignedTechnicianId = "assignedTechnicianId";
     public const string ScheduledStartAt = "scheduledStartAt";
     public const string ScheduledEndAt = "scheduledEndAt";
+}
+
+/// <summary>
+/// A REQUESTER user eligible to be designated as a Work Order's Acceptance Contact (`docs/13` §4.16, technical
+/// lookup `ACC-API-ADD-001`). <see cref="DisplayName"/> maps to <c>ApplicationUser.UserName</c> — this codebase
+/// has no separate display-name field on the user record (confirmed absent; only `UserName`/`Email` exist).
+/// </summary>
+public sealed record EligibleAcceptanceContactDto(Guid UserId, string DisplayName, string Email);
+
+/// <summary>WSM-API-002 Submit for Acceptance body field (`docs/13` §4.16 Decision 2) — used as a 422 error key.</summary>
+public static class SubmitForAcceptanceFields
+{
+    public const string AcceptanceContactId = "acceptanceContactId";
 }
 
 /// <summary>Canonical upper-snake Service Visit status codes (RR-DD-001 SV-005; RR-STS-001 section 1).</summary>
