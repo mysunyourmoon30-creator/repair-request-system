@@ -35,9 +35,31 @@ public class WorkOrderStatusTransitionsTests
     }
 
     [Fact]
+    public void SubmitWorkSummary_IsAllowed_FromInProgressOnly()
+    {
+        Assert.True(WorkOrderStatusTransitions.IsAllowed(WorkOrderStatus.InProgress, WorkOrderStatus.AwaitingSupervisorReview));
+        Assert.Contains(
+            WorkOrderStatusTransitions.All,
+            transition => transition.TransitionId == "ST-WO-003"
+                && transition.From == WorkOrderStatus.InProgress
+                && transition.To == WorkOrderStatus.AwaitingSupervisorReview);
+    }
+
+    [Fact]
+    public void SubmitForAcceptance_IsAllowed_FromAwaitingSupervisorReviewOnly()
+    {
+        Assert.True(WorkOrderStatusTransitions.IsAllowed(WorkOrderStatus.AwaitingSupervisorReview, WorkOrderStatus.AwaitingCustomerAcceptance));
+        Assert.Contains(
+            WorkOrderStatusTransitions.All,
+            transition => transition.TransitionId == "ST-WO-004"
+                && transition.From == WorkOrderStatus.AwaitingSupervisorReview
+                && transition.To == WorkOrderStatus.AwaitingCustomerAcceptance);
+    }
+
+    [Fact]
     public void Matrix_ContainsExactlyTheImplementedTransitions()
     {
-        Assert.Equal(2, WorkOrderStatusTransitions.All.Count);
+        Assert.Equal(4, WorkOrderStatusTransitions.All.Count);
     }
 
     [Theory]

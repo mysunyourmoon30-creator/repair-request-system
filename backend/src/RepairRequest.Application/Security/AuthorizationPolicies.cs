@@ -73,6 +73,21 @@ public static class AuthorizationPolicies
     /// <summary>Read the caller's own current Work Session (S3-002). Technician only.</summary>
     public const string WorkSessionRead = "WorkSession.Read";
 
+    /// <summary>
+    /// Submit Work Summary for a checked-out own Work Order (ST-WO-003; UC-WO-020; `docs/13` §4.15 Decision 2:
+    /// Technician, not the baseline's "Team Lead").
+    /// </summary>
+    public const string WorkOrderSubmitWorkSummary = "WorkOrder.SubmitWorkSummary";
+
+    /// <summary>
+    /// Review and Submit for Customer Acceptance (ST-WO-004; `docs/13` §4.15 Decision 2: Team Lead or Supervisor,
+    /// either one — not the baseline's "Supervisor" alone).
+    /// </summary>
+    public const string WorkOrderSubmitForAcceptance = "WorkOrder.SubmitForAcceptance";
+
+    /// <summary>Read the Work Summary of a Work Order (own, for a Technician; site-wide, for Team Lead/Supervisor) — `docs/13` §4.15.</summary>
+    public const string WorkOrderReadWorkSummary = "WorkOrder.ReadWorkSummary";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -106,7 +121,10 @@ public static class AuthorizationPolicies
             [WorkSessionPause] = [RoleCodes.Technician],
             [WorkSessionResume] = [RoleCodes.Technician],
             [WorkSessionCheckOut] = [RoleCodes.Technician],
-            [WorkSessionRead] = [RoleCodes.Technician]
+            [WorkSessionRead] = [RoleCodes.Technician],
+            [WorkOrderSubmitWorkSummary] = [RoleCodes.Technician],
+            [WorkOrderSubmitForAcceptance] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
+            [WorkOrderReadWorkSummary] = [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor]
         };
 }
 

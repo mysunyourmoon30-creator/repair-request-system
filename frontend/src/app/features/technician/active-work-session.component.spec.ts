@@ -8,6 +8,7 @@ import { WorkSession } from './work-session.models';
 describe('ActiveWorkSessionComponent', () => {
   let httpMock: HttpTestingController;
   const baseUrl = `${environment.apiBaseUrl}/v1/work-sessions`;
+  const workOrdersBaseUrl = `${environment.apiBaseUrl}/v1/work-orders`;
 
   const checkedIn: WorkSession = {
     workSessionId: 'session-1',
@@ -23,6 +24,7 @@ describe('ActiveWorkSessionComponent', () => {
     checkOutAt: null,
     pauses: [],
     rowVersion: 'v1',
+    workOrderRowVersion: 'wov1',
   };
 
   const paused: WorkSession = {
@@ -111,13 +113,14 @@ describe('ActiveWorkSessionComponent', () => {
     expect(buttonNamed(root, 'Check-out')).toBeUndefined();
   });
 
-  it('shows no buttons at all for a CHECKED_OUT session', () => {
+  it('shows only the Submit Work Summary button for a CHECKED_OUT session', () => {
     const { root } = load(checkedOut);
 
     expect(root.textContent).toContain('CHECKED_OUT');
     expect(buttonNamed(root, 'Pause')).toBeUndefined();
     expect(buttonNamed(root, 'Resume')).toBeUndefined();
     expect(buttonNamed(root, 'Check-out')).toBeUndefined();
+    expect(buttonNamed(root, 'Submit Work Summary')).toBeDefined();
   });
 
   it('opens a dialog that keeps Confirm disabled for an empty or whitespace-only reason', () => {
@@ -352,5 +355,126 @@ describe('ActiveWorkSessionComponent', () => {
     expect(root.textContent).not.toContain('Http failure');
     // No reload on a generic failure — the session is still shown as CHECKED_IN with its Check-out button.
     expect(buttonNamed(root, 'Check-out')).toBeDefined();
+  });
+
+  // ---------------- Submit Work Summary ----------------
+
+  function openSummaryDialogAndType(
+    fixture: ComponentFixture<ActiveWorkSessionComponent>,
+    root: HTMLElement,
+    summary: string,
+    outcome: string,
+  ): void {
+    buttonNamed(root, 'Submit Work Summary')!.click();
+    fixture.detectChanges();
+    const textarea = root.querySelector('textarea')!;
+    textarea.value = summary;
+    textarea.dispatchEvent(new Event('input'));
+    const select = root.querySelector('select')!;
+    select.value = outcome;
+    select.dispatchEvent(new Event('change'));
+    fixture.detectChanges();
+  }
+
+  it('offers the repair outcome as a closed dropdown of exactly the six allowed codes, never free text', () => {
+    const { fixture, root } = load(checkedOut);
+
+    buttonNamed(root, 'Submit Work Summary')!.click();
+    fixture.detectChanges();
+
+    const select = root.querySelector('select')!;
+    const optionValues = Array.from(select.querySelectorAll('option'))
+      .map((option) => option.value)
+      .filter((value) => value !== '');
+    expect(optionValues).toEqual(['REPAIRED', 'TEMPORARY_FIX', 'PARTS_REQUIRED', 'NO_FAULT_FOUND', 'NOT_REPAIRABLE', 'FOLLOW_UP_REQUIRED']);
+
+    // No free-text input exists anywhere in the dialog for the outcome — only the reason/summary textareas.
+    expect(root.querySelector('input')).toBeNull();
+  });
+
+  it('opens the Submit Work Summary dialog and keeps Confirm disabled until both fields are filled', () => {
+    const { fixture, root } = load(checkedOut);
+
+    openSummaryDialogAndType(fixture, root, '', '');
+    expect(root.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+
+    openSummaryDialogAndType(fixture, root, 'Replaced the pump seal.', '');
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+
+    openSummaryDialogAndType(fixture, root, 'Replaced the pump seal.', 'REPAIRED');
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(false);
+  });
+
+  it('submits with the trimmed summary, the selected outcome code, and the quoted workOrderRowVersion, then reloads the current session', () => {
+    const { fixture, root } = load(checkedOut);
+    // The outcome comes from a closed dropdown (never free text), so only the summary text needs trimming.
+    openSummaryDialogAndType(fixture, root, '  Replaced the pump seal.  ', 'REPAIRED');
+
+    root.querySelector('form')!.dispatchEvent(new Event('submit'));
+
+    const req = httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/submit-work-summary`);
+    expect(req.request.headers.get('If-Match')).toBe('"wov1"');
+    expect(req.request.body).toEqual({ summaryText: 'Replaced the pump seal.', repairOutcomeCode: 'REPAIRED' });
+    req.flush({});
+
+    httpMock.expectOne(`${baseUrl}/current`).flush(null, { status: 204, statusText: 'No Content' });
+    fixture.detectChanges();
+
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(root.textContent?.trim()).toBe('');
+  });
+
+  it('keeps the dialog open with a plain message when the backend rejects invalid fields (422)', () => {
+    const { fixture, root } = load(checkedOut);
+    openSummaryDialogAndType(fixture, root, 'x', 'REPAIRED');
+
+    root.querySelector('form')!.dispatchEvent(new Event('submit'));
+    httpMock
+      .expectOne(`${workOrdersBaseUrl}/wo-1/submit-work-summary`)
+      .flush({ code: 'VALIDATION_FAILED', errors: { summaryText: ['required'] } }, { status: 422, statusText: 'Unprocessable Entity' });
+    fixture.detectChanges();
+
+    expect(root.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(root.textContent).toContain('Please fill in both the summary and the repair outcome code.');
+  });
+
+  it('shows the server message and reloads when Submit Work Summary returns a STATE_CONFLICT', () => {
+    const { fixture, root } = load(checkedOut);
+    openSummaryDialogAndType(fixture, root, 'x', 'REPAIRED');
+
+    root.querySelector('form')!.dispatchEvent(new Event('submit'));
+    httpMock
+      .expectOne(`${workOrdersBaseUrl}/wo-1/submit-work-summary`)
+      .flush({ code: 'STATE_CONFLICT', detail: "This Work Order's Work Summary was already submitted." }, { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne(`${baseUrl}/current`).flush(null, { status: 204, statusText: 'No Content' });
+    fixture.detectChanges();
+
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(root.textContent).toContain("This Work Order's Work Summary was already submitted.");
+  });
+
+  it('shows a generic message, not the raw HTTP error, for a Submit Work Summary server error', () => {
+    const { fixture, root } = load(checkedOut);
+    openSummaryDialogAndType(fixture, root, 'x', 'REPAIRED');
+
+    root.querySelector('form')!.dispatchEvent(new Event('submit'));
+    httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/submit-work-summary`).flush('boom', { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(root.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(root.textContent).toContain('Something went wrong');
+    expect(root.textContent).not.toContain('Http failure');
+  });
+
+  it('closes the Submit Work Summary dialog without a request when cancelled', () => {
+    const { fixture, root } = load(checkedOut);
+    openSummaryDialogAndType(fixture, root, 'x', 'REPAIRED');
+
+    buttonNamed(root, 'Cancel')!.click();
+    fixture.detectChanges();
+
+    expect(root.querySelector('[role="dialog"]')).toBeNull();
+    expect(buttonNamed(root, 'Submit Work Summary')).toBeDefined();
   });
 });

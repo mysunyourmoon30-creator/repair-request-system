@@ -21,20 +21,24 @@ namespace RepairRequest.Api.Controllers;
 public sealed class WorkOrdersController : CommandControllerBase
 {
     private const string ResourceType = "WorkOrder";
+    private const string WorkSummaryResourceType = "WorkSummary";
 
     private readonly WorkOrderService _workOrders;
     private readonly WorkOrderScheduleService _schedule;
+    private readonly WorkSummaryService _workSummaries;
     private readonly PagingOptions _paging;
 
     public WorkOrdersController(
         WorkOrderService workOrders,
         WorkOrderScheduleService schedule,
+        WorkSummaryService workSummaries,
         ICurrentUserAccessor currentUserAccessor,
         IOptions<PagingOptions> paging)
         : base(currentUserAccessor)
     {
         _workOrders = workOrders;
         _schedule = schedule;
+        _workSummaries = workSummaries;
         _paging = paging.Value;
     }
 
@@ -98,5 +102,75 @@ public sealed class WorkOrdersController : CommandControllerBase
 
         var workOrder = await _workOrders.GetAsync(context.User, result.Value, cancellationToken);
         return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// WSM-API-001 Submit Work Summary (ST-WO-003; UC-WO-020; `docs/13` §4.15): the assigned Technician only, for
+    /// a Work Order they have a checked-out Work Session on. If-Match is checked against the Work Order's own
+    /// RowVersion (the resource named in this URL). Moves the Work Order to AWAITING_SUPERVISOR_REVIEW.
+    /// </summary>
+    [HttpPost("{workOrderId:guid}/submit-work-summary")]
+    [Authorize(Policy = AuthorizationPolicies.WorkOrderSubmitWorkSummary)]
+    [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> SubmitWorkSummary(Guid workOrderId, [FromBody] SubmitWorkSummaryRequest request, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _workSummaries.SubmitAsync(context, workOrderId, rowVersion, request.SummaryText, request.RepairOutcomeCode, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        var workOrder = await _workOrders.GetForTechnicianAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// WSM-API-002 Submit for Acceptance (ST-WO-004; `docs/13` §4.15 Decision 2): either the Team Lead or the
+    /// Supervisor, within their Work Order site scope. If-Match is checked against the Work Order's own
+    /// RowVersion. Empty request body. Moves the Work Order to AWAITING_CUSTOMER_ACCEPTANCE.
+    /// </summary>
+    [HttpPost("{workOrderId:guid}/submit-for-acceptance")]
+    [Authorize(Policy = AuthorizationPolicies.WorkOrderSubmitForAcceptance)]
+    [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> SubmitForAcceptance(Guid workOrderId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _workSummaries.SubmitForAcceptanceAsync(context, workOrderId, rowVersion, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        var workOrder = await _workOrders.GetAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// Work Summary read (`docs/13` §4.15): the caller's own, for a Technician; site-wide, for Team Lead/
+    /// Supervisor. 404 when none has been submitted yet, or the caller is out of scope (identical response).
+    /// </summary>
+    [HttpGet("{workOrderId:guid}/work-summary")]
+    [Authorize(Policy = AuthorizationPolicies.WorkOrderReadWorkSummary)]
+    [ProducesResponseType<WorkSummaryResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetWorkSummary(Guid workOrderId, CancellationToken cancellationToken)
+    {
+        var summary = await _workSummaries.GetAsync(await CallerAsync(cancellationToken), workOrderId, cancellationToken);
+        if (summary is null)
+        {
+            return ApiProblemResults.ResourceNotFound(HttpContext, WorkSummaryResourceType);
+        }
+
+        return Ok(WorkSummaryResponses.ToResponse(summary));
     }
 }

@@ -112,4 +112,36 @@ public sealed class WorkOrder
 
         Status = WorkOrderStatus.InProgress;
     }
+
+    /// <summary>
+    /// ST-WO-003 Submit Work Summary. Only from IN_PROGRESS. Aggregate-local guard only: eligibility (the caller
+    /// is the assigned Technician of a checked-out Visit on this Work Order) and the Work Summary's own field
+    /// validation are both the Application service's responsibility before this is called. Per `docs/13` §4.15
+    /// Decision 2 (Portfolio Project Owner directive), the actor is the Technician, not the baseline's "Team
+    /// Lead" — enforced by the API authorization policy, not here.
+    /// </summary>
+    public void SubmitWorkSummary()
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.AwaitingSupervisorReview))
+        {
+            throw new DomainRuleViolationException("Only an IN_PROGRESS Work Order can have its Work Summary submitted.");
+        }
+
+        Status = WorkOrderStatus.AwaitingSupervisorReview;
+    }
+
+    /// <summary>
+    /// ST-WO-004 Submit for Acceptance. Only from AWAITING_SUPERVISOR_REVIEW. Per `docs/13` §4.15 Decision 2
+    /// (Portfolio Project Owner directive), either the Team Lead or the Supervisor may perform this single review
+    /// step, not the baseline's "Supervisor" alone — enforced by the API authorization policy, not here.
+    /// </summary>
+    public void SubmitForAcceptance()
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.AwaitingCustomerAcceptance))
+        {
+            throw new DomainRuleViolationException("Only an AWAITING_SUPERVISOR_REVIEW Work Order can be submitted for acceptance.");
+        }
+
+        Status = WorkOrderStatus.AwaitingCustomerAcceptance;
+    }
 }

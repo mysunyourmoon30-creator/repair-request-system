@@ -1,9 +1,12 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { REPAIR_OUTCOME_CODES } from '../work-orders/work-summary.models';
+import { WorkSummaryService } from '../work-orders/work-summary.service';
 import { WorkSession } from './work-session.models';
 import { WorkSessionService } from './work-session.service';
 
 const REASON_MAX_LENGTH = 1000;
+const SUMMARY_TEXT_MAX_LENGTH = 4000;
 
 /**
  * S3-002/S3-003/S3-004: the Technician's own current Work Session, with Pause, Resume and Check-out controls.
@@ -14,7 +17,12 @@ const REASON_MAX_LENGTH = 1000;
  * — neither has a reason field, so neither opens a dialog. Every request carries only what its action needs
  * (Pause: the reason; Resume and Check-out: nothing); status and time always come from the backend. Per the
  * resolved Portfolio Project Owner scope decision, Check-out collects no summary/outcome/evidence — that is a
- * later ticket (`docs/13` §4.14).
+ * later ticket (`docs/13` §4.14). Once CHECKED_OUT, a "Submit Work Summary" button opens a second dialog
+ * requiring both `summaryText` and `repairOutcomeCode` (WSM-API-001; `docs/13` §4.15); its If-Match is the Work
+ * Order's own token (`workOrderRowVersion`), not the session's, since the resource being moved is the Work
+ * Order — a Technician has no other way to reach that token (`GET /work-orders/{id}` excludes TECHNICIAN).
+ * `repairOutcomeCode` is a closed six-value allowlist (`docs/13` §4.15 Decision 5) — offered as a `<select>`
+ * from {@link REPAIR_OUTCOME_CODES}, never free text, since the backend rejects anything else with 422.
  */
 @Component({
   selector: 'app-active-work-session',
@@ -50,6 +58,9 @@ const REASON_MAX_LENGTH = 1000;
         @if (current.status === 'PAUSED') {
           <button type="button" [disabled]="submitting()" (click)="onResume(current)">Resume</button>
         }
+        @if (current.status === 'CHECKED_OUT') {
+          <button type="button" [disabled]="submitting()" (click)="openSummaryDialog()">Submit Work Summary</button>
+        }
       </section>
 
       @if (dialogOpen()) {
@@ -74,6 +85,38 @@ const REASON_MAX_LENGTH = 1000;
           </form>
         </div>
       }
+
+      @if (summaryDialogOpen()) {
+        <div role="dialog" aria-modal="true" aria-labelledby="summary-dialog-title">
+          <h3 id="summary-dialog-title">Submit Work Summary</h3>
+          <form (submit)="onSubmitWorkSummary($event, current)">
+            <label>
+              Summary (required)
+              <textarea
+                #summary
+                required
+                [attr.maxlength]="summaryMaxLength"
+                [value]="summaryText()"
+                (input)="summaryText.set(summary.value)"
+              ></textarea>
+            </label>
+            <label>
+              Repair outcome (required)
+              <select #outcome required [value]="repairOutcomeCode()" (change)="repairOutcomeCode.set(outcome.value)">
+                <option value="" disabled>Select a repair outcome</option>
+                @for (item of repairOutcomeCodes; track item.code) {
+                  <option [value]="item.code">{{ item.label }}</option>
+                }
+              </select>
+            </label>
+            @if (summaryDialogError()) {
+              <p role="alert">{{ summaryDialogError() }}</p>
+            }
+            <button type="submit" [disabled]="!canSubmitSummary()">Confirm Submit</button>
+            <button type="button" [disabled]="submitting()" (click)="closeSummaryDialog()">Cancel</button>
+          </form>
+        </div>
+      }
     }
 
     @if (actionError()) {
@@ -86,8 +129,11 @@ const REASON_MAX_LENGTH = 1000;
 })
 export class ActiveWorkSessionComponent {
   private readonly sessions = inject(WorkSessionService);
+  private readonly workSummaries = inject(WorkSummaryService);
 
   protected readonly maxLength = REASON_MAX_LENGTH;
+  protected readonly summaryMaxLength = SUMMARY_TEXT_MAX_LENGTH;
+  protected readonly repairOutcomeCodes = REPAIR_OUTCOME_CODES;
 
   protected readonly session = signal<WorkSession | null>(null);
   protected readonly loadError = signal<string | null>(null);
@@ -99,6 +145,15 @@ export class ActiveWorkSessionComponent {
   protected readonly submitting = signal(false);
 
   protected readonly canSubmit = computed(() => this.reasonText().trim().length > 0 && !this.submitting());
+
+  protected readonly summaryDialogOpen = signal(false);
+  protected readonly summaryDialogError = signal<string | null>(null);
+  protected readonly summaryText = signal('');
+  protected readonly repairOutcomeCode = signal('');
+
+  protected readonly canSubmitSummary = computed(
+    () => this.summaryText().trim().length > 0 && this.repairOutcomeCode().trim().length > 0 && !this.submitting(),
+  );
 
   constructor() {
     this.refresh();
@@ -208,6 +263,61 @@ export class ActiveWorkSessionComponent {
         }
       },
     });
+  }
+
+  protected openSummaryDialog(): void {
+    this.actionError.set(null);
+    this.summaryDialogError.set(null);
+    this.summaryText.set('');
+    this.repairOutcomeCode.set('');
+    this.summaryDialogOpen.set(true);
+  }
+
+  protected closeSummaryDialog(): void {
+    this.summaryDialogOpen.set(false);
+    this.summaryDialogError.set(null);
+  }
+
+  protected onSubmitWorkSummary(event: Event, session: WorkSession): void {
+    event.preventDefault();
+    if (!this.canSubmitSummary()) {
+      return;
+    }
+
+    this.submitting.set(true);
+    this.summaryDialogError.set(null);
+
+    this.workSummaries
+      .submit(session.workOrderId, `"${session.workOrderRowVersion}"`, {
+        summaryText: this.summaryText().trim(),
+        repairOutcomeCode: this.repairOutcomeCode().trim(),
+      })
+      .subscribe({
+        next: () => {
+          this.submitting.set(false);
+          this.closeSummaryDialog();
+          // The session is no longer "current" once its Work Summary is submitted — same as after any
+          // Check-out reload, `GET /work-sessions/current` excludes CHECKED_OUT sessions.
+          this.refresh();
+        },
+        error: (response: HttpErrorResponse) => {
+          this.submitting.set(false);
+
+          if (response.status === 422) {
+            this.summaryDialogError.set('Please fill in both the summary and the repair outcome code.');
+            return;
+          }
+
+          if (response.status === 404 || response.status === 409) {
+            this.closeSummaryDialog();
+            this.actionError.set(this.describe(response));
+            this.refresh();
+            return;
+          }
+
+          this.summaryDialogError.set(this.describe(response));
+        },
+      });
   }
 
   private describe(response: HttpErrorResponse): string {

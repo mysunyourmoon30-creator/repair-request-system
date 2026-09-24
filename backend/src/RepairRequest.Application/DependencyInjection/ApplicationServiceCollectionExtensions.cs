@@ -60,6 +60,9 @@ public static class ApplicationServiceCollectionExtensions
         // S3-002: Pause of the Technician's own Work Session (ST-WS-002) and the read of their current session.
         services.AddScoped<WorkSessionService>();
 
+        // Work Summary Submit (ST-WO-003; Technician) and Submit for Acceptance (ST-WO-004; Team Lead/Supervisor); `docs/13` §4.15.
+        services.AddScoped<WorkSummaryService>();
+
         return services;
     }
 }

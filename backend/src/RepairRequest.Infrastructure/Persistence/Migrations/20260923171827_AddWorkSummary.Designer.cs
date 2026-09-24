@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using RepairRequest.Infrastructure.Persistence;
 
@@ -11,9 +12,11 @@ using RepairRequest.Infrastructure.Persistence;
 namespace RepairRequest.Infrastructure.Persistence.Migrations
 {
     [DbContext(typeof(RepairRequestDbContext))]
-    partial class RepairRequestDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260923171827_AddWorkSummary")]
+    partial class AddWorkSummary
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1250,10 +1253,7 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         .IsUnique()
                         .HasDatabaseName("UQ_work_summary_service_visit_id_revision_no");
 
-                    b.ToTable("work_summary", null, t =>
-                        {
-                            t.HasCheckConstraint("CK_work_summary_repair_outcome_code", "[repair_outcome_code] IN ('REPAIRED', 'TEMPORARY_FIX', 'PARTS_REQUIRED', 'NO_FAULT_FOUND', 'NOT_REPAIRABLE', 'FOLLOW_UP_REQUIRED')");
-                        });
+                    b.ToTable("work_summary", (string)null);
                 });
 
             modelBuilder.Entity("RepairRequest.Infrastructure.Identity.ApplicationRole", b =>

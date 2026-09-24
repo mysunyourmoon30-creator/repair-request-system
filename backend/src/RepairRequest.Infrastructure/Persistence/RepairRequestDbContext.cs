@@ -68,6 +68,8 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
 
     public DbSet<WorkSessionPause> WorkSessionPauses => Set<WorkSessionPause>();
 
+    public DbSet<WorkSummary> WorkSummaries => Set<WorkSummary>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

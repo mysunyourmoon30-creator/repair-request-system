@@ -11,9 +11,9 @@ Companion to RR-API-001 v1.2. It documents what is implemented, including the Pr
 | Document ID | RR-API-001-ADD |
 | Version | 1.0 |
 | Status | Approved for Portfolio Development (documentation reconciliation) |
-| Revision Date | 23 September 2026 — reconciled with the S3-004 implementation (Check-out Work Session; working tree, not yet committed); previously 22 September 2026 (S3-003, PR #8, commit 459501a), 19 September 2026 (S3-002, PR #7, commit db6bc5b), 18 September 2026 (S3-001) and 17 September 2026 (S2-001) |
+| Revision Date | 24 September 2026 — Sprint 4 round decisions recorded ahead of implementation (Work Summary Submit/Review, Customer Accept/Reject, Work Order Close; no code exists yet — see §4.15); previously 23 September 2026 (S3-004 Check-out Work Session; working tree, not yet committed), 22 September 2026 (S3-003, PR #8, commit 459501a), 19 September 2026 (S3-002, PR #7, commit db6bc5b), 18 September 2026 (S3-001) and 17 September 2026 (S2-001) |
 | Extends | RR-API-001 v1.2 (PDF, unchanged) |
-| Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001; Portfolio Project Owner pre-implementation directives for S3-001 (eligibility is `assigned_technician_id` only — no "Primary team"; location capture out of scope) for My Visits / Check-in; Portfolio Project Owner scope decision for S3-004 (Check-out is a pure status transition — BR-06's summary/outcome/evidence half is a later ticket) |
+| Decision source | RR-DEC-001 v1.2 (`12_Pre_Sprint1_Baseline_Decision_Register_v1.0.md`), Section 11 for S2-001; Portfolio Project Owner pre-implementation directives for S3-001 (eligibility is `assigned_technician_id` only — no "Primary team"; location capture out of scope) for My Visits / Check-in; Portfolio Project Owner scope decision for S3-004 (Check-out is a pure status transition — BR-06's summary/outcome/evidence half is a later ticket); Portfolio Project Owner directives for the Sprint 4 round (UC-WO-020 traceability correction, Technician/Team-Lead-Supervisor/Customer-Acceptance-Contact role split, WO Close guard trimmed — see §4.15) |
 | Implementation evidence | S1-002 (d2e96c5), S1-003 (7a4be91), S1-004 (c03c4c4), S1-005 (46f12a6), S1-006 (ce69f6e), S1-007 (36ffc6a), S1-007R (b1cad73), S1-008 (a45bc38), S1-009 (305079f), S1-010 (5064c6b), S2-001 (cdfc0a8), S2-003 Schedule/Service Visit management (9a05ca0, PR #5) — WO-API-002..007 implemented but **not yet reconciled into this addendum's §1/§4** (pre-existing gap, out of scope of this revision), S3-001 My Visits / Check-in (ee115a8, PR #6 — see §4.11), S3-002 Pause Work Session (db6bc5b, PR #7 — see §4.12), S3-003 Resume Work Session (459501a, PR #8 — see §4.13), S3-004 Check-out Work Session (working tree — see §4.14) |
 | Approval | Portfolio Project Owner Approval (DEC-PS1-016) |
 
@@ -234,6 +234,52 @@ in the enum, unreachable until now.
 - **Not in S3-004:** Work Summary/Outcome/Evidence (BR-06's other half — a later ticket), Acceptance, Sprint 4,
   and notifications (the baseline matrix defines none for Check-out beyond BR-06).
 - Trace: ST-WS-004; ST-SV-003; UC-WO-016 (Check-out half); WS-009; SV-014.
+
+### 4.15 Sprint 4 Round — Work Summary Submit/Review, Customer Accept/Reject, Work Order Close (decisions recorded ahead of implementation; no code exists yet)
+
+**Context.** UC-WO-020, UC-WO-021, UC-WO-022, and ST-WO-006 (Close) are the next items planned for implementation. No baseline document assigns a sprint number to any of these — see the process note at the end of this section. The decisions below are Portfolio Project Owner directives that deviate from the literal baseline text, recorded here per this addendum's established pattern (§4.12/§4.13/§4.14), **before** any source code, migration, branch commit, or PR — implementation itself is a separate, not-yet-approved step.
+
+**Decision 1 — UC-WO-020 traceability correction.**
+UC-WO-020's own Traceability field cites "BR-06/07" (`docs/04`, p.9/14). BR-07's printed text (`docs/02`, Locked Business Rules) is *"Accept/Reject / designated Contact — WO AWAITING_CUSTOMER_ACCEPTANCE; contact active/same Site — Accept -> COMPLETED; Reject -> Corrective Action + reason"* — this is the Customer Accept/Reject rule, which belongs to UC-WO-021/UC-WO-022, not to Work Summary submission. **UC-WO-020 traces to BR-06 only.** BR-07 remains attributed to UC-WO-021/UC-WO-022 (below).
+
+**Decision 2 — Role split for Work Summary submit/review.**
+`docs/04` states UC-WO-020's Main Flow as *"Team Lead submits; Supervisor reviews and submits for acceptance"* and `docs/03` ST-WO-003's printed Actor is "Team Lead". Per Portfolio Project Owner directive, this is corrected:
+- **Technician** submits Work Summary (ST-WO-003 actor: Technician, not Team Lead).
+- **Team Lead or Supervisor** (either one, single step) reviews and submits for acceptance (ST-WO-004 actor: Team Lead OR Supervisor, not Supervisor-only).
+- **Customer Acceptance Contact** (WO-008/WO-009, per BR-07/ST-WO-005/ST-WO-007) remains the sole Accept/Reject actor. Team Lead and Supervisor are explicitly barred from Accept/Reject on the customer's behalf — the endpoint pair enforces `AcceptanceContactId` match only, never a Team Lead/Supervisor role check as an alternate path.
+
+**Decision 3 — New technical API IDs (`WSM-API-001`/`WSM-API-002`); `WO-API-008`/`WO-API-009` not reused.**
+Because ST-WO-003/004's actors are corrected per Decision 2, `WO-API-008` (`.../submit-work-summary`, baseline actor "Team Lead") and `WO-API-009` (`.../submit-for-acceptance`, baseline actor "Supervisor") no longer describe the actor set that will be implemented. Per Portfolio Project Owner directive, these baseline IDs are **not reused** — they remain in `docs/09`'s catalog as documented but superseded here by two new, addendum-only technical IDs:
+- `WSM-API-001` — planned `POST /api/v1/work-orders/{id}/submit-work-summary` — Actor: Technician — If-Match — body: `summaryText`, `repairOutcomeCode`, evidence references.
+- `WSM-API-002` — planned `POST /api/v1/work-orders/{id}/submit-for-acceptance` — Actor: Team Lead or Supervisor — If-Match — no body.
+
+`ACC-API-001` (Accept) and `ACC-API-002` (Reject) keep their baseline IDs and actor (Customer Acceptance Contact) unchanged — no deviation on these two. `WO-API-010` (Close) keeps its baseline ID and actor (Supervisor) unchanged — only its guard is trimmed (Decision 4 below), the same category of deviation as §4.14's Check-out (baseline ID kept, guard text corrected here).
+
+**Decision 4 — Work Order Close guard deviation (Cost Summary deferred).**
+BR-12 and ST-WO-006's printed guard is *"Work Summary + Cost Summary reviewed"*. Cost Summary (CST-*, CST-API-*) is not built this round. Per Portfolio Project Owner directive, **Close's guard is trimmed to "Work Summary reviewed" only** for this round; the Cost Summary half of BR-12's guard is deferred to a later ticket — mirroring §4.14's BR-06 Check-out split exactly (baseline ties two things together, one deferred, the deferral documented here rather than silently dropped).
+
+**Decision 5 — `repairOutcomeCode` closed allowlist (WSM-007).** RR-DD-001 names this field "Active Outcome" but defines no master-data table or value list anywhere in the baseline (confirmed by exhaustive search across all 13 PDFs, both markdown files, and the full codebase — no `Outcome` lookup entity, table, seed data, or enum exists or ever existed). Per explicit Portfolio Project Owner directive, `repairOutcomeCode` is a **closed six-value allowlist**, required, normalized to uppercase before matching, rejecting anything else (null, empty, whitespace, or an unrecognized code) with `422 VALIDATION_FAILED` — never stored as an arbitrary string:
+
+| Code | Meaning |
+|---|---|
+| `REPAIRED` | Repair completed successfully and the equipment is back in service. |
+| `TEMPORARY_FIX` | A temporary fix was applied; usable but further action is still required. |
+| `PARTS_REQUIRED` | Work cannot continue until parts arrive. |
+| `NO_FAULT_FOUND` | Investigated but the reported fault could not be found or reproduced. |
+| `NOT_REPAIRABLE` | The equipment cannot be repaired. |
+| `FOLLOW_UP_REQUIRED` | A further appointment or inspection is required. |
+
+Implemented as a C# enum (`RepairOutcomeCode`, `RepairRequest.Domain.WorkOrders`) with a database `CHECK` constraint generated from the same code list (`CK_work_summary_repair_outcome_code`, mirroring the `UpperSnakeCaseEnumConverter`/`SqlCheck.In<T>()` convention every other status column in this codebase already uses) — the database and the C# allowlist cannot drift apart. This is deliberately **not** a master-data table: no admin-managed CRUD, no per-tenant seeding, no `HasData` — adding, renaming, or removing a value requires another Portfolio Project Owner directive and a code change, the same posture as `WorkOrderStatus`/`WorkSessionStatus`/`MissedVisitDecisionCode`. A future ticket to make Outcome an administrator-managed lookup (mirroring `RequestCategory`/`RequestPriority`) is explicitly out of scope this round.
+
+**Preconditions for Team Lead/Supervisor review (planned `WSM-API-002`).** Both must hold: (a) the underlying Work Session is `CHECKED_OUT`; (b) WO status is already `AWAITING_SUPERVISOR_REVIEW` (i.e., Technician has already submitted via the planned `WSM-API-001`).
+
+**Data scope.** Team Lead/Supervisor: tenant scope plus the Sites in their own `user_site_scope` — planned reuse of the existing `IDataScope.WorkOrders()` (`DataScope.cs`), unchanged, which already implements exactly this (tenant + site-scope join through the Repair Request, gated by `CurrentUser.HasSiteWideWorkOrderScope`). To be enforced backend-only; an Angular route guard, if added, remains UX convenience only, never the security boundary — same posture as every prior ticket.
+
+**Not in this round:** Cost Summary (BR-12's other half — a later ticket); Corrective Action's plan/approval/rework cycle (UC-WO-023/024 — Reject is still planned to create a minimal `CorrectiveAction` row in `DRAFT` status atomically, per ST-WO-007's own documented side effect, but nothing beyond that DRAFT row); Cancel Work Order (UC-WO-026); Time Correction (preserved on its own holding branch `feature/s6-time-correction-pending-scope`, untouched by this round).
+
+**Process note.** As with §4.14, no Sprint 4 roadmap or backlog document exists anywhere in `/docs` (confirmed by exhaustive search across all 13 baseline PDFs and both markdown files). UC-WO-020/021/022 and ST-WO-006 are identified here by their own baseline IDs only — this section does not assert, and no evidence supports, that they constitute "Sprint 4" as a defined scope boundary.
+
+- Trace: ST-WO-003/004/005/006/007; BR-06/07/11/12/15; UC-WO-020/021/022; WO-008/009/010/011/012; WSM-001/003/004/005/006/007; EVD-001/003/004/013; CAC-001..010; ACC-001..009.
 
 ---
 

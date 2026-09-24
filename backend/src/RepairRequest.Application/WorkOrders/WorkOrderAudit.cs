@@ -39,6 +39,10 @@ public static class WorkOrderAudit
     public const string PausedAtField = "pausedAt";
     public const string ResumedAtField = "resumedAt";
 
+    public const string WorkSummarySubmittedAction = "WORK_SUMMARY_SUBMITTED";
+    public const string SubmittedForAcceptanceAction = "WORK_ORDER_SUBMITTED_FOR_ACCEPTANCE";
+    public const string WorkSummaryIdField = "workSummaryId";
+
     /// <summary>ST-WO-001 success: OPEN -&gt; SCHEDULED, with the new first Service Visit referenced. No reason applies.</summary>
     public static AuditHistory Scheduled(CommandContext context, WorkOrder workOrder, ServiceVisit visit, DateTime occurredAt) =>
         new(
@@ -175,6 +179,49 @@ public static class WorkOrderAudit
             toState: ServiceVisitStatusCodes.ToCode(ServiceVisitStatus.Completed),
             oldValueJson: null,
             newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?> { [WorkSessionIdField] = session.Id }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WO-003 success (UC-WO-020; `docs/13` §4.15): IN_PROGRESS -&gt; AWAITING_SUPERVISOR_REVIEW on the Work
+    /// Order itself, triggered by the Technician's Submit. The new Work Summary is referenced (id and outcome
+    /// code only — the summary text is not duplicated into the audit trail). No reason applies.
+    /// </summary>
+    public static AuditHistory WorkSummarySubmitted(CommandContext context, WorkOrder workOrder, WorkSummary summary, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            WorkSummarySubmittedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.InProgress),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.AwaitingSupervisorReview),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [WorkSummaryIdField] = summary.Id,
+                [WorkSummaryFields.RepairOutcomeCode] = RepairOutcomeCodes.ToCode(summary.RepairOutcomeCode)
+            }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WO-004 success (`docs/13` §4.15): AWAITING_SUPERVISOR_REVIEW -&gt; AWAITING_CUSTOMER_ACCEPTANCE on the
+    /// Work Order, triggered by either the Team Lead or the Supervisor. No reason applies.
+    /// </summary>
+    public static AuditHistory SubmittedForAcceptance(CommandContext context, WorkOrder workOrder, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            SubmittedForAcceptanceAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.AwaitingSupervisorReview),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.AwaitingCustomerAcceptance),
+            oldValueJson: null,
+            newValueJson: null,
             reason: null,
             context.User.UserId,
             occurredAt,

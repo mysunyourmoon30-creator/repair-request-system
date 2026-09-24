@@ -89,7 +89,8 @@ public sealed record WorkSessionDto(
     DateTime? ResumeAt,
     DateTime? CheckOutAt,
     IReadOnlyList<WorkSessionPauseDto> Pauses,
-    byte[] RowVersion);
+    byte[] RowVersion,
+    byte[] WorkOrderRowVersion);
 
 /// <summary>Canonical upper-snake Work Session status codes (RR-DD-001 WS-005; RR-STS-001 section 1).</summary>
 public static class WorkSessionStatusCodes
@@ -107,6 +108,63 @@ public static class WorkSessionStatusCodes
 public static class WorkSessionFields
 {
     public const string Reason = "reason";
+}
+
+/// <summary>
+/// Work Summary projection (UC-WO-020; RR-DD-001 WSM-001/003..007; `docs/13` §4.15). Returned by the Technician's
+/// Submit action, the Team-Lead/Supervisor review read, and embedded nowhere else — <see cref="WorkOrderDto"/> is
+/// deliberately left unchanged so the existing S2-001 List/Detail projection is untouched by this ticket.
+/// </summary>
+public sealed record WorkSummaryDto(
+    Guid WorkSummaryId,
+    Guid WorkOrderId,
+    Guid ServiceVisitId,
+    int RevisionNo,
+    string SummaryText,
+    RepairOutcomeCode RepairOutcomeCode);
+
+/// <summary>WSM-API-001 Submit Work Summary body fields (`docs/13` §4.15 Decision 3) — used as 422 error keys.</summary>
+public static class WorkSummaryFields
+{
+    public const string SummaryText = "summaryText";
+    public const string RepairOutcomeCode = "repairOutcomeCode";
+}
+
+/// <summary>
+/// Canonical upper-snake Repair Outcome codes — the closed six-value allowlist (WSM-007; `docs/13` §4.15
+/// Decision, Portfolio Project Owner directive). <see cref="TryParse"/> is the only entry point that accepts
+/// client input; there is no "unknown code passes through" path anywhere in this codebase.
+/// </summary>
+public static class RepairOutcomeCodes
+{
+    public static string ToCode(RepairOutcomeCode code) => code switch
+    {
+        RepairOutcomeCode.Repaired => "REPAIRED",
+        RepairOutcomeCode.TemporaryFix => "TEMPORARY_FIX",
+        RepairOutcomeCode.PartsRequired => "PARTS_REQUIRED",
+        RepairOutcomeCode.NoFaultFound => "NO_FAULT_FOUND",
+        RepairOutcomeCode.NotRepairable => "NOT_REPAIRABLE",
+        RepairOutcomeCode.FollowUpRequired => "FOLLOW_UP_REQUIRED",
+        _ => throw new ArgumentOutOfRangeException(nameof(code))
+    };
+
+    public static bool TryParse(string? code, out RepairOutcomeCode value)
+    {
+        switch (code)
+        {
+            case "REPAIRED": value = RepairOutcomeCode.Repaired; return true;
+            case "TEMPORARY_FIX": value = RepairOutcomeCode.TemporaryFix; return true;
+            case "PARTS_REQUIRED": value = RepairOutcomeCode.PartsRequired; return true;
+            case "NO_FAULT_FOUND": value = RepairOutcomeCode.NoFaultFound; return true;
+            case "NOT_REPAIRABLE": value = RepairOutcomeCode.NotRepairable; return true;
+            case "FOLLOW_UP_REQUIRED": value = RepairOutcomeCode.FollowUpRequired; return true;
+            default: value = default; return false;
+        }
+    }
+
+    /// <summary>Every allowed code, for error messages and list endpoints. Not a database-backed lookup — see <see cref="RepairOutcomeCode"/>'s own remarks.</summary>
+    public static IReadOnlyList<string> All { get; } =
+        Enum.GetValues<RepairOutcomeCode>().Select(ToCode).ToArray();
 }
 
 /// <summary>
