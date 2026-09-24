@@ -19,6 +19,9 @@ public sealed class WorkOrderListRequest
 /// Work Order list/detail response (S2-001; extended S2-003 with <see cref="Visits"/>). Reused for both the list
 /// and the detail action, and returned by Schedule and every Service Visit action so the caller never needs a
 /// separate visit fetch. Customer/Site/Equipment are codes, not display names — the entities expose no name field.
+/// <see cref="AcceptanceContactId"/> is added by `docs/13` §4.16 (UC-WO-021) — a raw id only, so an Angular
+/// caller can compare it against their own signed-in user id to decide whether to show the Accept button; never
+/// the contact's name/email (this response never leaks <c>AcceptanceContactSnapshot</c>).
 /// </summary>
 public sealed record WorkOrderResponse(
     Guid WorkOrderId,
@@ -30,7 +33,8 @@ public sealed record WorkOrderResponse(
     string? SiteCode,
     string? EquipmentCode,
     string RowVersion,
-    IReadOnlyList<ServiceVisitResponse> Visits);
+    IReadOnlyList<ServiceVisitResponse> Visits,
+    Guid? AcceptanceContactId);
 
 /// <summary>Service Visit response (S2-003; RR-DD-001 SV-001..018). Team/technician are raw ids — no directory to resolve a display name from.</summary>
 public sealed record ServiceVisitResponse(
@@ -133,6 +137,12 @@ public sealed record WorkSessionResponse(
 /// <summary>WSM-API-001 Submit Work Summary body (`docs/13` §4.15 Decision 3). Both fields are required.</summary>
 public sealed record SubmitWorkSummaryRequest(string? SummaryText, string? RepairOutcomeCode);
 
+/// <summary>WSM-API-002 Submit for Acceptance body (`docs/13` §4.16 Decision 2). Required — the caller must explicitly confirm the contact, even when only one candidate exists.</summary>
+public sealed record SubmitForAcceptanceRequest(Guid? AcceptanceContactId);
+
+/// <summary>`ACC-API-ADD-001` eligible Acceptance Contact (`docs/13` §4.16) — never used as authorization by itself; Accept re-checks identity server-side.</summary>
+public sealed record EligibleAcceptanceContactResponse(Guid UserId, string DisplayName, string Email);
+
 /// <summary>Work Summary response (UC-WO-020; `docs/13` §4.15) — returned by Submit and by the Work Summary read.</summary>
 public sealed record WorkSummaryResponse(
     Guid WorkSummaryId,
@@ -162,7 +172,14 @@ public static class WorkOrderResponses
             dto.SiteCode,
             dto.EquipmentCode,
             Convert.ToBase64String(dto.RowVersion),
-            dto.Visits.Select(ServiceVisitResponses.ToResponse).ToList());
+            dto.Visits.Select(ServiceVisitResponses.ToResponse).ToList(),
+            dto.AcceptanceContactId);
+}
+
+public static class EligibleAcceptanceContactResponses
+{
+    public static EligibleAcceptanceContactResponse ToResponse(EligibleAcceptanceContactDto dto) =>
+        new(dto.UserId, dto.DisplayName, dto.Email);
 }
 
 public static class WorkSessionResponses

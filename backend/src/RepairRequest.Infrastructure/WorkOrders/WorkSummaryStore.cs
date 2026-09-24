@@ -1,4 +1,5 @@
 using System.Data;
+using System.Text.Json;
 using Microsoft.Data.SqlClient;
 using Microsoft.EntityFrameworkCore;
 using RepairRequest.Application.Common;
@@ -137,6 +138,47 @@ internal sealed class WorkSummaryStore : IWorkSummaryStore
             .Select(summary => new WorkSummaryDto(
                 summary.Id, summary.WorkOrderId, summary.ServiceVisitId, summary.RevisionNo, summary.SummaryText, summary.RepairOutcomeCode))
             .SingleOrDefaultAsync(cancellationToken);
+    }
+
+    public async Task<string?> ResolveAcceptanceContactSnapshotAsync(Guid tenantId, Guid repairRequestId, Guid acceptanceContactId, CancellationToken cancellationToken)
+    {
+        var siteId = await _db.RepairRequests
+            .Where(request => request.Id == repairRequestId)
+            .Select(request => request.SiteId)
+            .SingleOrDefaultAsync(cancellationToken);
+        if (siteId is null)
+        {
+            return null;
+        }
+
+        var candidate = await AcceptanceContactEligibility.EligibleUsers(_db, tenantId, siteId.Value)
+            .Where(user => user.Id == acceptanceContactId)
+            .Select(user => new { user.UserName, user.Email })
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return candidate is null
+            ? null
+            : JsonSerializer.Serialize(new Dictionary<string, object?> { ["displayName"] = candidate.UserName, ["email"] = candidate.Email });
+    }
+
+    public async Task<IReadOnlyList<EligibleAcceptanceContactDto>> ListEligibleAcceptanceContactsAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken)
+    {
+        var row = await (
+            from workOrder in _scope.WorkOrders(user)
+            join request in _db.RepairRequests on workOrder.RepairRequestId equals request.Id
+            where workOrder.Id == workOrderId
+            select request.SiteId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        if (row is null)
+        {
+            return [];
+        }
+
+        return await AcceptanceContactEligibility.EligibleUsers(_db, user.TenantId, row.Value)
+            .OrderBy(candidate => candidate.UserName)
+            .Select(candidate => new EligibleAcceptanceContactDto(candidate.Id, candidate.UserName!, candidate.Email!))
+            .ToListAsync(cancellationToken);
     }
 
     private static int? SqlErrorNumber(Exception exception) =>

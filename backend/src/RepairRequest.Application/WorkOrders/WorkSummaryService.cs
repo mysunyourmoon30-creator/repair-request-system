@@ -28,6 +28,10 @@ public sealed class WorkSummaryService
     public Task<WorkSummaryDto?> GetAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
         _store.GetWorkSummaryAsync(user, workOrderId, cancellationToken);
 
+    /// <summary>`ACC-API-ADD-001` (`docs/13` §4.16): every REQUESTER eligible to be designated as this Work Order's Acceptance Contact.</summary>
+    public Task<IReadOnlyList<EligibleAcceptanceContactDto>> ListEligibleAcceptanceContactsAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
+        _store.ListEligibleAcceptanceContactsAsync(user, workOrderId, cancellationToken);
+
     public Task<CommandResult<Guid>> SubmitAsync(
         CommandContext context, Guid workOrderId, byte[] expectedRowVersion, string? summaryText, string? repairOutcomeCode, CancellationToken cancellationToken) =>
         _store.RunInTransactionAsync(() => SubmitLockedAsync(context, workOrderId, expectedRowVersion, summaryText, repairOutcomeCode, cancellationToken), cancellationToken);
@@ -96,11 +100,11 @@ public sealed class WorkSummaryService
     }
 
     public Task<CommandResult<Guid>> SubmitForAcceptanceAsync(
-        CommandContext context, Guid workOrderId, byte[] expectedRowVersion, CancellationToken cancellationToken) =>
-        _store.RunInTransactionAsync(() => SubmitForAcceptanceLockedAsync(context, workOrderId, expectedRowVersion, cancellationToken), cancellationToken);
+        CommandContext context, Guid workOrderId, byte[] expectedRowVersion, Guid? acceptanceContactId, CancellationToken cancellationToken) =>
+        _store.RunInTransactionAsync(() => SubmitForAcceptanceLockedAsync(context, workOrderId, expectedRowVersion, acceptanceContactId, cancellationToken), cancellationToken);
 
     private async Task<CommandResult<Guid>> SubmitForAcceptanceLockedAsync(
-        CommandContext context, Guid workOrderId, byte[] expectedRowVersion, CancellationToken cancellationToken)
+        CommandContext context, Guid workOrderId, byte[] expectedRowVersion, Guid? acceptanceContactId, CancellationToken cancellationToken)
     {
         var workOrder = await _store.LoadForAcceptanceSubmitAsync(context.User, workOrderId, cancellationToken);
         if (workOrder is null)
@@ -121,8 +125,25 @@ public sealed class WorkSummaryService
                     : "Only a Work Order awaiting supervisor review can be submitted for acceptance.");
         }
 
+        // `docs/13` §4.16 Decision 2: the caller must explicitly confirm the contact (even when only one
+        // eligible candidate exists, per the approved plan's "still must send AcceptanceContactId" rule) — no
+        // free-text id, no silent default. Eligibility (REQUESTER, tenant, Site) and the snapshot are both
+        // resolved server-side; the client never supplies a snapshot.
+        if (acceptanceContactId is null || acceptanceContactId == Guid.Empty)
+        {
+            return CommandError.Validation(SubmitForAcceptanceFields.AcceptanceContactId, "acceptanceContactId is required.");
+        }
+
+        var snapshot = await _store.ResolveAcceptanceContactSnapshotAsync(workOrder.TenantId, workOrder.RepairRequestId, acceptanceContactId.Value, cancellationToken);
+        if (snapshot is null)
+        {
+            return CommandError.Validation(
+                SubmitForAcceptanceFields.AcceptanceContactId,
+                "acceptanceContactId must be an existing Requester with Site scope on this Work Order's Site.");
+        }
+
         var now = WorkOrderScheduleService.ToUtc(_clock.GetUtcNow())!.Value;
-        workOrder.SubmitForAcceptance();
+        workOrder.SubmitForAcceptance(acceptanceContactId.Value, snapshot);
 
         _store.AddAudit(WorkOrderAudit.SubmittedForAcceptance(context, workOrder, now));
 

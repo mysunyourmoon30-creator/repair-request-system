@@ -88,6 +88,21 @@ public static class AuthorizationPolicies
     /// <summary>Read the Work Summary of a Work Order (own, for a Technician; site-wide, for Team Lead/Supervisor) — `docs/13` §4.15.</summary>
     public const string WorkOrderReadWorkSummary = "WorkOrder.ReadWorkSummary";
 
+    /// <summary>
+    /// List the REQUESTER users eligible to be designated as a Work Order's Acceptance Contact (`docs/13` §4.16,
+    /// technical lookup `ACC-API-ADD-001`). Team Lead or Supervisor only — the same actors as
+    /// <see cref="WorkOrderSubmitForAcceptance"/>, since this exists purely to support that action.
+    /// </summary>
+    public const string WorkOrderReadEligibleAcceptanceContacts = "WorkOrder.ReadEligibleAcceptanceContacts";
+
+    /// <summary>
+    /// Accept a Work Order awaiting Customer Acceptance (ST-WO-005; UC-WO-021; `docs/13` §4.16 Decision 1: the
+    /// existing REQUESTER role, not a new "Customer" role). Role gate only — the real check is resource-specific
+    /// (the caller must be exactly <see cref="RepairRequest.Domain.WorkOrders.WorkOrder.AcceptanceContactId"/>),
+    /// enforced by the Application service.
+    /// </summary>
+    public const string WorkOrderAccept = "WorkOrder.Accept";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -124,7 +139,9 @@ public static class AuthorizationPolicies
             [WorkSessionRead] = [RoleCodes.Technician],
             [WorkOrderSubmitWorkSummary] = [RoleCodes.Technician],
             [WorkOrderSubmitForAcceptance] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
-            [WorkOrderReadWorkSummary] = [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor]
+            [WorkOrderReadWorkSummary] = [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor],
+            [WorkOrderReadEligibleAcceptanceContacts] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
+            [WorkOrderAccept] = [RoleCodes.Requester]
         };
 }
 

@@ -49,7 +49,7 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
 
     private sealed record Caller(Guid UserId, Guid TenantId, string Token);
 
-    private sealed record CheckedOut(Guid TenantId, Site Site, Caller TeamLead, Caller Supervisor, Caller Technician, Guid WorkOrderId, Guid ServiceVisitId, string WorkOrderETag);
+    private sealed record CheckedOut(Guid TenantId, Site Site, Caller Owner, Caller TeamLead, Caller Supervisor, Caller Technician, Guid WorkOrderId, Guid ServiceVisitId, string WorkOrderETag);
 
     // ---------------- Success ----------------
 
@@ -96,19 +96,27 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
     {
         var reviewReady = await SubmittedAsync();
 
-        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead, null, reviewReady.WorkOrderETag);
+        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead,
+            new { acceptanceContactId = reviewReady.Checked.Owner.UserId }, reviewReady.WorkOrderETag);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await JsonAsync(response);
         Assert.Equal("AWAITING_CUSTOMER_ACCEPTANCE", body.GetProperty("status").GetString());
+        Assert.Equal(reviewReady.Checked.Owner.UserId, body.GetProperty("acceptanceContactId").GetGuid());
 
         var workOrder = await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(w => w.Id == reviewReady.WorkOrderId));
         Assert.Equal(WorkOrderStatus.AwaitingCustomerAcceptance, workOrder.Status);
+        Assert.Equal(reviewReady.Checked.Owner.UserId, workOrder.AcceptanceContactId);
+        using var snapshotJson = JsonDocument.Parse(workOrder.AcceptanceContactSnapshot!);
+        Assert.False(string.IsNullOrWhiteSpace(snapshotJson.RootElement.GetProperty("displayName").GetString()));
+        Assert.False(string.IsNullOrWhiteSpace(snapshotJson.RootElement.GetProperty("email").GetString()));
 
         var audit = await WithDbAsync(db => db.AuditHistory.AsNoTracking().SingleAsync(a => a.EntityId == reviewReady.WorkOrderId && a.ActionCode == "WORK_ORDER_SUBMITTED_FOR_ACCEPTANCE"));
         Assert.Equal("AWAITING_SUPERVISOR_REVIEW", audit.FromState);
         Assert.Equal("AWAITING_CUSTOMER_ACCEPTANCE", audit.ToState);
         Assert.Equal(reviewReady.Checked.TeamLead.UserId, audit.ActorId);
+        using var auditJson = JsonDocument.Parse(audit.NewValueJson!);
+        Assert.Equal(reviewReady.Checked.Owner.UserId, auditJson.RootElement.GetProperty("acceptanceContactId").GetGuid());
     }
 
     [Fact]
@@ -116,7 +124,8 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
     {
         var reviewReady = await SubmittedAsync();
 
-        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.Supervisor, null, reviewReady.WorkOrderETag);
+        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.Supervisor,
+            new { acceptanceContactId = reviewReady.Checked.Owner.UserId }, reviewReady.WorkOrderETag);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         Assert.Equal("AWAITING_CUSTOMER_ACCEPTANCE", (await JsonAsync(response)).GetProperty("status").GetString());
@@ -238,7 +247,8 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
         var outsider = await CallerAsync(reviewReady.Checked.TenantId, [], RoleCodes.TeamLead);
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", outsider, null, reviewReady.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", outsider,
+                new { acceptanceContactId = reviewReady.Checked.Owner.UserId }, reviewReady.WorkOrderETag),
             HttpStatusCode.NotFound, "NOT_FOUND");
     }
 
@@ -297,7 +307,8 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
         var c = await CheckedOutAsync();
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-for-acceptance", c.TeamLead, null, c.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-for-acceptance", c.TeamLead,
+                new { acceptanceContactId = c.Owner.UserId }, c.WorkOrderETag),
             HttpStatusCode.Conflict, "STATE_CONFLICT");
     }
 
@@ -305,12 +316,14 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
     public async Task ASecondSubmitForAcceptance_Returns409StateConflict()
     {
         var reviewReady = await SubmittedAsync();
-        var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.Supervisor, null, reviewReady.WorkOrderETag);
+        var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.Supervisor,
+            new { acceptanceContactId = reviewReady.Checked.Owner.UserId }, reviewReady.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         var freshETag = first.Headers.ETag!.Tag;
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead, null, freshETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead,
+                new { acceptanceContactId = reviewReady.Checked.Owner.UserId }, freshETag),
             HttpStatusCode.Conflict, "STATE_CONFLICT");
     }
 
@@ -451,6 +464,132 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
         Assert.Equal(WorkOrderStatus.InProgress, workOrder.Status);
     }
 
+    // ---------------- Acceptance Contact designation (`docs/13` §4.16 Decision 2) ----------------
+
+    [Fact]
+    public async Task SubmitForAcceptance_WithNoAcceptanceContactId_Returns422_AndDoesNotChangeState()
+    {
+        var reviewReady = await SubmittedAsync();
+
+        var problem = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead, new { }, reviewReady.WorkOrderETag),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(problem.GetProperty("errors").TryGetProperty("acceptanceContactId", out _));
+
+        var workOrder = await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(w => w.Id == reviewReady.WorkOrderId));
+        Assert.Equal(WorkOrderStatus.AwaitingSupervisorReview, workOrder.Status);
+        Assert.Null(workOrder.AcceptanceContactId);
+    }
+
+    [Fact]
+    public async Task SubmitForAcceptance_WithAnUnknownAcceptanceContactId_Returns422()
+    {
+        var reviewReady = await SubmittedAsync();
+
+        var problem = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead,
+                new { acceptanceContactId = Guid.NewGuid() }, reviewReady.WorkOrderETag),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(problem.GetProperty("errors").TryGetProperty("acceptanceContactId", out _));
+    }
+
+    [Fact]
+    public async Task SubmitForAcceptance_WithAContactWhoIsNotARequester_Returns422()
+    {
+        var reviewReady = await SubmittedAsync();
+
+        // The Technician holds Site scope and tenant match, but not the REQUESTER role.
+        var problem = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead,
+                new { acceptanceContactId = reviewReady.Checked.Technician.UserId }, reviewReady.WorkOrderETag),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(problem.GetProperty("errors").TryGetProperty("acceptanceContactId", out _));
+    }
+
+    [Fact]
+    public async Task SubmitForAcceptance_WithARequesterOutsideTheWorkOrdersSite_Returns422()
+    {
+        var reviewReady = await SubmittedAsync();
+        var otherSiteRequester = await CallerAsync(reviewReady.Checked.TenantId, [], RoleCodes.Requester);
+
+        var problem = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead,
+                new { acceptanceContactId = otherSiteRequester.UserId }, reviewReady.WorkOrderETag),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(problem.GetProperty("errors").TryGetProperty("acceptanceContactId", out _));
+    }
+
+    [Fact]
+    public async Task SubmitForAcceptance_WithARequesterOfAnotherTenant_Returns422()
+    {
+        var reviewReady = await SubmittedAsync();
+        var foreignRequester = await CallerAsync(Guid.NewGuid(), [], RoleCodes.Requester);
+
+        var problem = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{reviewReady.WorkOrderId}/submit-for-acceptance", reviewReady.Checked.TeamLead,
+                new { acceptanceContactId = foreignRequester.UserId }, reviewReady.WorkOrderETag),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(problem.GetProperty("errors").TryGetProperty("acceptanceContactId", out _));
+    }
+
+    // ---------------- ACC-API-ADD-001 eligible acceptance contacts lookup (`docs/13` §4.16) ----------------
+
+    [Fact]
+    public async Task EligibleAcceptanceContacts_ListsTheOwnerRequester_ForTeamLeadAndSupervisor()
+    {
+        var c = await CheckedOutAsync();
+
+        var byTeamLead = await SendAsync(HttpMethod.Get, $"{WorkOrders}/{c.WorkOrderId}/eligible-acceptance-contacts", c.TeamLead, null, null);
+        Assert.Equal(HttpStatusCode.OK, byTeamLead.StatusCode);
+        var items = (await JsonAsync(byTeamLead)).EnumerateArray().ToList();
+        Assert.Contains(items, item => item.GetProperty("userId").GetGuid() == c.Owner.UserId);
+        // Never leaks a free-text-guessable id path — every field is server-resolved data only.
+        Assert.All(items, item =>
+        {
+            Assert.NotEqual(Guid.Empty, item.GetProperty("userId").GetGuid());
+            Assert.False(string.IsNullOrWhiteSpace(item.GetProperty("displayName").GetString()));
+            Assert.False(string.IsNullOrWhiteSpace(item.GetProperty("email").GetString()));
+        });
+
+        var bySupervisor = await SendAsync(HttpMethod.Get, $"{WorkOrders}/{c.WorkOrderId}/eligible-acceptance-contacts", c.Supervisor, null, null);
+        Assert.Equal(HttpStatusCode.OK, bySupervisor.StatusCode);
+    }
+
+    [Fact]
+    public async Task EligibleAcceptanceContacts_ExcludesNonRequesters()
+    {
+        var c = await CheckedOutAsync();
+
+        var response = await SendAsync(HttpMethod.Get, $"{WorkOrders}/{c.WorkOrderId}/eligible-acceptance-contacts", c.TeamLead, null, null);
+
+        var ids = (await JsonAsync(response)).EnumerateArray().Select(item => item.GetProperty("userId").GetGuid()).ToList();
+        Assert.DoesNotContain(c.Technician.UserId, ids);
+        Assert.DoesNotContain(c.TeamLead.UserId, ids);
+        Assert.DoesNotContain(c.Supervisor.UserId, ids);
+    }
+
+    [Fact]
+    public async Task EligibleAcceptanceContacts_ByATechnician_Returns403()
+    {
+        var c = await CheckedOutAsync();
+
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Get, $"{WorkOrders}/{c.WorkOrderId}/eligible-acceptance-contacts", c.Technician, null, null),
+            HttpStatusCode.Forbidden, "ACCESS_DENIED");
+    }
+
+    [Fact]
+    public async Task EligibleAcceptanceContacts_ForAWorkOrderOutsideTheCallersSiteScope_ReturnsAnEmptyList()
+    {
+        var c = await CheckedOutAsync();
+        var outsider = await CallerAsync(c.TenantId, [], RoleCodes.TeamLead);
+
+        var response = await SendAsync(HttpMethod.Get, $"{WorkOrders}/{c.WorkOrderId}/eligible-acceptance-contacts", outsider, null, null);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Empty((await JsonAsync(response)).EnumerateArray());
+    }
+
     // ---------------- Helpers ----------------
 
     private async Task AssertNoSummaryExistsAsync(Guid workOrderId) =>
@@ -541,7 +680,7 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
         var workOrder = await SendAsync(HttpMethod.Get, $"{WorkOrders}/{workOrderId}", teamLead, null, null);
         var workOrderETag = $"\"{(await JsonAsync(workOrder)).GetProperty("rowVersion").GetString()}\"";
 
-        return new CheckedOut(tenantId, site, teamLead, supervisor, technician, workOrderId, visitId, workOrderETag);
+        return new CheckedOut(tenantId, site, owner, teamLead, supervisor, technician, workOrderId, visitId, workOrderETag);
     }
 
     private async Task<(Guid Id, string ETag)> DraftAsync(Caller owner, Site site)

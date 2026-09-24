@@ -1,7 +1,8 @@
 import { HttpErrorResponse } from '@angular/common/http';
-import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
+import { getCurrentUserId, getCurrentUserRoles } from '../../core/auth/current-user-role';
 import { MISSED_VISIT_DECISIONS, ServiceVisit, WorkOrder } from './work-order.models';
 import { WorkOrderService } from './work-order.service';
 
@@ -10,7 +11,10 @@ import { WorkOrderService } from './work-order.service';
  * Service Visit, its status-gated actions (Reschedule/Reassign/Cancel/Mark Missed while SCHEDULED, Decide Missed
  * while MISSED). Team/technician fields are plain text ids — there is no directory to pick a display name from
  * (no Team master data exists, and technician eligibility is checked server-side). `datetime-local` inputs are
- * treated as UTC directly (no timezone picker in this minimal form).
+ * treated as UTC directly (no timezone picker in this minimal form). Per `docs/13` §4.16 Decision 3, the Accept
+ * button (ACC-API-001) is shown only when the signed-in user is REQUESTER and their own id matches
+ * `workOrder.acceptanceContactId`, while the Work Order awaits Customer Acceptance — pure UX convenience; the
+ * backend re-derives and re-checks the caller's identity on every request regardless (never trusts the button).
  */
 @Component({
   selector: 'app-work-order-detail',
@@ -44,6 +48,10 @@ import { WorkOrderService } from './work-order.service';
         <dt>Equipment Code</dt>
         <dd>{{ workOrder.equipmentCode ?? '—' }}</dd>
       </dl>
+
+      @if (canAccept(workOrder)) {
+        <button type="button" [disabled]="submitting()" (click)="onAccept(workOrder)">Accept</button>
+      }
 
       @if (workOrder.status === 'OPEN') {
         <h2>Schedule</h2>
@@ -185,6 +193,20 @@ export class WorkOrderDetailComponent {
         }
       },
     });
+  }
+
+  /** UX only — `docs/13` §4.16 Decision 3. The backend always re-checks role, identity and state regardless. */
+  protected canAccept(workOrder: WorkOrder): boolean {
+    return (
+      workOrder.status === 'AWAITING_CUSTOMER_ACCEPTANCE' &&
+      workOrder.acceptanceContactId !== null &&
+      workOrder.acceptanceContactId === getCurrentUserId() &&
+      getCurrentUserRoles().includes('REQUESTER')
+    );
+  }
+
+  protected onAccept(workOrder: WorkOrder): void {
+    this.run(this.workOrders.accept(workOrder.workOrderId, this.quoted(workOrder.rowVersion)));
   }
 
   protected onSchedule(

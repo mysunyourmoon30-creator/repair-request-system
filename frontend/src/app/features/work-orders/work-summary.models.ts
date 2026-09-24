@@ -25,3 +25,15 @@ export const REPAIR_OUTCOME_CODES: ReadonlyArray<{ code: string; label: string }
   { code: 'NOT_REPAIRABLE', label: 'Not Repairable — equipment cannot be repaired' },
   { code: 'FOLLOW_UP_REQUIRED', label: 'Follow-Up Required — a further appointment or inspection is needed' },
 ];
+
+/**
+ * A REQUESTER user eligible to be designated as a Work Order's Acceptance Contact (`docs/13` §4.16, technical
+ * lookup `ACC-API-ADD-001`). Matches `EligibleAcceptanceContactResponse` on the backend exactly. Never used as
+ * authorization by itself — the backend re-validates `acceptanceContactId` fully when Submit for Acceptance is
+ * actually called.
+ */
+export interface EligibleAcceptanceContact {
+  userId: string;
+  displayName: string;
+  email: string;
+}

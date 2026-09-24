@@ -74,6 +74,17 @@ internal sealed class WorkOrderStore : IWorkOrderStore
             : dto with { Visits = dto.Visits.Where(visit => visit.AssignedTechnicianId == userId).ToList() };
     }
 
+    public Task<WorkOrderDto?> GetForAcceptanceContactAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken)
+    {
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        var scoped = _db.WorkOrders.Where(workOrder => workOrder.TenantId == tenantId && workOrder.AcceptanceContactId == userId);
+
+        return Project(scoped.AsNoTracking().Where(workOrder => workOrder.Id == workOrderId))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
     private IQueryable<WorkOrderDto> Project(IQueryable<WorkOrder> workOrders) =>
         from workOrder in workOrders
         join request in _db.RepairRequests on workOrder.RepairRequestId equals request.Id
@@ -113,5 +124,6 @@ internal sealed class WorkOrderStore : IWorkOrderStore
                     visit.MissedDecisionCode,
                     visit.MissedDecidedAt,
                     visit.RowVersion))
-                .ToList());
+                .ToList(),
+            workOrder.AcceptanceContactId);
 }

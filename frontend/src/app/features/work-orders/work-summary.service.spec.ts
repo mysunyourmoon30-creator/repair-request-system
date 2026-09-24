@@ -27,14 +27,25 @@ describe('WorkSummaryService', () => {
     req.flush({});
   });
 
-  it('submits for acceptance with the quoted If-Match header and no body', () => {
-    service.submitForAcceptance('wo-1', '"v2"').subscribe();
+  it('submits for acceptance with the quoted If-Match header and the acceptance contact id', () => {
+    service.submitForAcceptance('wo-1', '"v2"', 'contact-1').subscribe();
 
     const req = httpMock.expectOne(`${baseUrl}/wo-1/submit-for-acceptance`);
     expect(req.request.method).toBe('POST');
     expect(req.request.headers.get('If-Match')).toBe('"v2"');
-    expect(req.request.body).toBeNull();
+    expect(req.request.body).toEqual({ acceptanceContactId: 'contact-1' });
     req.flush({});
+  });
+
+  it('reads the eligible acceptance contacts', () => {
+    let result: unknown = 'unset';
+    service.getEligibleAcceptanceContacts('wo-1').subscribe((contacts) => (result = contacts));
+
+    const req = httpMock.expectOne(`${baseUrl}/wo-1/eligible-acceptance-contacts`);
+    expect(req.request.method).toBe('GET');
+    req.flush([{ userId: 'u1', displayName: 'req@example.test', email: 'req@example.test' }]);
+
+    expect(result).toEqual([{ userId: 'u1', displayName: 'req@example.test', email: 'req@example.test' }]);
   });
 
   it('reads the work summary', () => {

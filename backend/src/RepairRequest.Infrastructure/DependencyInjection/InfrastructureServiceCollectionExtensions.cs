@@ -91,6 +91,9 @@ public static class InfrastructureServiceCollectionExtensions
         // Work Summary Submit/Review persistence port; `docs/13` §4.15.
         services.AddScoped<IWorkSummaryStore, WorkSummaryStore>();
 
+        // Customer Accept persistence port (ST-WO-005; UC-WO-021); `docs/13` §4.16.
+        services.AddScoped<IWorkOrderAcceptanceStore, WorkOrderAcceptanceStore>();
+
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();
         services.AddOptions<FileStorageOptions>()

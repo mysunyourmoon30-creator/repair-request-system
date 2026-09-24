@@ -34,6 +34,29 @@ export function getCurrentUserRoles(): string[] {
   return [];
 }
 
+/**
+ * Reads the `sub` claim (the signed-in user's own id) out of the access token, purely for client-side UX —
+ * e.g. comparing against `WorkOrder.acceptanceContactId` to decide whether to show the Accept button
+ * (`docs/13` §4.16 Decision 3). Not a security boundary, same caveat as {@link getCurrentUserRoles}: the backend
+ * re-derives and re-checks the caller's identity on every request regardless of what this returns.
+ */
+export function getCurrentUserId(): string | null {
+  let token: string | null = null;
+  try {
+    token = localStorage.getItem(ACCESS_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+
+  if (!token) {
+    return null;
+  }
+
+  const payload = decodeJwtPayload(token);
+  const sub = payload?.['sub'];
+  return typeof sub === 'string' ? sub : null;
+}
+
 function decodeJwtPayload(token: string): Record<string, unknown> | null {
   try {
     const [, payloadSegment] = token.split('.');

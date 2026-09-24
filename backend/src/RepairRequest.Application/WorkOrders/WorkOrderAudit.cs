@@ -43,6 +43,10 @@ public static class WorkOrderAudit
     public const string SubmittedForAcceptanceAction = "WORK_ORDER_SUBMITTED_FOR_ACCEPTANCE";
     public const string WorkSummaryIdField = "workSummaryId";
 
+    public const string AcceptedAction = "WORK_ORDER_ACCEPTED";
+    public const string AcceptanceContactIdField = "acceptanceContactId";
+    public const string AcceptanceContactSnapshotField = "acceptanceContactSnapshot";
+
     /// <summary>ST-WO-001 success: OPEN -&gt; SCHEDULED, with the new first Service Visit referenced. No reason applies.</summary>
     public static AuditHistory Scheduled(CommandContext context, WorkOrder workOrder, ServiceVisit visit, DateTime occurredAt) =>
         new(
@@ -212,6 +216,11 @@ public static class WorkOrderAudit
     /// ST-WO-004 success (`docs/13` §4.15): AWAITING_SUPERVISOR_REVIEW -&gt; AWAITING_CUSTOMER_ACCEPTANCE on the
     /// Work Order, triggered by either the Team Lead or the Supervisor. No reason applies.
     /// </summary>
+    /// <summary>
+    /// ST-WO-004 success (`docs/13` §4.15/§4.16): AWAITING_SUPERVISOR_REVIEW -&gt; AWAITING_CUSTOMER_ACCEPTANCE,
+    /// triggered by either the Team Lead or the Supervisor. The newly designated Acceptance Contact's id and
+    /// server-derived snapshot are referenced in the new value. No reason applies.
+    /// </summary>
     public static AuditHistory SubmittedForAcceptance(CommandContext context, WorkOrder workOrder, DateTime occurredAt) =>
         new(
             workOrder.TenantId,
@@ -220,6 +229,29 @@ public static class WorkOrderAudit
             SubmittedForAcceptanceAction,
             fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.AwaitingSupervisorReview),
             toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.AwaitingCustomerAcceptance),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [AcceptanceContactIdField] = workOrder.AcceptanceContactId,
+                [AcceptanceContactSnapshotField] = workOrder.AcceptanceContactSnapshot
+            }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WO-005 success (UC-WO-021; `docs/13` §4.16): AWAITING_CUSTOMER_ACCEPTANCE -&gt; COMPLETED, triggered by
+    /// the exact designated Acceptance Contact. No reason applies.
+    /// </summary>
+    public static AuditHistory Accepted(CommandContext context, WorkOrder workOrder, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            AcceptedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.AwaitingCustomerAcceptance),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Completed),
             oldValueJson: null,
             newValueJson: null,
             reason: null,

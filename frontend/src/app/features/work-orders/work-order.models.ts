@@ -1,6 +1,8 @@
 /**
  * Work Order list/detail shape (S2-001; extended S2-003 with `visits`). Matches `WorkOrderResponse` on the
- * backend exactly. Customer/Site/Equipment are codes, not display names.
+ * backend exactly. Customer/Site/Equipment are codes, not display names. `acceptanceContactId` is added by
+ * `docs/13` §4.16 (UC-WO-021) — a raw id only, so the UI can compare it against the signed-in user's own id to
+ * decide whether to show the Accept button; the backend always re-checks regardless (`docs/13` §4.16 Decision 3).
  */
 export interface WorkOrder {
   workOrderId: string;
@@ -13,6 +15,7 @@ export interface WorkOrder {
   equipmentCode: string | null;
   rowVersion: string;
   visits: ServiceVisit[];
+  acceptanceContactId: string | null;
 }
 
 /**
