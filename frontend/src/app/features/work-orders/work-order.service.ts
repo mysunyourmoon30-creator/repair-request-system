@@ -27,6 +27,11 @@ export interface ReasonOnlyRequest {
   reason: string;
 }
 
+/** ACC-API-002 Reject body (`docs/13` §4.17). Required — the exact field name is `decisionReason`, not `reason`. */
+export interface RejectWorkOrderRequest {
+  decisionReason: string;
+}
+
 /** Note: field names differ from `ScheduleWorkOrderRequest` (`assignedTeamId`, not `ownerTeamId`) — matches the backend's `NewVisitScheduleRequest`. */
 export interface NewVisitScheduleRequest {
   assignedTeamId: string;
@@ -72,6 +77,11 @@ export class WorkOrderService {
   /** ACC-API-001 Customer Accept (ST-WO-005; `docs/13` §4.16). No body — the caller's identity is resource-specific, re-checked server-side. */
   accept(workOrderId: string, ifMatch: string): Observable<WorkOrder> {
     return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/accept`, null, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /** ACC-API-002 Customer Reject (ST-WO-007; `docs/13` §4.17). Same caller as Accept; `decisionReason` is required. */
+  reject(workOrderId: string, ifMatch: string, body: RejectWorkOrderRequest): Observable<WorkOrder> {
+    return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/reject`, body, { headers: { 'If-Match': ifMatch } });
   }
 
   reschedule(serviceVisitId: string, ifMatch: string, body: RescheduleServiceVisitRequest): Observable<WorkOrder> {

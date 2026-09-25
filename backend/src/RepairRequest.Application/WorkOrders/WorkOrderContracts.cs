@@ -243,6 +243,12 @@ public static class SubmitForAcceptanceFields
     public const string AcceptanceContactId = "acceptanceContactId";
 }
 
+/// <summary>ACC-API-002 Reject body field (`docs/13` §4.17) — used as a 422 error key.</summary>
+public static class RejectFields
+{
+    public const string DecisionReason = "decisionReason";
+}
+
 /// <summary>Canonical upper-snake Service Visit status codes (RR-DD-001 SV-005; RR-STS-001 section 1).</summary>
 public static class ServiceVisitStatusCodes
 {

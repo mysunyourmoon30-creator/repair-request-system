@@ -17,20 +17,22 @@ using RepairRequest.Infrastructure.RepairRequests;
 
 namespace RepairRequest.ApiTests.WorkOrders;
 
-/// <summary>API host with its own disposable LocalDB database for the Customer Accept endpoint tests.</summary>
-public sealed class CustomerAcceptApiFactory : AuthApiFactory
+/// <summary>API host with its own disposable LocalDB database for the Customer Reject endpoint tests.</summary>
+public sealed class CustomerRejectApiFactory : AuthApiFactory
 {
     public override string ConnectionString =>
-        "Server=(localdb)\\MSSQLLocalDB;Database=RepairRequestDb_CustomerAcceptApiTest;Trusted_Connection=True;TrustServerCertificate=True";
+        "Server=(localdb)\\MSSQLLocalDB;Database=RepairRequestDb_CustomerRejectApiTest;Trusted_Connection=True;TrustServerCertificate=True";
 }
 
 /// <summary>
-/// ACC-API-001 Customer Accept (ST-WO-005; UC-WO-021; `docs/13` §4.16) end to end. Only the exact designated
-/// Acceptance Contact (a REQUESTER) may Accept — resource-specific identity, not a role-scoped query. If-Match
-/// is checked against the Work Order's own RowVersion. This file covers Accept only, per `docs/13` §4.16's own
-/// scope boundary: no Reject, Corrective Action, Close or invitation/activation.
+/// ACC-API-002 Customer Reject (ST-WO-007; UC-WO-022; BR-07/BR-15; `docs/13` §4.17) end to end. Only the exact
+/// designated Acceptance Contact (a REQUESTER) may Reject — the same resource-specific identity check as Accept,
+/// not a role-scoped query. If-Match is checked against the Work Order's own RowVersion; <c>decisionReason</c> is
+/// required. This file covers Reject only, per `docs/13` §4.17's own scope boundary: no Corrective Action
+/// plan/approve/rework/resubmit/re-accept, Work Order Close, Cost Summary, Cancel Work Order or
+/// invitation/activation.
 /// </summary>
-public sealed class CustomerAcceptEndpointsTests : IClassFixture<CustomerAcceptApiFactory>
+public sealed class CustomerRejectEndpointsTests : IClassFixture<CustomerRejectApiFactory>
 {
     private const string Requests = "/api/v1/repair-requests";
     private const string Routes = "/api/v1/approval-routes";
@@ -39,9 +41,9 @@ public sealed class CustomerAcceptEndpointsTests : IClassFixture<CustomerAcceptA
     private const string Sessions = "/api/v1/work-sessions";
     private const string ValidHash = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
 
-    private readonly CustomerAcceptApiFactory _factory;
+    private readonly CustomerRejectApiFactory _factory;
 
-    public CustomerAcceptEndpointsTests(CustomerAcceptApiFactory factory)
+    public CustomerRejectEndpointsTests(CustomerRejectApiFactory factory)
     {
         _factory = factory;
     }
@@ -53,36 +55,41 @@ public sealed class CustomerAcceptEndpointsTests : IClassFixture<CustomerAcceptA
     // ---------------- Success ----------------
 
     [Fact]
-    public async Task Accept_Success_MovesToCompleted_AndAudits_InOneTransaction()
+    public async Task Reject_Success_MovesToCorrectiveActionRequired_AndWritesEverythingInOneTransaction()
     {
         var w = await AwaitingAcceptanceAsync();
         var before = DateTime.UtcNow.AddSeconds(-2);
 
-        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, w.WorkOrderETag);
+        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Leak persists after the fix." }, w.WorkOrderETag);
         var after = DateTime.UtcNow.AddSeconds(2);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var body = await JsonAsync(response);
-        Assert.Equal("COMPLETED", body.GetProperty("status").GetString());
+        Assert.Equal("CORRECTIVE_ACTION_REQUIRED", body.GetProperty("status").GetString());
         var newETag = $"\"{body.GetProperty("rowVersion").GetString()}\"";
         Assert.NotEqual(w.WorkOrderETag, newETag);
 
         var workOrder = await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(item => item.Id == w.WorkOrderId));
-        Assert.Equal(WorkOrderStatus.Completed, workOrder.Status);
+        Assert.Equal(WorkOrderStatus.CorrectiveActionRequired, workOrder.Status);
 
-        // `docs/13` §4.17 schema decision: Accept now also writes a customer_acceptance ACCEPT row, in the same transaction.
         var acceptance = await WithDbAsync(db => db.CustomerAcceptances.AsNoTracking().SingleAsync(item => item.WorkOrderId == w.WorkOrderId));
         Assert.Equal(1, acceptance.AcceptanceRoundNo);
         Assert.Equal(w.Owner.UserId, acceptance.AcceptanceContactId);
-        Assert.Equal(AcceptanceDecision.Accept, acceptance.Decision);
-        Assert.Null(acceptance.DecisionReason);
+        Assert.Equal(AcceptanceDecision.Reject, acceptance.Decision);
+        Assert.Equal("Leak persists after the fix.", acceptance.DecisionReason);
         Assert.InRange(acceptance.DecidedAt, before, after);
 
-        var audit = await WithDbAsync(db => db.AuditHistory.AsNoTracking().SingleAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_ACCEPTED"));
+        var correctiveAction = await WithDbAsync(db => db.CorrectiveActions.AsNoTracking().SingleAsync(item => item.WorkOrderId == w.WorkOrderId));
+        Assert.Equal(1, correctiveAction.CycleNo);
+        Assert.Equal(acceptance.Id, correctiveAction.AcceptanceId);
+        Assert.Equal(CorrectiveActionStatus.Draft, correctiveAction.Status);
+        Assert.Null(correctiveAction.OwnerTeamLeadId);
+
+        var audit = await WithDbAsync(db => db.AuditHistory.AsNoTracking().SingleAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_REJECTED"));
         Assert.Equal("WORK_ORDER", audit.EntityType);
         Assert.Equal("AWAITING_CUSTOMER_ACCEPTANCE", audit.FromState);
-        Assert.Equal("COMPLETED", audit.ToState);
-        Assert.Null(audit.Reason);
+        Assert.Equal("CORRECTIVE_ACTION_REQUIRED", audit.ToState);
+        Assert.Equal("Leak persists after the fix.", audit.Reason);
         Assert.Equal(w.Owner.UserId, audit.ActorId);
         Assert.InRange(audit.OccurredAt, before, after);
         Assert.NotEqual(Guid.Empty, audit.CorrelationId);
@@ -91,42 +98,42 @@ public sealed class CustomerAcceptEndpointsTests : IClassFixture<CustomerAcceptA
     // ---------------- Authorization / scope / IDOR ----------------
 
     [Fact]
-    public async Task Accept_ByANonRequester_Get403()
+    public async Task Reject_ByANonRequester_Get403()
     {
         var w = await AwaitingAcceptanceAsync();
         var supervisor = await CallerAsync(w.TenantId, [w.Site], RoleCodes.Supervisor);
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", supervisor, null, w.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", supervisor, new { decisionReason = "Not fixed." }, w.WorkOrderETag),
             HttpStatusCode.Forbidden, "ACCESS_DENIED");
         await AssertStillAwaitingAcceptanceAsync(w.WorkOrderId);
     }
 
     [Fact]
-    public async Task Accept_ByADifferentRequesterInTheSameTenant_Get404()
+    public async Task Reject_ByADifferentRequesterInTheSameTenant_Get404()
     {
         var w = await AwaitingAcceptanceAsync();
         var otherRequester = await CallerAsync(w.TenantId, [w.Site], RoleCodes.Requester);
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", otherRequester, null, w.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", otherRequester, new { decisionReason = "Not fixed." }, w.WorkOrderETag),
             HttpStatusCode.NotFound, "NOT_FOUND");
         await AssertStillAwaitingAcceptanceAsync(w.WorkOrderId);
     }
 
     [Fact]
-    public async Task Accept_ByARequesterOfAnotherTenant_Get404()
+    public async Task Reject_ByARequesterOfAnotherTenant_Get404()
     {
         var w = await AwaitingAcceptanceAsync();
         var foreign = await CallerAsync(Guid.NewGuid(), [], RoleCodes.Requester);
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", foreign, null, w.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", foreign, new { decisionReason = "Not fixed." }, w.WorkOrderETag),
             HttpStatusCode.NotFound, "NOT_FOUND");
     }
 
     [Fact]
-    public async Task Accept_ByTheContactWhoseSiteScopeWasRevoked_Get404()
+    public async Task Reject_ByTheContactWhoseSiteScopeWasRevoked_Get404()
     {
         var w = await AwaitingAcceptanceAsync();
         await WithDbAsync(db => db.UserSiteScopes
@@ -134,95 +141,127 @@ public sealed class CustomerAcceptEndpointsTests : IClassFixture<CustomerAcceptA
             .ExecuteDeleteAsync());
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, w.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Not fixed." }, w.WorkOrderETag),
             HttpStatusCode.NotFound, "NOT_FOUND");
         await AssertStillAwaitingAcceptanceAsync(w.WorkOrderId);
     }
 
     [Fact]
-    public async Task Accept_OfAnUnknownWorkOrder_Get404()
+    public async Task Reject_OfAnUnknownWorkOrder_Get404()
     {
         var w = await AwaitingAcceptanceAsync();
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{Guid.NewGuid()}/accept", w.Owner, null, w.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{Guid.NewGuid()}/reject", w.Owner, new { decisionReason = "Not fixed." }, w.WorkOrderETag),
             HttpStatusCode.NotFound, "NOT_FOUND");
     }
 
     [Fact]
-    public async Task Accept_WithoutIfMatch_Returns400_AndWithoutAToken_Returns401()
+    public async Task Reject_WithoutIfMatch_Returns400_AndWithoutAToken_Returns401()
     {
         var w = await AwaitingAcceptanceAsync();
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, null),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Not fixed." }, null),
             HttpStatusCode.BadRequest, "BAD_REQUEST");
         Assert.Equal(
             HttpStatusCode.Unauthorized,
-            (await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", null, null, w.WorkOrderETag)).StatusCode);
+            (await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", null, new { decisionReason = "Not fixed." }, w.WorkOrderETag)).StatusCode);
         await AssertStillAwaitingAcceptanceAsync(w.WorkOrderId);
+    }
+
+    // ---------------- Validation ----------------
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public async Task Reject_WithoutADecisionReason_Returns422_AndWritesNothing(string? decisionReason)
+    {
+        var w = await AwaitingAcceptanceAsync();
+
+        var body = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason }, w.WorkOrderETag),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(body.GetProperty("errors").TryGetProperty("decisionReason", out _));
+
+        await AssertStillAwaitingAcceptanceAsync(w.WorkOrderId);
+        Assert.Equal(0, await WithDbAsync(db => db.CustomerAcceptances.AsNoTracking().CountAsync(item => item.WorkOrderId == w.WorkOrderId)));
+        Assert.Equal(0, await WithDbAsync(db => db.CorrectiveActions.AsNoTracking().CountAsync(item => item.WorkOrderId == w.WorkOrderId)));
     }
 
     // ---------------- State / duplicate / concurrency ----------------
 
     [Fact]
-    public async Task Accept_BeforeSubmitForAcceptance_Returns404_BecauseNoContactIsDesignatedYet()
+    public async Task Reject_BeforeSubmitForAcceptance_Returns404_BecauseNoContactIsDesignatedYet()
     {
-        // AcceptanceContactId is only ever set atomically with the ST-WO-004 transition (submit-for-acceptance),
-        // so before that call, no one — not even the eventual owner — matches the resource-specific scope check
-        // yet. This is 404 (scope), not 409 (state): the two are checked in that order, the same convention
-        // every other command in this codebase uses.
         var c = await CheckedOutAndSummarySubmittedAsync();
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/accept", c.Owner, null, c.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/reject", c.Owner, new { decisionReason = "Not fixed." }, c.WorkOrderETag),
             HttpStatusCode.NotFound, "NOT_FOUND");
     }
 
     [Fact]
-    public async Task ASecondAccept_OfAnAlreadyAcceptedWorkOrder_Returns409StateConflict()
+    public async Task Reject_OfAnAlreadyAcceptedWorkOrder_Returns409StateConflict()
     {
         var w = await AwaitingAcceptanceAsync();
-        var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, w.WorkOrderETag);
+        var accepted = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, w.WorkOrderETag);
+        Assert.Equal(HttpStatusCode.OK, accepted.StatusCode);
+        var freshETag = accepted.Headers.ETag!.Tag;
+
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Not fixed." }, freshETag),
+            HttpStatusCode.Conflict, "STATE_CONFLICT");
+        Assert.Equal(0, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_REJECTED")));
+    }
+
+    [Fact]
+    public async Task ASecondReject_OfAnAlreadyRejectedWorkOrder_Returns409StateConflict()
+    {
+        var w = await AwaitingAcceptanceAsync();
+        var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Not fixed." }, w.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         var freshETag = first.Headers.ETag!.Tag;
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, freshETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Still broken." }, freshETag),
             HttpStatusCode.Conflict, "STATE_CONFLICT");
 
-        Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_ACCEPTED")));
+        Assert.Equal(1, await WithDbAsync(db => db.CustomerAcceptances.AsNoTracking().CountAsync(item => item.WorkOrderId == w.WorkOrderId)));
+        Assert.Equal(1, await WithDbAsync(db => db.CorrectiveActions.AsNoTracking().CountAsync(item => item.WorkOrderId == w.WorkOrderId)));
     }
 
     [Fact]
-    public async Task Accept_WithAStaleRowVersion_Returns409ConcurrencyConflict_AndWritesNothing()
+    public async Task Reject_WithAStaleRowVersion_Returns409ConcurrencyConflict_AndWritesNothing()
     {
         var w = await AwaitingAcceptanceAsync();
-        var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, w.WorkOrderETag);
+        var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Not fixed." }, w.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
         await AssertProblemAsync(
-            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, w.WorkOrderETag),
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Still broken." }, w.WorkOrderETag),
             HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT");
-        Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_ACCEPTED")));
+        Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_REJECTED")));
     }
 
     [Fact]
-    public async Task TwoConcurrentAccepts_OfTheSameWorkOrder_ExactlyOneSucceeds_NoPartialUpdate()
+    public async Task TwoConcurrentRejects_OfTheSameWorkOrder_ExactlyOneSucceeds_NoPartialUpdate()
     {
         var w = await AwaitingAcceptanceAsync();
 
         var responses = await Task.WhenAll(
-            Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, w.WorkOrderETag)),
-            Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/accept", w.Owner, null, w.WorkOrderETag)));
+            Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Not fixed." }, w.WorkOrderETag)),
+            Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/reject", w.Owner, new { decisionReason = "Not fixed." }, w.WorkOrderETag)));
 
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
-        Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_ACCEPTED")));
+        Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_REJECTED")));
         Assert.Equal(1, await WithDbAsync(db => db.CustomerAcceptances.AsNoTracking().CountAsync(item => item.WorkOrderId == w.WorkOrderId)));
+        Assert.Equal(1, await WithDbAsync(db => db.CorrectiveActions.AsNoTracking().CountAsync(item => item.WorkOrderId == w.WorkOrderId)));
 
         var workOrder = await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(item => item.Id == w.WorkOrderId));
-        Assert.Equal(WorkOrderStatus.Completed, workOrder.Status);
+        Assert.Equal(WorkOrderStatus.CorrectiveActionRequired, workOrder.Status);
     }
 
     // ---------------- Helpers ----------------
@@ -231,7 +270,7 @@ public sealed class CustomerAcceptEndpointsTests : IClassFixture<CustomerAcceptA
     {
         var workOrder = await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(item => item.Id == workOrderId));
         Assert.Equal(WorkOrderStatus.AwaitingCustomerAcceptance, workOrder.Status);
-        Assert.Equal(0, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == workOrderId && a.ActionCode == "WORK_ORDER_ACCEPTED")));
+        Assert.Equal(0, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == workOrderId && a.ActionCode == "WORK_ORDER_REJECTED")));
     }
 
     /// <summary>A Work Order AWAITING_CUSTOMER_ACCEPTANCE, with the owning Requester designated as the Acceptance Contact.</summary>
