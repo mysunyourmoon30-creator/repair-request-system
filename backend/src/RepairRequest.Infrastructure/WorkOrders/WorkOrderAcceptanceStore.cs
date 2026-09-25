@@ -14,6 +14,8 @@ namespace RepairRequest.Infrastructure.WorkOrders;
 internal sealed class WorkOrderAcceptanceStore : IWorkOrderAcceptanceStore
 {
     private const int DeadlockVictim = 1205;
+    private const int UniqueIndexViolation = 2601;
+    private const int UniqueConstraintViolation = 2627;
 
     private readonly RepairRequestDbContext _db;
 
@@ -100,6 +102,17 @@ internal sealed class WorkOrderAcceptanceStore : IWorkOrderAcceptanceStore
         }
         catch (DbUpdateException exception) when (SqlErrorNumber(exception) is DeadlockVictim)
         {
+            _db.ChangeTracker.Clear();
+            return WorkOrderSaveOutcome.ConcurrencyConflict;
+        }
+        catch (DbUpdateException exception) when (SqlErrorNumber(exception) is UniqueIndexViolation or UniqueConstraintViolation)
+        {
+            // Two concurrent Accept/Reject calls on the same Work Order can both read the same "next round/cycle
+            // number" (NextAcceptanceRoundNoAsync/NextCorrectiveActionCycleNoAsync) before either commits — the
+            // RowVersion compare-and-swap above only guards the Work Order row itself, not customer_acceptance's
+            // own UQ(work_order_id, round_no) / corrective_action's UQ(work_order_id, cycle_no). The loser hits
+            // this unique-index violation, which is exactly a concurrency conflict on this resource, not a
+            // separate failure mode — same 409 CONCURRENCY_CONFLICT outcome as a stale RowVersion.
             _db.ChangeTracker.Clear();
             return WorkOrderSaveOutcome.ConcurrencyConflict;
         }
