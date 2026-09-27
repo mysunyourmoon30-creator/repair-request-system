@@ -21,6 +21,8 @@ describe('WorkSummaryReviewComponent', () => {
     rowVersion: 'v1',
     visits: [],
     acceptanceContactId: null,
+    costSummaryRowVersion: null,
+    costSummaryReviewedAt: null,
   };
 
   const oneContact = [{ userId: 'req-1', displayName: 'req-1@example.test', email: 'req-1@example.test' }];

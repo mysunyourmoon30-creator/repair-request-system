@@ -113,6 +113,16 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string WorkOrderReject = "WorkOrder.Reject";
 
+    /// <summary>
+    /// Prepare (create or, before Review, edit) a COMPLETED Work Order's Cost Summary (CST-API-001; BR-08;
+    /// `docs/13` §4.18). Team Lead only, per two independent baseline sources (`docs/05` CST-007 `prepared_by`
+    /// and `docs/09` CST-API-001's own Actor column) — the first Team-Lead-only policy in this codebase (every
+    /// prior Team Lead capability was shared with Supervisor). Role gate only — site scope (<see
+    /// cref="IDataScope.WorkOrders"/>) and the COMPLETED/not-yet-reviewed state guards are enforced by the
+    /// Application service.
+    /// </summary>
+    public const string CostSummaryPrepare = "CostSummary.Prepare";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -152,7 +162,8 @@ public static class AuthorizationPolicies
             [WorkOrderReadWorkSummary] = [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor],
             [WorkOrderReadEligibleAcceptanceContacts] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
             [WorkOrderAccept] = [RoleCodes.Requester],
-            [WorkOrderReject] = [RoleCodes.Requester]
+            [WorkOrderReject] = [RoleCodes.Requester],
+            [CostSummaryPrepare] = [RoleCodes.TeamLead]
         };
 }
 

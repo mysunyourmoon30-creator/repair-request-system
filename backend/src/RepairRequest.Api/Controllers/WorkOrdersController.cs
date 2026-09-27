@@ -27,6 +27,7 @@ public sealed class WorkOrdersController : CommandControllerBase
     private readonly WorkOrderScheduleService _schedule;
     private readonly WorkSummaryService _workSummaries;
     private readonly WorkOrderAcceptanceService _acceptance;
+    private readonly CostSummaryService _costSummaries;
     private readonly PagingOptions _paging;
 
     public WorkOrdersController(
@@ -34,6 +35,7 @@ public sealed class WorkOrdersController : CommandControllerBase
         WorkOrderScheduleService schedule,
         WorkSummaryService workSummaries,
         WorkOrderAcceptanceService acceptance,
+        CostSummaryService costSummaries,
         ICurrentUserAccessor currentUserAccessor,
         IOptions<PagingOptions> paging)
         : base(currentUserAccessor)
@@ -42,6 +44,7 @@ public sealed class WorkOrdersController : CommandControllerBase
         _schedule = schedule;
         _workSummaries = workSummaries;
         _acceptance = acceptance;
+        _costSummaries = costSummaries;
         _paging = paging.Value;
     }
 
@@ -253,5 +256,32 @@ public sealed class WorkOrdersController : CommandControllerBase
         // the caller is only the designated Acceptance Contact of, not the creator.
         var workOrder = await _workOrders.GetForAcceptanceContactAsync(context.User, result.Value, cancellationToken);
         return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// CST-API-001 Prepare Cost Summary (Team Lead only; BR-08; `docs/13` §4.18): create or, before Review, edit
+    /// the single Cost Summary row for a COMPLETED Work Order. If-Match is checked against the Work Order's own
+    /// RowVersion on first Prepare, or the Cost Summary's own RowVersion on a later edit (see
+    /// <see cref="ICostSummaryStore"/>'s own remarks) — the response always carries the current, correct target
+    /// for the caller's next edit as its ETag.
+    /// </summary>
+    [HttpPut("{workOrderId:guid}/cost-summary")]
+    [Authorize(Policy = AuthorizationPolicies.CostSummaryPrepare)]
+    [ProducesResponseType<CostSummaryResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> PrepareCostSummary(Guid workOrderId, [FromBody] PrepareCostSummaryRequest request, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _costSummaries.PrepareAsync(context, workOrderId, rowVersion, request.TotalAmount, request.CurrencyCode, request.Note, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        return DetailResult(result.Value, ResourceType, CostSummaryResponses.ToResponse, dto => dto.RowVersion);
     }
 }

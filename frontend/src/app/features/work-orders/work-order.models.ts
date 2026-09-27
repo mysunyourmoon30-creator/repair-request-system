@@ -3,6 +3,11 @@
  * backend exactly. Customer/Site/Equipment are codes, not display names. `acceptanceContactId` is added by
  * `docs/13` §4.16 (UC-WO-021) — a raw id only, so the UI can compare it against the signed-in user's own id to
  * decide whether to show the Accept button; the backend always re-checks regardless (`docs/13` §4.16 Decision 3).
+ * `costSummaryRowVersion`/`costSummaryReviewedAt` are added by `docs/13` §4.18 (CST-API-001) — signal fields only
+ * (never the amount/currency/note, which stay hidden until the future Review ticket's read endpoint): null
+ * `costSummaryRowVersion` means no Cost Summary has been prepared yet; once one exists, it is this Work Order's
+ * Cost Summary's own concurrency token — Prepare's If-Match target for a second/later edit (never the Work
+ * Order's own `rowVersion`, which does not change during Prepare).
  */
 export interface WorkOrder {
   workOrderId: string;
@@ -16,6 +21,8 @@ export interface WorkOrder {
   rowVersion: string;
   visits: ServiceVisit[];
   acceptanceContactId: string | null;
+  costSummaryRowVersion: string | null;
+  costSummaryReviewedAt: string | null;
 }
 
 /**

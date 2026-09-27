@@ -51,6 +51,22 @@ public static class WorkOrderAudit
     public const string CustomerAcceptanceIdField = "customerAcceptanceId";
     public const string CorrectiveActionIdField = "correctiveActionId";
 
+    /// <summary>
+    /// No literal baseline action-code string exists for Cost Summary Prepare anywhere in `docs/02`, `docs/06` or
+    /// `docs/09` (BR-08's own "System Result/Audit" text names only Close's audit; TC-CST-001's "Expected Audit"
+    /// names only "Cost review audit", which describes Review, not Prepare). These two names follow the same
+    /// self-consistent `&lt;ENTITY&gt;_&lt;PAST_TENSE_VERB&gt;` convention every other action code in this class
+    /// already uses (none of which is baseline-literal text either) — not a new guess, the same established
+    /// technical convention. Per Portfolio Project Owner directive (`docs/13` §4.18), first-time create and a
+    /// later edit are distinct, separately named events — never one shared name that would make the two
+    /// indistinguishable in the audit trail.
+    /// </summary>
+    public const string CostSummaryPreparedAction = "COST_SUMMARY_PREPARED";
+    public const string CostSummaryUpdatedAction = "COST_SUMMARY_UPDATED";
+    public const string CostSummaryIdField = "costSummaryId";
+    public const string TotalAmountField = "totalAmount";
+    public const string CurrencyCodeField = "currencyCode";
+
     /// <summary>ST-WO-001 success: OPEN -&gt; SCHEDULED, with the new first Service Visit referenced. No reason applies.</summary>
     public static AuditHistory Scheduled(CommandContext context, WorkOrder workOrder, ServiceVisit visit, DateTime occurredAt) =>
         new(
@@ -284,6 +300,59 @@ public static class WorkOrderAudit
                 [CorrectiveActionIdField] = correctiveAction.Id
             }),
             reason: decisionReason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// CST-API-001 first-time success (`docs/13` §4.18): the Work Order's own status does not change (it stays
+    /// COMPLETED throughout Prepare — see <see cref="CostSummary"/>'s own class remarks), so fromState/toState
+    /// are both COMPLETED; this records the write, not a transition. The new Cost Summary's id and the values
+    /// written are referenced in the new value. No reason applies. Distinct from <see cref="CostSummaryUpdated"/>
+    /// per Portfolio Project Owner directive — create and edit are never merged under one shared event name.
+    /// </summary>
+    public static AuditHistory CostSummaryPrepared(CommandContext context, WorkOrder workOrder, CostSummary costSummary, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            CostSummaryPreparedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Completed),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Completed),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [CostSummaryIdField] = costSummary.Id,
+                [TotalAmountField] = costSummary.TotalAmount,
+                [CurrencyCodeField] = costSummary.CurrencyCode
+            }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// CST-API-001 edit success (`docs/13` §4.18): a later Prepare of an existing, not-yet-reviewed Cost
+    /// Summary. Same shape as <see cref="CostSummaryPrepared"/> (the Work Order's status still does not change),
+    /// but its own distinct action code — never sharing <see cref="CostSummaryPreparedAction"/> — so create and
+    /// edit remain distinguishable in the audit trail.
+    /// </summary>
+    public static AuditHistory CostSummaryUpdated(CommandContext context, WorkOrder workOrder, CostSummary costSummary, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            CostSummaryUpdatedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Completed),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Completed),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [CostSummaryIdField] = costSummary.Id,
+                [TotalAmountField] = costSummary.TotalAmount,
+                [CurrencyCodeField] = costSummary.CurrencyCode
+            }),
+            reason: null,
             context.User.UserId,
             occurredAt,
             context.CorrelationId);

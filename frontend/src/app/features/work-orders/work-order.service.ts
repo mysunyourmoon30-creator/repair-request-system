@@ -32,6 +32,30 @@ export interface RejectWorkOrderRequest {
   decisionReason: string;
 }
 
+/** CST-API-001 Prepare body (`docs/13` §4.18). `totalAmount`/`currencyCode` required; `note` optional. */
+export interface PrepareCostSummaryRequest {
+  totalAmount: number;
+  currencyCode: string;
+  note: string | null;
+}
+
+/**
+ * Cost Summary shape (`docs/13` §4.18). Matches `CostSummaryResponse` on the backend exactly. `reviewedBy`/
+ * `reviewedAt` are always null in this ticket's scope (Prepare only never sets them).
+ */
+export interface CostSummary {
+  costSummaryId: string;
+  workOrderId: string;
+  totalAmount: number;
+  currencyCode: string;
+  note: string | null;
+  preparedBy: string;
+  preparedAt: string;
+  reviewedBy: string | null;
+  reviewedAt: string | null;
+  rowVersion: string;
+}
+
 /** Note: field names differ from `ScheduleWorkOrderRequest` (`assignedTeamId`, not `ownerTeamId`) — matches the backend's `NewVisitScheduleRequest`. */
 export interface NewVisitScheduleRequest {
   assignedTeamId: string;
@@ -82,6 +106,16 @@ export class WorkOrderService {
   /** ACC-API-002 Customer Reject (ST-WO-007; `docs/13` §4.17). Same caller as Accept; `decisionReason` is required. */
   reject(workOrderId: string, ifMatch: string, body: RejectWorkOrderRequest): Observable<WorkOrder> {
     return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/reject`, body, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /**
+   * CST-API-001 Cost Summary Prepare (Team Lead only; `docs/13` §4.18). `ifMatch` is the Work Order's own
+   * rowVersion on first Prepare (no Cost Summary exists yet), or the Cost Summary's own `rowVersion` (from the
+   * previous Prepare response, or `workOrder.costSummaryRowVersion`) on a later edit — never the Work Order's own
+   * token once a Cost Summary already exists, since Prepare never changes the Work Order's own status.
+   */
+  prepareCostSummary(workOrderId: string, ifMatch: string, body: PrepareCostSummaryRequest): Observable<CostSummary> {
+    return this.http.put<CostSummary>(`${this.baseUrl}/${workOrderId}/cost-summary`, body, { headers: { 'If-Match': ifMatch } });
   }
 
   reschedule(serviceVisitId: string, ifMatch: string, body: RescheduleServiceVisitRequest): Observable<WorkOrder> {

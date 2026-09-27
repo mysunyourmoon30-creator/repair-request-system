@@ -10,6 +10,11 @@ namespace RepairRequest.Application.WorkOrders;
 /// caller can be told whether they are the designated Acceptance Contact — a raw id only, never the
 /// contact's name/email (those live only in <see cref="WorkOrder.AcceptanceContactSnapshot"/>, not projected
 /// here); visible only to callers who already have read scope on this Work Order.
+/// <see cref="CostSummaryRowVersion"/>/<see cref="CostSummaryReviewedAt"/> are added by `docs/13` §4.18 (CST-API-001)
+/// so a Team Lead's Angular client can recover the Cost Summary's own concurrency token across page reloads
+/// (Prepare's If-Match target once a row already exists — see <see cref="ICostSummaryStore"/>'s own remarks) and
+/// gate the Prepare/Edit UI to a not-yet-reviewed Cost Summary, without a dedicated Cost Summary read endpoint
+/// (deferred to the Review ticket) — never the amount/currency/note themselves, only these two signal fields.
 /// </summary>
 public sealed record WorkOrderDto(
     Guid WorkOrderId,
@@ -22,7 +27,9 @@ public sealed record WorkOrderDto(
     string? EquipmentCode,
     byte[] RowVersion,
     IReadOnlyList<ServiceVisitDto> Visits,
-    Guid? AcceptanceContactId);
+    Guid? AcceptanceContactId,
+    byte[]? CostSummaryRowVersion,
+    DateTime? CostSummaryReviewedAt);
 
 /// <summary>
 /// Service Visit projection (S2-003; RR-DD-001 SV-001..018), embedded in the Work Order detail response — no
