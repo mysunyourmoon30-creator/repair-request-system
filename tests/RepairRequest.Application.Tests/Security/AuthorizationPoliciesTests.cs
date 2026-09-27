@@ -35,7 +35,8 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.WorkOrderReadWorkSummary, [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor] },
         { AuthorizationPolicies.WorkOrderReadEligibleAcceptanceContacts, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
         { AuthorizationPolicies.WorkOrderAccept, [RoleCodes.Requester] },
-        { AuthorizationPolicies.WorkOrderReject, [RoleCodes.Requester] }
+        { AuthorizationPolicies.WorkOrderReject, [RoleCodes.Requester] },
+        { AuthorizationPolicies.CostSummaryPrepare, [RoleCodes.TeamLead] }
     };
 
     [Theory]
@@ -48,7 +49,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(22, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(23, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -157,6 +158,15 @@ public class AuthorizationPoliciesTests
         // ST-WO-007; `docs/13` §4.17 — the same REQUESTER role as WorkOrderAccept, its own named policy.
         // Role gate only; the real check (exact AcceptanceContactId match) is resource-specific, enforced by the service.
         Assert.Equal([RoleCodes.Requester], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderReject]);
+    }
+
+    [Fact]
+    public void CostSummaryPrepare_IsTeamLeadOnly()
+    {
+        // CST-API-001; BR-08; `docs/13` §4.18 — the first Team-Lead-only policy in this codebase (every prior
+        // Team Lead capability was shared with Supervisor). Supervisor is deliberately excluded: Review is a
+        // separate, not-yet-implemented action.
+        Assert.Equal([RoleCodes.TeamLead], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryPrepare]);
     }
 
     [Fact]

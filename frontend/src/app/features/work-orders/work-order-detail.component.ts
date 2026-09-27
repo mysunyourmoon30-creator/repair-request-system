@@ -61,6 +61,18 @@ import { WorkOrderService } from './work-order.service';
         </details>
       }
 
+      @if (canPrepareCostSummary(workOrder)) {
+        <details>
+          <summary>Prepare Cost Summary</summary>
+          <form (submit)="onPrepareCostSummary($event, workOrder, totalAmount, currencyCode, note)">
+            <label>Total Amount <input #totalAmount type="number" step="0.01" min="0" required /></label>
+            <label>Currency Code <input #currencyCode type="text" maxlength="3" required /></label>
+            <label>Note <input #note type="text" /></label>
+            <button type="submit" [disabled]="submitting()">Save Cost Summary</button>
+          </form>
+        </details>
+      }
+
       @if (workOrder.status === 'OPEN') {
         <h2>Schedule</h2>
         <form (submit)="onSchedule($event, workOrder, teamId, technicianId, startAt, endAt)">
@@ -241,6 +253,47 @@ export class WorkOrderDetailComponent {
         }
       },
     });
+  }
+
+  /** UX only — `docs/13` §4.18. The backend always re-checks role and state regardless. */
+  protected canPrepareCostSummary(workOrder: WorkOrder): boolean {
+    return workOrder.status === 'COMPLETED' && workOrder.costSummaryReviewedAt === null && getCurrentUserRoles().includes('TEAM_LEAD');
+  }
+
+  /**
+   * CST-API-002 (`docs/13` §4.18). No read endpoint exists in this ticket's scope, so this form cannot pre-fill
+   * the current amount/currency/note on a second edit — the Team Lead re-enters every field each time. If-Match
+   * targets the Cost Summary's own rowVersion once one exists (never the Work Order's, which Prepare never
+   * changes); on success the held Work Order signal is patched with the fresh Cost Summary rowVersion so the
+   * next edit in this same page session targets the right token. A stale/changed Cost Summary (409) reloads the
+   * current Work Order, the same convention `onReject` already uses.
+   */
+  protected onPrepareCostSummary(event: Event, workOrder: WorkOrder, totalAmount: HTMLInputElement, currencyCode: HTMLInputElement, note: HTMLInputElement): void {
+    event.preventDefault();
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    const ifMatch = this.quoted(workOrder.costSummaryRowVersion ?? workOrder.rowVersion);
+    this.workOrders
+      .prepareCostSummary(workOrder.workOrderId, ifMatch, {
+        totalAmount: Number(totalAmount.value),
+        currencyCode: currencyCode.value,
+        note: note.value.trim() || null,
+      })
+      .subscribe({
+        next: (costSummary) => {
+          this.workOrder.set({ ...workOrder, costSummaryRowVersion: costSummary.rowVersion, costSummaryReviewedAt: costSummary.reviewedAt });
+          this.submitting.set(false);
+        },
+        error: (response: HttpErrorResponse) => {
+          this.submitting.set(false);
+          this.actionError.set(this.describe(response));
+
+          if (response.status === 409) {
+            this.workOrders.get(workOrder.workOrderId).subscribe((current) => this.workOrder.set(current));
+          }
+        },
+      });
   }
 
   protected onSchedule(

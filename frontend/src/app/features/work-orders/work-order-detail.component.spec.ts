@@ -28,6 +28,8 @@ describe('WorkOrderDetailComponent', () => {
     rowVersion: 'v1',
     visits: [],
     acceptanceContactId: null,
+    costSummaryRowVersion: null,
+    costSummaryReviewedAt: null,
   };
 
   const scheduledVisit = {
@@ -366,5 +368,142 @@ describe('WorkOrderDetailComponent', () => {
 
     expect(root.textContent).toContain('changed or is no longer in a valid state');
     expect(root.textContent).toContain('COMPLETED');
+  });
+
+  // ---------------- Prepare Cost Summary (`docs/13` §4.18) ----------------
+
+  const completedWorkOrder: WorkOrder = { ...baseWorkOrder, status: 'COMPLETED', costSummaryRowVersion: null, costSummaryReviewedAt: null };
+
+  function costSummaryForm(root: HTMLElement): HTMLFormElement {
+    return Array.from(root.querySelectorAll('form')).find((form) => form.textContent?.includes('Save Cost Summary'))!;
+  }
+
+  function fillCostSummaryForm(form: HTMLFormElement, totalAmount: string, currencyCode: string, note = ''): void {
+    const inputs = form.querySelectorAll('input');
+    (inputs[0] as HTMLInputElement).value = totalAmount;
+    (inputs[1] as HTMLInputElement).value = currencyCode;
+    (inputs[2] as HTMLInputElement).value = note;
+    form.dispatchEvent(new Event('submit'));
+  }
+
+  it('shows Prepare Cost Summary only for a signed-in Team Lead on a COMPLETED, not-yet-reviewed Work Order', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, completedWorkOrder);
+
+    expect(costSummaryForm(fixture.nativeElement as HTMLElement)).toBeDefined();
+  });
+
+  it('hides Prepare Cost Summary for a non-Team-Lead role', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'other-1', role: 'SUPERVISOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, completedWorkOrder);
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Prepare Cost Summary');
+  });
+
+  it('hides Prepare Cost Summary when the Work Order is not COMPLETED', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, { ...completedWorkOrder, status: 'AWAITING_CUSTOMER_ACCEPTANCE' });
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Prepare Cost Summary');
+  });
+
+  it('hides Prepare Cost Summary once the Cost Summary has been reviewed', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, { ...completedWorkOrder, costSummaryRowVersion: 'cs-v1', costSummaryReviewedAt: '2026-09-27T00:00:00Z' });
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Prepare Cost Summary');
+  });
+
+  it('prepares for the first time using the Work Order\'s own quoted rowVersion, and stores the returned Cost Summary rowVersion', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, completedWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillCostSummaryForm(costSummaryForm(root), '1234.56', 'USD', 'Parts and labor.');
+
+    const req = httpMock.expectOne(`${baseUrl}/abc-123/cost-summary`);
+    expect(req.request.method).toBe('PUT');
+    expect(req.request.headers.get('If-Match')).toBe('"v1"');
+    expect(req.request.body).toEqual({ totalAmount: 1234.56, currencyCode: 'USD', note: 'Parts and labor.' });
+
+    req.flush({
+      costSummaryId: 'cs-1',
+      workOrderId: 'abc-123',
+      totalAmount: 1234.56,
+      currencyCode: 'USD',
+      note: 'Parts and labor.',
+      preparedBy: 'tl-1',
+      preparedAt: '2026-09-27T00:00:00Z',
+      reviewedBy: null,
+      reviewedAt: null,
+      rowVersion: 'cs-v1',
+    });
+    fixture.detectChanges();
+
+    // Prepare Cost Summary stays visible (still not reviewed) — the next submit must use the Cost Summary's own token.
+    fillCostSummaryForm(costSummaryForm(root), '2000', 'USD', '');
+    expect(httpMock.expectOne(`${baseUrl}/abc-123/cost-summary`).request.headers.get('If-Match')).toBe('"cs-v1"');
+  });
+
+  it('disables Save while a Prepare request is in flight, preventing a double submit', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, completedWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    const form = costSummaryForm(root);
+    fillCostSummaryForm(form, '1', 'USD');
+    fixture.detectChanges();
+
+    expect(form.querySelector('button')!.disabled).toBe(true);
+
+    httpMock.expectOne(`${baseUrl}/abc-123/cost-summary`).flush({
+      costSummaryId: 'cs-1',
+      workOrderId: 'abc-123',
+      totalAmount: 1,
+      currencyCode: 'USD',
+      note: null,
+      preparedBy: 'tl-1',
+      preparedAt: '2026-09-27T00:00:00Z',
+      reviewedBy: null,
+      reviewedAt: null,
+      rowVersion: 'cs-v1',
+    });
+  });
+
+  it('shows the 422 field error when totalAmount is rejected by the server', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, completedWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillCostSummaryForm(costSummaryForm(root), '-1', 'USD');
+
+    httpMock
+      .expectOne(`${baseUrl}/abc-123/cost-summary`)
+      .flush({ errors: { totalAmount: ['totalAmount is required, must not be negative, and must have at most 2 decimal places.'] } }, { status: 422, statusText: 'Unprocessable Entity' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('must not be negative');
+  });
+
+  it('shows a message and reloads the current Work Order when Prepare returns 409 (stale/changed)', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, completedWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillCostSummaryForm(costSummaryForm(root), '1', 'USD');
+
+    httpMock.expectOne(`${baseUrl}/abc-123/cost-summary`).flush('Conflict', { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush({ ...completedWorkOrder, rowVersion: 'v2' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('changed or is no longer in a valid state');
   });
 });

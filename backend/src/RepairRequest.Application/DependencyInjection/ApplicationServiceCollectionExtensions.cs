@@ -65,6 +65,7 @@ public static class ApplicationServiceCollectionExtensions
 
         // Customer Accept (ST-WO-005; UC-WO-021; the designated Acceptance Contact only); `docs/13` §4.16.
         services.AddScoped<WorkOrderAcceptanceService>();
+        services.AddScoped<CostSummaryService>();
 
         return services;
     }

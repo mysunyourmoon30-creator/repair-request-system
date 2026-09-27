@@ -74,6 +74,8 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
 
     public DbSet<CorrectiveAction> CorrectiveActions => Set<CorrectiveAction>();
 
+    public DbSet<CostSummary> CostSummaries => Set<CostSummary>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

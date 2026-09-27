@@ -34,7 +34,9 @@ public sealed record WorkOrderResponse(
     string? EquipmentCode,
     string RowVersion,
     IReadOnlyList<ServiceVisitResponse> Visits,
-    Guid? AcceptanceContactId);
+    Guid? AcceptanceContactId,
+    string? CostSummaryRowVersion,
+    DateTime? CostSummaryReviewedAt);
 
 /// <summary>Service Visit response (S2-003; RR-DD-001 SV-001..018). Team/technician are raw ids — no directory to resolve a display name from.</summary>
 public sealed record ServiceVisitResponse(
@@ -146,6 +148,26 @@ public sealed record EligibleAcceptanceContactResponse(Guid UserId, string Displ
 /// <summary>ACC-API-002 Reject body (`docs/13` §4.17; ACC-007 "Required REJECT"). Required.</summary>
 public sealed record RejectWorkOrderRequest(string? DecisionReason);
 
+/// <summary>CST-API-001 Prepare body (`docs/13` §4.18). `TotalAmount`/`CurrencyCode` required; `Note` optional.</summary>
+public sealed record PrepareCostSummaryRequest(decimal? TotalAmount, string? CurrencyCode, string? Note);
+
+/// <summary>
+/// Cost Summary response (`docs/13` §4.18) — returned by Prepare. <see cref="ReviewedBy"/>/<see cref="ReviewedAt"/>
+/// are always null in this ticket's scope (Prepare only never sets them); present so the shape is stable once
+/// the future Review ticket populates them.
+/// </summary>
+public sealed record CostSummaryResponse(
+    Guid CostSummaryId,
+    Guid WorkOrderId,
+    decimal TotalAmount,
+    string CurrencyCode,
+    string? Note,
+    Guid PreparedBy,
+    DateTime PreparedAt,
+    Guid? ReviewedBy,
+    DateTime? ReviewedAt,
+    string RowVersion);
+
 /// <summary>Work Summary response (UC-WO-020; `docs/13` §4.15) — returned by Submit and by the Work Summary read.</summary>
 public sealed record WorkSummaryResponse(
     Guid WorkSummaryId,
@@ -176,13 +198,31 @@ public static class WorkOrderResponses
             dto.EquipmentCode,
             Convert.ToBase64String(dto.RowVersion),
             dto.Visits.Select(ServiceVisitResponses.ToResponse).ToList(),
-            dto.AcceptanceContactId);
+            dto.AcceptanceContactId,
+            dto.CostSummaryRowVersion is null ? null : Convert.ToBase64String(dto.CostSummaryRowVersion),
+            dto.CostSummaryReviewedAt);
 }
 
 public static class EligibleAcceptanceContactResponses
 {
     public static EligibleAcceptanceContactResponse ToResponse(EligibleAcceptanceContactDto dto) =>
         new(dto.UserId, dto.DisplayName, dto.Email);
+}
+
+public static class CostSummaryResponses
+{
+    public static CostSummaryResponse ToResponse(CostSummaryDto dto) =>
+        new(
+            dto.CostSummaryId,
+            dto.WorkOrderId,
+            dto.TotalAmount,
+            dto.CurrencyCode,
+            dto.Note,
+            dto.PreparedBy,
+            dto.PreparedAt,
+            dto.ReviewedBy,
+            dto.ReviewedAt,
+            Convert.ToBase64String(dto.RowVersion));
 }
 
 public static class WorkSessionResponses
