@@ -316,6 +316,40 @@ So an Angular caller can compare it against their own signed-in user id to decid
 
 - Trace: ST-WO-005; BR-07; UC-WO-021; WO-008/009; CAC-004.
 
+### 4.17 Ticket 3 — Customer Reject (ST-WO-007; UC-WO-022; BR-07/BR-15)
+
+**Context.** UC-WO-022's own scope is Customer Reject: the exact designated Acceptance Contact rejecting a Work Order `AWAITING_CUSTOMER_ACCEPTANCE`, creating a `DRAFT` Corrective Action cycle. Before implementation, the Portfolio Project Owner approved a schema decision this ticket depends on — recorded here rather than silently applied.
+
+**Decision 1 — Schema option (a): the baseline `customer_acceptance`/`corrective_action` tables, as the authoritative decision history.**
+Before this ticket, Accept (§4.16, ST-WO-005) wrote no decision-history row at all — only `work_order.acceptance_contact_id`/`status` and a `WORK_ORDER_ACCEPTED` audit row. `docs/05` (Data Dictionary) defines two real tables this codebase never created: `customer_acceptance` (ACC-001/003..007/009) and `corrective_action` (CA-001/003..012). Per Portfolio Project Owner directive, this ticket adds both, exactly as documented, and **also retrofits Accept** to write a `customer_acceptance` `ACCEPT` row in the same transaction as its existing Work Order transition and audit row — Accept's own behavior (status, response, audit action code) is otherwise unchanged. `customer_acceptance` is **append-only**: one row per decision (ACCEPT or REJECT), never updated or deleted, so a rejected-then-corrected Work Order keeps its full round-by-round trace (`docs/07` §3 "WorkOrder 1:N CustomerAcceptance").
+
+**Decision 2 — `TenantId` on both new tables: an established technical convention, not a guessed field.**
+Neither ACC-* nor CA-* documents a `tenant_id` field (`docs/05` p.7 confirms the ACC-002/CA-002 numeric slots are simply absent from the baseline text, in both `-layout` and `-table` PDF extraction). Every other aggregate in this codebase carries `TenantId` at the analogous undocumented "-002" slot (RR-002, WO-002, SV-002, NTF-002, and `WorkSummary`'s own `TenantId`, added in the immediately-preceding ticket for the same reason) — an established multi-tenancy convention this ticket repeats, not a new guess.
+
+**Decision 3 — `corrective_action.owner_team_lead_id` (CA-007): nullable-for-now deviation.**
+CA-007 is documented required ("Y"), but neither ST-CA-001 (`docs/03`, "Create on Customer Reject", guard "Acceptance decision=REJECT") nor UC-WO-022 assigns a Team Lead at DRAFT-creation time — that assignment is ST-CA-002's own step ("Submit Plan", Team Lead actor), out of this ticket's scope. `WorkOrder.TeamLeadId` (WO-007) is never set anywhere in this codebase (confirmed: no mutator exists), so it cannot supply a certain value either. Per Portfolio Project Owner directive, `owner_team_lead_id` is **nullable in this ticket's schema**, populated by nothing yet — to be set by the future Submit-Plan ticket, mirroring the established "trim a guard, defer, record it" pattern already used for BR-06's Check-out split (§4.14) and Ticket 2's Close guard (§4.15 Decision 4). `plan_text`/`plan_file_asset_id` (CA-008/009, "Y@Before Submit") and `approved_by`/`approved_at`/`corrective_service_visit_id` (CA-010/011/012, conditional) are nullable per their own documented conditionality — no deviation needed there.
+
+**Migration/backfill strategy.** Migration `20260924155348_AddCustomerAcceptanceAndCorrectiveAction` creates both tables (with `UNIQUE(work_order_id, acceptance_round_no)` / `UNIQUE(work_order_id, cycle_no)` per `docs/08` §3, and `UNIQUE(corrective_action.acceptance_id)` per the ER's 1:0..1 cardinality), then backfills exactly one `customer_acceptance` `ACCEPT` row for every Work Order already `COMPLETED` with `acceptance_contact_id` set, using its own `WORK_ORDER_ACCEPTED` audit row for `decided_at` (`acceptance_round_no = 1` always — before this ticket, Accept was the only reachable exit from `AWAITING_CUSTOMER_ACCEPTANCE`, so no Work Order could have more than one round). Every backfilled value is read from data that already exists with certainty; nothing is invented, per the explicit "no fabricated data" instruction this decision was made under.
+
+**ACC-API-002 Customer Reject (ST-WO-007).**
+`POST /api/v1/work-orders/{id}/reject` — Actor: the exact designated Acceptance Contact (a REQUESTER) — If-Match required (the Work Order's own RowVersion) — body `{ "decisionReason": "string" }`, required (ACC-007 "Required REJECT"; UC-WO-022 precondition "reason required"). Moves `AWAITING_CUSTOMER_ACCEPTANCE` → `CORRECTIVE_ACTION_REQUIRED`. Scope is the same resource-specific check as Accept (`caller.UserId == WorkOrder.AcceptanceContactId`, plus current Site-scope re-check) — shares `IWorkOrderAcceptanceStore.LoadForAcceptAsync` with Accept rather than a duplicate method, since both actions act on the same resource with the same actor. A different Requester, a wrong role, a revoked Site scope, or a nonexistent Work Order all receive the same non-leaking `404 NOT_FOUND` / `403 ACCESS_DENIED` split as Accept. Check order: 400/401/403 (role gate) → 404 (scope) → 409 CONCURRENCY_CONFLICT (RowVersion compare-and-swap) → 409 STATE_CONFLICT (not `AWAITING_CUSTOMER_ACCEPTANCE`) → 422 VALIDATION_FAILED (`decisionReason` missing/blank/over 1000 characters).
+
+**Written atomically (one transaction):** the Work Order's `status`; a `customer_acceptance` `REJECT` row (`decision_reason`, `decided_at`); a `corrective_action` row (`status = DRAFT`, `acceptance_id` referencing the REJECT row just created); one audit `WORK_ORDER_REJECTED` (from `AWAITING_CUSTOMER_ACCEPTANCE`, to `CORRECTIVE_ACTION_REQUIRED`, reason = the decision reason, referencing the new `customer_acceptance`/`corrective_action` ids). RowVersion is the same true compare-and-swap as Accept; stale/concurrent/duplicate Reject all return `409` with no partial write across any of the four writes.
+
+**Authorization matrix.**
+
+| Actor | Action | Scope |
+|---|---|---|
+| Exact designated REQUESTER contact | `ACC-API-002` Reject | resource-specific (`AcceptanceContactId == caller`) + current Site scope re-check — same as Accept |
+| Any other REQUESTER | Reject | `404` (non-leaking, same convention as Accept) |
+| Non-REQUESTER role | Reject | `403 ACCESS_DENIED` (policy gate) |
+
+**Angular.** A Reject action beside Accept on the Work Order detail view, shown under the identical UX gate as Accept (`docs/13` §4.16 Decision 3) — never a separate check. Requires a non-blank reason before submit; disabled while a request is in flight (double-submit prevention, the same `submitting()` guard every other action in this component already uses). On `409`, the current Work Order is reloaded (unlike this component's other actions) — once a Work Order leaves `AWAITING_CUSTOMER_ACCEPTANCE` its ETag can never match again, so retrying against the stale one would only loop.
+
+**Not in this round:** Corrective Action's plan/approve/rework/resubmit/re-accept cycle (ST-CA-002/003 and beyond — only the `DRAFT` row this ticket creates); Work Order Close; Cost Summary; Cancel Work Order; invitation/activation. `TC-WO-010`'s baseline scenario ("Reject/plan/approve/rework/resubmit/reaccept", `docs/06` p.5) is only partially satisfied by this ticket — the plan/approve/rework/resubmit/reaccept portion requires the future Corrective Action ticket to close it out completely.
+
+- Trace: ST-WO-007; ST-CA-001; BR-07/BR-15; UC-WO-022; ACC-001..007/009; CA-001/003..012; TC-WO-009/010 (TC-WO-010 partially).
+
 ---
 
 ## 3. Common Conventions (as implemented)

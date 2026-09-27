@@ -143,6 +143,9 @@ public sealed record SubmitForAcceptanceRequest(Guid? AcceptanceContactId);
 /// <summary>`ACC-API-ADD-001` eligible Acceptance Contact (`docs/13` §4.16) — never used as authorization by itself; Accept re-checks identity server-side.</summary>
 public sealed record EligibleAcceptanceContactResponse(Guid UserId, string DisplayName, string Email);
 
+/// <summary>ACC-API-002 Reject body (`docs/13` §4.17; ACC-007 "Required REJECT"). Required.</summary>
+public sealed record RejectWorkOrderRequest(string? DecisionReason);
+
 /// <summary>Work Summary response (UC-WO-020; `docs/13` §4.15) — returned by Submit and by the Work Summary read.</summary>
 public sealed record WorkSummaryResponse(
     Guid WorkSummaryId,

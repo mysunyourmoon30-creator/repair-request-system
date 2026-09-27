@@ -51,6 +51,14 @@ import { WorkOrderService } from './work-order.service';
 
       @if (canAccept(workOrder)) {
         <button type="button" [disabled]="submitting()" (click)="onAccept(workOrder)">Accept</button>
+
+        <details>
+          <summary>Reject</summary>
+          <form (submit)="onReject($event, workOrder, rejectReason)">
+            <label>Reason <input #rejectReason type="text" required /></label>
+            <button type="submit" [disabled]="submitting()">Reject</button>
+          </form>
+        </details>
       }
 
       @if (workOrder.status === 'OPEN') {
@@ -207,6 +215,32 @@ export class WorkOrderDetailComponent {
 
   protected onAccept(workOrder: WorkOrder): void {
     this.run(this.workOrders.accept(workOrder.workOrderId, this.quoted(workOrder.rowVersion)));
+  }
+
+  /**
+   * ACC-API-002 (`docs/13` §4.17). Unlike the other actions in this component, a stale/changed Work Order (409)
+   * reloads the current record instead of just showing a message — the caller would otherwise be stuck retrying
+   * against an ETag that can never match again once this Work Order has left AWAITING_CUSTOMER_ACCEPTANCE.
+   */
+  protected onReject(event: Event, workOrder: WorkOrder, reason: HTMLInputElement): void {
+    event.preventDefault();
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    this.workOrders.reject(workOrder.workOrderId, this.quoted(workOrder.rowVersion), { decisionReason: reason.value }).subscribe({
+      next: (updated) => {
+        this.workOrder.set(updated);
+        this.submitting.set(false);
+      },
+      error: (response: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.actionError.set(this.describe(response));
+
+        if (response.status === 409) {
+          this.workOrders.get(workOrder.workOrderId).subscribe((current) => this.workOrder.set(current));
+        }
+      },
+    });
   }
 
   protected onSchedule(

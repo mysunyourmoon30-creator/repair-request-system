@@ -47,6 +47,10 @@ public static class WorkOrderAudit
     public const string AcceptanceContactIdField = "acceptanceContactId";
     public const string AcceptanceContactSnapshotField = "acceptanceContactSnapshot";
 
+    public const string RejectedAction = "WORK_ORDER_REJECTED";
+    public const string CustomerAcceptanceIdField = "customerAcceptanceId";
+    public const string CorrectiveActionIdField = "correctiveActionId";
+
     /// <summary>ST-WO-001 success: OPEN -&gt; SCHEDULED, with the new first Service Visit referenced. No reason applies.</summary>
     public static AuditHistory Scheduled(CommandContext context, WorkOrder workOrder, ServiceVisit visit, DateTime occurredAt) =>
         new(
@@ -255,6 +259,31 @@ public static class WorkOrderAudit
             oldValueJson: null,
             newValueJson: null,
             reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WO-007 success (UC-WO-022; BR-07/BR-15; `docs/13` §4.17): AWAITING_CUSTOMER_ACCEPTANCE -&gt;
+    /// CORRECTIVE_ACTION_REQUIRED, triggered by the exact designated Acceptance Contact. The decision reason is
+    /// recorded as the audit reason (mirroring how <see cref="Paused"/> records the pause reason); the new
+    /// CustomerAcceptance and CorrectiveAction rows are referenced in the new value.
+    /// </summary>
+    public static AuditHistory Rejected(CommandContext context, WorkOrder workOrder, CustomerAcceptance acceptance, CorrectiveAction correctiveAction, string decisionReason, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            RejectedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.AwaitingCustomerAcceptance),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.CorrectiveActionRequired),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [CustomerAcceptanceIdField] = acceptance.Id,
+                [CorrectiveActionIdField] = correctiveAction.Id
+            }),
+            reason: decisionReason,
             context.User.UserId,
             occurredAt,
             context.CorrelationId);

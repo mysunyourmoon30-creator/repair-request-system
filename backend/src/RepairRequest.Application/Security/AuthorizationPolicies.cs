@@ -103,6 +103,16 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string WorkOrderAccept = "WorkOrder.Accept";
 
+    /// <summary>
+    /// Reject a Work Order awaiting Customer Acceptance (ST-WO-007; UC-WO-022; BR-07/BR-15; `docs/13` §4.17): the
+    /// same existing REQUESTER role as <see cref="WorkOrderAccept"/>, its own named policy since it is a
+    /// distinct action on the same resource (mirroring how Pause/Resume/Check-out each get their own policy
+    /// despite sharing one role). Role gate only — the real check is resource-specific (the caller must be
+    /// exactly <see cref="RepairRequest.Domain.WorkOrders.WorkOrder.AcceptanceContactId"/>), enforced by the
+    /// Application service.
+    /// </summary>
+    public const string WorkOrderReject = "WorkOrder.Reject";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -141,7 +151,8 @@ public static class AuthorizationPolicies
             [WorkOrderSubmitForAcceptance] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
             [WorkOrderReadWorkSummary] = [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor],
             [WorkOrderReadEligibleAcceptanceContacts] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
-            [WorkOrderAccept] = [RoleCodes.Requester]
+            [WorkOrderAccept] = [RoleCodes.Requester],
+            [WorkOrderReject] = [RoleCodes.Requester]
         };
 }
 

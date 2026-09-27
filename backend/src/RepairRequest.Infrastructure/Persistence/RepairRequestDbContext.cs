@@ -70,6 +70,10 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
 
     public DbSet<WorkSummary> WorkSummaries => Set<WorkSummary>();
 
+    public DbSet<CustomerAcceptance> CustomerAcceptances => Set<CustomerAcceptance>();
+
+    public DbSet<CorrectiveAction> CorrectiveActions => Set<CorrectiveAction>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);

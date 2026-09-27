@@ -14,9 +14,11 @@ public sealed record WorkOrderStatusTransition(
 /// `docs/13` §4.15 (ST-WO-003 actor is the Technician, not the baseline's "Team Lead"; ST-WO-004 actor is Team
 /// Lead OR Supervisor, not the baseline's "Supervisor" alone). ST-WO-005 is added for Customer Accept (UC-WO-021;
 /// `docs/13` §4.16), actor the exact designated Acceptance Contact (a REQUESTER, per Decision 1 — a
-/// resource-specific check, not a role-scoped query). Actor enforcement itself always lives in the API
-/// authorization policy / Application service, not here. Every later Work Order transition (ST-WO-006..011)
-/// remains out of scope.
+/// resource-specific check, not a role-scoped query). ST-WO-007 is added for Customer Reject (UC-WO-022;
+/// BR-07/BR-15; `docs/13` §4.17), same actor as ST-WO-005; ST-WO-006 (Work Order Close) remains out of scope for
+/// this ticket, matching how ST-WO-005 was added ahead of ST-WO-006 in the previous ticket. Actor enforcement
+/// itself always lives in the API authorization policy / Application service, not here. Every later Work Order
+/// transition (ST-WO-006, ST-WO-008..011) remains out of scope.
 /// </summary>
 public static class WorkOrderStatusTransitions
 {
@@ -27,6 +29,7 @@ public static class WorkOrderStatusTransitions
         new("ST-WO-003", WorkOrderStatus.InProgress, "SubmitWorkSummary", WorkOrderStatus.AwaitingSupervisorReview),
         new("ST-WO-004", WorkOrderStatus.AwaitingSupervisorReview, "SubmitForAcceptance", WorkOrderStatus.AwaitingCustomerAcceptance),
         new("ST-WO-005", WorkOrderStatus.AwaitingCustomerAcceptance, "Accept", WorkOrderStatus.Completed),
+        new("ST-WO-007", WorkOrderStatus.AwaitingCustomerAcceptance, "Reject", WorkOrderStatus.CorrectiveActionRequired),
     ];
 
     public static bool IsAllowed(WorkOrderStatus from, WorkOrderStatus to) =>

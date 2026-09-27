@@ -10,10 +10,12 @@ using RepairRequest.Infrastructure.Persistence;
 
 namespace RepairRequest.Infrastructure.WorkOrders;
 
-/// <summary>EF Core implementation of the Customer Accept port (ST-WO-005; UC-WO-021; `docs/13` §4.16).</summary>
+/// <summary>EF Core implementation of the Customer Accept (ST-WO-005; UC-WO-021; `docs/13` §4.16) and Customer Reject (ST-WO-007; UC-WO-022; `docs/13` §4.17) port.</summary>
 internal sealed class WorkOrderAcceptanceStore : IWorkOrderAcceptanceStore
 {
     private const int DeadlockVictim = 1205;
+    private const int UniqueIndexViolation = 2601;
+    private const int UniqueConstraintViolation = 2627;
 
     private readonly RepairRequestDbContext _db;
 
@@ -70,6 +72,19 @@ internal sealed class WorkOrderAcceptanceStore : IWorkOrderAcceptanceStore
 
     public void AddAudit(AuditHistory audit) => _db.AuditHistory.Add(audit);
 
+    public Task<int> NextAcceptanceRoundNoAsync(Guid workOrderId, CancellationToken cancellationToken) =>
+        NextOrdinalAsync(_db.CustomerAcceptances.Where(acceptance => acceptance.WorkOrderId == workOrderId), cancellationToken);
+
+    public void Add(CustomerAcceptance acceptance) => _db.CustomerAcceptances.Add(acceptance);
+
+    public Task<int> NextCorrectiveActionCycleNoAsync(Guid workOrderId, CancellationToken cancellationToken) =>
+        NextOrdinalAsync(_db.CorrectiveActions.Where(action => action.WorkOrderId == workOrderId), cancellationToken);
+
+    public void Add(CorrectiveAction correctiveAction) => _db.CorrectiveActions.Add(correctiveAction);
+
+    private static async Task<int> NextOrdinalAsync<T>(IQueryable<T> existingRowsForWorkOrder, CancellationToken cancellationToken) =>
+        await existingRowsForWorkOrder.CountAsync(cancellationToken) + 1;
+
     public async Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkOrder workOrder, byte[] expectedRowVersion, CancellationToken cancellationToken)
     {
         // The UPDATE applies only WHERE row_version = the client's If-Match token (the Work Order's own).
@@ -87,6 +102,17 @@ internal sealed class WorkOrderAcceptanceStore : IWorkOrderAcceptanceStore
         }
         catch (DbUpdateException exception) when (SqlErrorNumber(exception) is DeadlockVictim)
         {
+            _db.ChangeTracker.Clear();
+            return WorkOrderSaveOutcome.ConcurrencyConflict;
+        }
+        catch (DbUpdateException exception) when (SqlErrorNumber(exception) is UniqueIndexViolation or UniqueConstraintViolation)
+        {
+            // Two concurrent Accept/Reject calls on the same Work Order can both read the same "next round/cycle
+            // number" (NextAcceptanceRoundNoAsync/NextCorrectiveActionCycleNoAsync) before either commits — the
+            // RowVersion compare-and-swap above only guards the Work Order row itself, not customer_acceptance's
+            // own UQ(work_order_id, round_no) / corrective_action's UQ(work_order_id, cycle_no). The loser hits
+            // this unique-index violation, which is exactly a concurrency conflict on this resource, not a
+            // separate failure mode — same 409 CONCURRENCY_CONFLICT outcome as a stale RowVersion.
             _db.ChangeTracker.Clear();
             return WorkOrderSaveOutcome.ConcurrencyConflict;
         }

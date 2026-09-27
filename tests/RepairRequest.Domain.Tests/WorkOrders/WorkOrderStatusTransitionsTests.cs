@@ -68,9 +68,20 @@ public class WorkOrderStatusTransitionsTests
     }
 
     [Fact]
+    public void Reject_IsAllowed_FromAwaitingCustomerAcceptanceOnly()
+    {
+        Assert.True(WorkOrderStatusTransitions.IsAllowed(WorkOrderStatus.AwaitingCustomerAcceptance, WorkOrderStatus.CorrectiveActionRequired));
+        Assert.Contains(
+            WorkOrderStatusTransitions.All,
+            transition => transition.TransitionId == "ST-WO-007"
+                && transition.From == WorkOrderStatus.AwaitingCustomerAcceptance
+                && transition.To == WorkOrderStatus.CorrectiveActionRequired);
+    }
+
+    [Fact]
     public void Matrix_ContainsExactlyTheImplementedTransitions()
     {
-        Assert.Equal(5, WorkOrderStatusTransitions.All.Count);
+        Assert.Equal(6, WorkOrderStatusTransitions.All.Count);
     }
 
     [Theory]
