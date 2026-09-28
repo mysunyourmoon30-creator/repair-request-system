@@ -123,6 +123,32 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string CostSummaryPrepare = "CostSummary.Prepare";
 
+    /// <summary>
+    /// Read a Work Order's Cost Summary (`docs/13` §4.19, technical addition — no baseline read endpoint exists).
+    /// Team Lead (their own Prepare scope) or Supervisor (site-wide, to review) — the same two actors as the
+    /// write actions on this resource, never any other role: Requester/Technician/anyone out of scope must never
+    /// see cost amounts, so this policy is deliberately narrower than the general <see cref="WorkOrderRead"/>.
+    /// </summary>
+    public const string CostSummaryRead = "CostSummary.Read";
+
+    /// <summary>
+    /// Review a COMPLETED Work Order's not-yet-reviewed Cost Summary (CST-API-002; BR-08; `docs/13` §4.19).
+    /// Supervisor only, per two independent baseline sources (`docs/05` CST-009 `reviewed_by` and `docs/09`
+    /// CST-API-002's own Actor column) — the first Supervisor-only policy in this codebase (every prior
+    /// Supervisor capability was shared with Team Lead). Role gate only — site scope, the COMPLETED/not-yet-
+    /// reviewed state guards, and Separation of Duties (the reviewer must not be the preparer) are enforced by
+    /// the Application service.
+    /// </summary>
+    public const string CostSummaryReview = "CostSummary.Review";
+
+    /// <summary>
+    /// List Work Orders with an unreviewed Cost Summary (`docs/13` §4.19, technical addition — no baseline queue
+    /// endpoint exists). Supervisor only, the same actor as <see cref="CostSummaryReview"/>, since this exists
+    /// purely to support it — mirrors how <see cref="WorkOrderReadEligibleAcceptanceContacts"/> supports
+    /// <see cref="WorkOrderSubmitForAcceptance"/>.
+    /// </summary>
+    public const string CostSummaryReadPendingReview = "CostSummary.ReadPendingReview";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -163,7 +189,10 @@ public static class AuthorizationPolicies
             [WorkOrderReadEligibleAcceptanceContacts] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
             [WorkOrderAccept] = [RoleCodes.Requester],
             [WorkOrderReject] = [RoleCodes.Requester],
-            [CostSummaryPrepare] = [RoleCodes.TeamLead]
+            [CostSummaryPrepare] = [RoleCodes.TeamLead],
+            [CostSummaryRead] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
+            [CostSummaryReview] = [RoleCodes.Supervisor],
+            [CostSummaryReadPendingReview] = [RoleCodes.Supervisor]
         };
 }
 

@@ -22,6 +22,7 @@ public sealed class WorkOrdersController : CommandControllerBase
 {
     private const string ResourceType = "WorkOrder";
     private const string WorkSummaryResourceType = "WorkSummary";
+    private const string CostSummaryResourceType = "CostSummary";
 
     private readonly WorkOrderService _workOrders;
     private readonly WorkOrderScheduleService _schedule;
@@ -277,6 +278,73 @@ public sealed class WorkOrdersController : CommandControllerBase
 
         var context = await CommandContextAsync(cancellationToken);
         var result = await _costSummaries.PrepareAsync(context, workOrderId, rowVersion, request.TotalAmount, request.CurrencyCode, request.Note, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        return DetailResult(result.Value, ResourceType, CostSummaryResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// Cost Summary read (`docs/13` §4.19, technical addition — no baseline read endpoint exists): Team Lead
+    /// (their own Prepare scope) or Supervisor (site-wide, to review). 404 when none has been prepared yet, or
+    /// the caller is out of scope (identical response) — never leaks whether a Cost Summary exists to a caller
+    /// who cannot see it.
+    /// </summary>
+    [HttpGet("{workOrderId:guid}/cost-summary")]
+    [Authorize(Policy = AuthorizationPolicies.CostSummaryRead)]
+    [ProducesResponseType<CostSummaryResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> GetCostSummary(Guid workOrderId, CancellationToken cancellationToken)
+    {
+        var costSummary = await _costSummaries.GetAsync(await CallerAsync(cancellationToken), workOrderId, cancellationToken);
+        if (costSummary is null)
+        {
+            return ApiProblemResults.ResourceNotFound(HttpContext, CostSummaryResourceType);
+        }
+
+        return Ok(CostSummaryResponses.ToResponse(costSummary));
+    }
+
+    /// <summary>
+    /// The Supervisor pending Cost Summary Review queue (`docs/13` §4.19, technical addition — no baseline queue
+    /// endpoint exists): every Work Order, within the caller's Site scope, that is COMPLETED with an unreviewed
+    /// Cost Summary. Newest-prepared-first, paged like every other list in this codebase.
+    /// </summary>
+    [HttpGet("pending-cost-summary-review")]
+    [Authorize(Policy = AuthorizationPolicies.CostSummaryReadPendingReview)]
+    [ProducesResponseType<PagedResponse<PendingCostSummaryReviewResponse>>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> PendingCostSummaryReview([FromQuery] PendingCostSummaryReviewListRequest request, CancellationToken cancellationToken)
+    {
+        if (!PageRequests.TryCreate(request.Page, request.PageSize, _paging, HttpContext, out var paging, out var problem))
+        {
+            return problem;
+        }
+
+        var page = await _costSummaries.ListPendingReviewAsync(await CallerAsync(cancellationToken), new PendingCostSummaryReviewQuery(paging), cancellationToken);
+        return Ok(new PagedResponse<PendingCostSummaryReviewResponse>(
+            page.Items.Select(PendingCostSummaryReviewResponses.ToResponse).ToList(), page.Page, page.PageSize, page.TotalCount));
+    }
+
+    /// <summary>
+    /// CST-API-002 Review Cost Summary (Supervisor only; BR-08; `docs/13` §4.19): mark a COMPLETED Work Order's
+    /// not-yet-reviewed Cost Summary as reviewed. If-Match is checked against the Cost Summary's own RowVersion.
+    /// Empty request body — <c>reviewedBy</c>/<c>reviewedAt</c> are always server-derived, never accepted from
+    /// the client. Separation of Duties: the caller must not be the Cost Summary's own preparer, even holding
+    /// both Team Lead and Supervisor roles — 403 otherwise. Does not change the Work Order's own status.
+    /// </summary>
+    [HttpPost("{workOrderId:guid}/review-cost-summary")]
+    [Authorize(Policy = AuthorizationPolicies.CostSummaryReview)]
+    [ProducesResponseType<CostSummaryResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ReviewCostSummary(Guid workOrderId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _costSummaries.ReviewAsync(context, workOrderId, rowVersion, cancellationToken);
         if (!result.Succeeded)
         {
             return ProblemFor(result.Error!, ResourceType);

@@ -6,14 +6,16 @@ using RepairRequest.Domain.WorkOrders;
 namespace RepairRequest.Application.WorkOrders;
 
 /// <summary>
-/// Cost Summary Prepare (CST-API-001; Team Lead only; BR-08; `docs/13` §4.18). Runs in one transaction, checks in
-/// the same deterministic order as every other command in this codebase: scope (404 — <see
-/// cref="IDataScope.WorkOrders"/> site-wide, the same model Work Summary review uses), row version (409
-/// CONCURRENCY_CONFLICT — against the Work Order's own RowVersion on first Prepare, or the Cost Summary's own
-/// RowVersion on a later edit; see <see cref="ICostSummaryStore"/>'s own remarks), the right source state (409
-/// STATE_CONFLICT — Work Order must be COMPLETED; an already-reviewed Cost Summary can never be re-Prepared),
-/// then field validation (422). Success creates or updates the single Cost Summary row for this Work Order and
-/// writes one audit row, all in the same save — the Work Order's own status is never touched by this ticket.
+/// Cost Summary Prepare (CST-API-001; Team Lead only; BR-08; `docs/13` §4.18), Read and Review (CST-API-002;
+/// Supervisor only; `docs/13` §4.19). Every write runs in one transaction, checking in the same deterministic
+/// order as every other command in this codebase: scope (404 — <see cref="IDataScope.WorkOrders"/> site-wide,
+/// the same model Work Summary review uses), Separation of Duties for Review only (403 — the reviewer must not
+/// be the preparer, even holding both roles), row version (409 CONCURRENCY_CONFLICT — against the Work Order's
+/// own RowVersion on first Prepare, or the Cost Summary's own RowVersion on a later Prepare edit or a Review; see
+/// <see cref="ICostSummaryStore"/>'s own remarks), the right source state (409 STATE_CONFLICT — Work Order must
+/// be COMPLETED; an already-reviewed Cost Summary can never be re-Prepared or re-Reviewed), then field validation
+/// (422, Prepare only). Success writes the Cost Summary row and one audit row in the same save — the Work
+/// Order's own status is never touched by either action.
 /// </summary>
 public sealed class CostSummaryService
 {
@@ -40,7 +42,7 @@ public sealed class CostSummaryService
     private async Task<CommandResult<CostSummaryDto>> PrepareLockedAsync(
         CommandContext context, Guid workOrderId, byte[] expectedRowVersion, decimal? totalAmount, string? currencyCode, string? note, CancellationToken cancellationToken)
     {
-        var workOrder = await _store.LoadWorkOrderForPrepareAsync(context.User, workOrderId, cancellationToken);
+        var workOrder = await _store.LoadWorkOrderInScopeAsync(context.User, workOrderId, cancellationToken);
         if (workOrder is null)
         {
             return CommandError.NotFound;
@@ -114,6 +116,74 @@ public sealed class CostSummaryService
             outcome = await _store.SaveUpdateAsync(costSummary, expectedRowVersion, cancellationToken);
         }
 
+        if (outcome != WorkOrderSaveOutcome.Saved)
+        {
+            return CommandError.ConcurrencyConflict;
+        }
+
+        return CommandResult<CostSummaryDto>.Success(new CostSummaryDto(
+            costSummary.Id, costSummary.WorkOrderId, costSummary.TotalAmount, costSummary.CurrencyCode, costSummary.Note,
+            costSummary.PreparedBy, costSummary.PreparedAt, costSummary.ReviewedBy, costSummary.ReviewedAt, costSummary.RowVersion));
+    }
+
+    /// <summary>`docs/13` §4.19 — Team Lead (their own Prepare scope) or Supervisor (site-wide) read of a Work Order's Cost Summary.</summary>
+    public Task<CostSummaryDto?> GetAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
+        _store.GetCostSummaryDtoAsync(user, workOrderId, cancellationToken);
+
+    /// <summary>`docs/13` §4.19 — the Supervisor pending-review queue (a technical addition, not baseline-documented).</summary>
+    public Task<PagedResult<PendingCostSummaryReviewDto>> ListPendingReviewAsync(CurrentUser user, PendingCostSummaryReviewQuery query, CancellationToken cancellationToken) =>
+        _store.ListPendingReviewAsync(user, query, cancellationToken);
+
+    public Task<CommandResult<CostSummaryDto>> ReviewAsync(CommandContext context, Guid workOrderId, byte[] expectedRowVersion, CancellationToken cancellationToken) =>
+        _store.RunInTransactionAsync(() => ReviewLockedAsync(context, workOrderId, expectedRowVersion, cancellationToken), cancellationToken);
+
+    private async Task<CommandResult<CostSummaryDto>> ReviewLockedAsync(
+        CommandContext context, Guid workOrderId, byte[] expectedRowVersion, CancellationToken cancellationToken)
+    {
+        var workOrder = await _store.LoadWorkOrderInScopeAsync(context.User, workOrderId, cancellationToken);
+        if (workOrder is null)
+        {
+            return CommandError.NotFound;
+        }
+
+        var costSummary = await _store.GetTrackedCostSummaryAsync(workOrderId, cancellationToken);
+        if (costSummary is null)
+        {
+            // No Cost Summary has been prepared yet — the same "resource doesn't exist yet" 404 every other
+            // command in this codebase uses (e.g. Accept/Reject before submit-for-acceptance), not a 409.
+            return CommandError.NotFound;
+        }
+
+        // Separation of Duties (approved decision, `docs/13` §4.19): the caller must not be the same person who
+        // prepared this Cost Summary, even if they hold both Team Lead and Supervisor roles — mirrors
+        // DEC-PRE-S1-008-01's self-decision prohibition for Approve/Reject, the same category of integrity
+        // control, checked as an object-level 403 right after scope, before concurrency/state.
+        if (costSummary.PreparedBy == context.User.UserId)
+        {
+            return CommandError.AccessDenied;
+        }
+
+        if (!costSummary.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
+        {
+            return CommandError.ConcurrencyConflict;
+        }
+
+        if (workOrder.Status != WorkOrderStatus.Completed)
+        {
+            return CommandError.StateConflict("Only a COMPLETED Work Order's Cost Summary can be reviewed.");
+        }
+
+        if (costSummary.ReviewedAt is not null)
+        {
+            return CommandError.StateConflict("This Work Order's Cost Summary has already been reviewed.");
+        }
+
+        var now = WorkOrderScheduleService.ToUtc(_clock.GetUtcNow())!.Value;
+        costSummary.Review(context.User.UserId, now);
+
+        _store.AddAudit(WorkOrderAudit.CostSummaryReviewed(context, workOrder, costSummary, now));
+
+        var outcome = await _store.SaveUpdateAsync(costSummary, expectedRowVersion, cancellationToken);
         if (outcome != WorkOrderSaveOutcome.Saved)
         {
             return CommandError.ConcurrencyConflict;

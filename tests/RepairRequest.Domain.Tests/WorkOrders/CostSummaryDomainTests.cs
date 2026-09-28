@@ -79,15 +79,39 @@ public class CostSummaryDomainTests
     [Fact]
     public void UpdatePreparation_ThrowsDomainRuleViolation_WhenAlreadyReviewed()
     {
-        // Nothing in this ticket's own scope can ever set ReviewedAt (Review is a future ticket) — this test
-        // exercises the domain guard directly via reflection on the private setter, simulating the state the
-        // future Review ticket will eventually be able to produce, so the guard is proven correct now rather
-        // than left untested until that ticket exists.
         var summary = CostSummary.Create(Guid.NewGuid(), Guid.NewGuid(), 100m, "USD", null, Guid.NewGuid(), Now);
-        typeof(CostSummary).GetProperty(nameof(CostSummary.ReviewedAt))!.SetValue(summary, (DateTime?)Now);
+        summary.Review(Guid.NewGuid(), Now.AddMinutes(1));
 
         var exception = Assert.Throws<DomainRuleViolationException>(() =>
-            summary.UpdatePreparation(999m, "EUR", null, Guid.NewGuid(), Now.AddMinutes(1)));
+            summary.UpdatePreparation(999m, "EUR", null, Guid.NewGuid(), Now.AddMinutes(2)));
+        Assert.Equal("This Work Order's Cost Summary has already been reviewed.", exception.Message);
+    }
+
+    [Fact]
+    public void Review_SetsReviewedByAndReviewedAt()
+    {
+        var summary = CostSummary.Create(Guid.NewGuid(), Guid.NewGuid(), 100m, "USD", null, Guid.NewGuid(), Now);
+        var reviewer = Guid.NewGuid();
+        var reviewedAt = Now.AddMinutes(5);
+
+        summary.Review(reviewer, reviewedAt);
+
+        Assert.Equal(reviewer, summary.ReviewedBy);
+        Assert.Equal(reviewedAt, summary.ReviewedAt);
+    }
+
+    [Fact]
+    public void Review_RequiresAReviewer() =>
+        Assert.Throws<ArgumentException>(() =>
+            CostSummary.Create(Guid.NewGuid(), Guid.NewGuid(), 100m, "USD", null, Guid.NewGuid(), Now).Review(Guid.Empty, Now.AddMinutes(1)));
+
+    [Fact]
+    public void Review_ThrowsDomainRuleViolation_WhenAlreadyReviewed()
+    {
+        var summary = CostSummary.Create(Guid.NewGuid(), Guid.NewGuid(), 100m, "USD", null, Guid.NewGuid(), Now);
+        summary.Review(Guid.NewGuid(), Now.AddMinutes(1));
+
+        var exception = Assert.Throws<DomainRuleViolationException>(() => summary.Review(Guid.NewGuid(), Now.AddMinutes(2)));
         Assert.Equal("This Work Order's Cost Summary has already been reviewed.", exception.Message);
     }
 }

@@ -1,3 +1,5 @@
+using RepairRequest.Application.Common;
+
 namespace RepairRequest.Application.WorkOrders;
 
 /// <summary>
@@ -25,3 +27,20 @@ public static class CostSummaryFields
     public const string CurrencyCode = "currencyCode";
     public const string Note = "note";
 }
+
+/// <summary>
+/// One Work Order awaiting Cost Summary Review, for the Supervisor pending-review queue (`docs/13` §4.19 — a
+/// technical addition, not baseline-documented). A lightweight projection, never the full Work Order aggregate
+/// graph, mirroring <see cref="MyVisitSummaryDto"/>'s own "no full aggregate graph for list" convention.
+/// </summary>
+public sealed record PendingCostSummaryReviewDto(
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    string? SiteCode,
+    decimal TotalAmount,
+    string CurrencyCode,
+    Guid PreparedBy,
+    DateTime PreparedAt);
+
+/// <summary>Pending Cost Summary Review queue: paging only, always the Supervisor's own site-wide unreviewed set, newest-prepared-first.</summary>
+public sealed record PendingCostSummaryReviewQuery(PageRequest Paging);

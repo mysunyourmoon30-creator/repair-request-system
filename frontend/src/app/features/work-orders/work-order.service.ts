@@ -56,6 +56,17 @@ export interface CostSummary {
   rowVersion: string;
 }
 
+/** One queue item (`docs/13` §4.19) — a lightweight projection, never the full Work Order graph. */
+export interface PendingCostSummaryReview {
+  workOrderId: string;
+  workOrderNo: string;
+  siteCode: string | null;
+  totalAmount: number;
+  currencyCode: string;
+  preparedBy: string;
+  preparedAt: string;
+}
+
 /** Note: field names differ from `ScheduleWorkOrderRequest` (`assignedTeamId`, not `ownerTeamId`) — matches the backend's `NewVisitScheduleRequest`. */
 export interface NewVisitScheduleRequest {
   assignedTeamId: string;
@@ -116,6 +127,31 @@ export class WorkOrderService {
    */
   prepareCostSummary(workOrderId: string, ifMatch: string, body: PrepareCostSummaryRequest): Observable<CostSummary> {
     return this.http.put<CostSummary>(`${this.baseUrl}/${workOrderId}/cost-summary`, body, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /**
+   * Cost Summary read (`docs/13` §4.19, technical addition). Team Lead (their own Prepare scope) or Supervisor
+   * (site-wide, to review). 404 when none has been prepared yet, or the caller is out of scope.
+   */
+  getCostSummary(workOrderId: string): Observable<CostSummary> {
+    return this.http.get<CostSummary>(`${this.baseUrl}/${workOrderId}/cost-summary`);
+  }
+
+  /**
+   * The Supervisor pending Cost Summary Review queue (`docs/13` §4.19, technical addition): every Work Order,
+   * within the caller's Site scope, that is COMPLETED with an unreviewed Cost Summary.
+   */
+  listPendingCostSummaryReviews(page: number, pageSize: number): Observable<PagedResponse<PendingCostSummaryReview>> {
+    const params = new HttpParams().set('page', page).set('pageSize', pageSize);
+    return this.http.get<PagedResponse<PendingCostSummaryReview>>(`${this.baseUrl}/pending-cost-summary-review`, { params });
+  }
+
+  /**
+   * CST-API-002 Review Cost Summary (Supervisor only; `docs/13` §4.19). No body — `reviewedBy`/`reviewedAt` are
+   * always server-derived. `ifMatch` is the Cost Summary's own `rowVersion`.
+   */
+  reviewCostSummary(workOrderId: string, ifMatch: string): Observable<CostSummary> {
+    return this.http.post<CostSummary>(`${this.baseUrl}/${workOrderId}/review-cost-summary`, null, { headers: { 'If-Match': ifMatch } });
   }
 
   reschedule(serviceVisitId: string, ifMatch: string, body: RescheduleServiceVisitRequest): Observable<WorkOrder> {

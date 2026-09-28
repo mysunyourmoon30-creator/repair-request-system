@@ -389,6 +389,50 @@ Both are written in the same transaction as the Cost Summary row they describe, 
 
 - Trace: CST-API-001; BR-08; CST-001/003..011; TC-CST-001 (partially — the Prepare portion of the "Close guard" scenario only, not Review or Close itself).
 
+### 4.19 Ticket 4b — Cost Summary Read/Review (CST-API-002; BR-08)
+
+**Context.** CST-API-002 ("Review Cost") is the only other baseline endpoint touching Cost Summary — a bare `POST`, Supervisor actor, If-Match, no documented body (`docs/09` p.4). No baseline Use Case, state machine, second test case, or reviewer-comment field exists for Review either (re-verified this round, same exhaustive-search method as §4.18). Five specific requirement gaps were resolved by explicit Portfolio Project Owner directive — none guessed — recorded here.
+
+**Decision 1 — Separation of Duties (baseline is silent; directed).**
+No document (`docs/02`, `docs/04`, `docs/12`) states whether a Cost Summary's preparer may also review it. `docs/12`'s own analogous rule for a different feature, DEC-PRE-S1-008-01 ("a user must not Approve or Reject a Repair Request they created, even holding APPROVER"), is itself labeled *"a portfolio rule added beyond the baseline"* — confirming this category of rule is a directed addition, not something the baseline ever specifies. Per Portfolio Project Owner directive, the same posture is applied here: **the reviewer must not be the Cost Summary's own preparer, even holding both Team Lead and Supervisor roles** — `403 ACCESS_DENIED`, checked as an object-level check (mirrors the established `CommandFailure.AccessDenied` category already used for self-decision), after scope, before concurrency/state. Enforced entirely server-side; the Angular UI has no special client-side hint for it (the backend's own 403 message covers it).
+
+**Decision 2 — Review outcome: Mark as Reviewed only (baseline is silent on any second outcome; directed).**
+No Reject/Return-for-correction/Reopen action or Corrective-Action-style state enum exists anywhere in the baseline for Cost Summary (confirmed: no second `CST-API-*` id, no `ST-CST-*` beyond the already-absent family, `TC-CST-001` names only one outcome). Per Portfolio Project Owner directive, Review has exactly one outcome. Once reviewed, the Cost Summary is immutable to Prepare — enforced by the same `existing?.ReviewedAt is not null → 409` guard Ticket 4a already shipped (no new guard needed, verified still intact by this ticket's own tests).
+
+**Decision 3 — No reviewer note/reason field (baseline is silent; directed).**
+`docs/05`'s complete Cost Summary field list has no reviewer-comment column (contrast `ACC-007 decision_reason`, which does exist for Accept/Reject). Per Portfolio Project Owner directive, the request body carries only the RowVersion/concurrency token (via If-Match) — no reason, no note. `reviewedBy`/`reviewedAt` are always server-derived; the client can never supply them.
+
+**Decision 4 — Review's own state guard: Work Order must be COMPLETED (baseline states this only indirectly, via Close's guard; directed for Review itself).**
+No `ST-CST-*` transition exists to carry a guard for Review directly — BR-08/ST-WO-006/CST-010 only state Cost Summary must already be reviewed *by the time of Close*. Per Portfolio Project Owner directive, Review itself is explicitly guarded to `Status == Completed`, mirroring Prepare's identical guard — not reachable to violate today (nothing transitions a Work Order away from COMPLETED while a Cost Summary exists yet), so this is defense-in-depth, verified via a directly-seeded test rather than a real API sequence.
+
+**Decision 5 — Supervisor pending-review queue: a technical addition, not a baseline endpoint (approved, recorded here per instruction).**
+No document names a "queue" (exhaustive search of `docs/02`, `docs/04`, `docs/06`, `docs/09`). Unlike `ACC-API-ADD-001` (which existed to populate a *required input field* on a different mandatory action), this queue has no comparable baseline-adjacent precedent — it is a new technical addition purely to let a Supervisor discover what needs review at all. `GET /api/v1/work-orders/pending-cost-summary-review` — Supervisor only, site-wide via the existing `IDataScope.WorkOrders()` (unchanged), filtered to `Status = COMPLETED AND CostSummary exists AND ReviewedAt IS NULL`, paged and newest-prepared-first (a deterministic ordering choice mirroring this codebase's established newest-first convention, DEC-S2-001-04 — not baseline-ordered, since no order is documented). A filtered index (`IX_cost_summary_pending_review ON cost_summary(reviewed_at) WHERE reviewed_at IS NULL`) backs this exact predicate.
+
+**CST-API-002 Review, and the new Cost Summary read.**
+`POST /api/v1/work-orders/{id}/review-cost-summary` — Actor: Supervisor — If-Match required (the Cost Summary's own RowVersion — Review, like a Prepare edit, never changes the Work Order's own status) — empty body. Check order: 400/401/403 (role gate) → 404 (scope: Work Order in Supervisor's Site scope, and a Cost Summary must already exist — no Cost Summary yet is 404, the same "resource doesn't exist yet" convention as every other command in this codebase) → 403 `ACCESS_DENIED` (Separation of Duties, Decision 1) → 409 `CONCURRENCY_CONFLICT` → 409 `STATE_CONFLICT` (not COMPLETED, or already reviewed). Success sets `reviewed_by`/`reviewed_at`, writes one audit row, all in the same transaction as the Cost Summary row — the Work Order's own status/RowVersion are never touched (mirrors Prepare exactly).
+
+A Cost Summary read, `GET /api/v1/work-orders/{id}/cost-summary` (technical addition, no baseline endpoint — mirrors `WorkSummaryStore.GetWorkSummaryAsync`'s combined scope+read shape), is shared by both actors: Team Lead (their own Prepare scope — closes Ticket 4a's own flagged gap, the Prepare/Edit form can now pre-fill current values) and Supervisor (site-wide, to review). `CostSummary.Read` is its own narrower policy than `WorkOrder.Read` — Requester/Technician/anyone else must never see cost amounts, per the approved decision; `WorkOrderResponse` itself still carries only the two signal fields (`costSummaryRowVersion`, `costSummaryReviewedAt`) added in §4.18, never the amount/currency/note.
+
+**Audit event.** `COST_SUMMARY_REVIEWED` — its own distinct event, following the same established self-named `<ENTITY>_<PAST_TENSE_VERB>` convention as `COST_SUMMARY_PREPARED`/`COST_SUMMARY_UPDATED` (§4.18 Decision 8), flagged the same way. References the Work Order (`entity_type`/`entity_id`) and the Cost Summary's own id (`costSummaryId` in `new_value_json`), plus the standard `actor_id` (the reviewing Supervisor)/`occurred_at` columns — no new audit shape.
+
+**Authorization matrix.**
+
+| Actor | Action | Scope |
+|---|---|---|
+| Team Lead | `GET .../cost-summary` | their own Prepare scope (`IDataScope.WorkOrders()`) |
+| Supervisor | `GET .../cost-summary`, `GET .../pending-cost-summary-review`, `POST .../review-cost-summary` | site-wide (`IDataScope.WorkOrders()`) |
+| The Cost Summary's own preparer | Review | `403 ACCESS_DENIED` (Separation of Duties) — even holding both roles |
+| Any other Supervisor (wrong tenant/site) | any of the above | `404` (non-leaking, same convention as every other "wrong specific person/scope" case in this codebase) |
+| Requester/Technician/Approver/Coordinator/Administrator | any of the above | `403 ACCESS_DENIED` (policy gate) |
+
+**Angular.** Supervisor-only pending-review list (`/cost-summary-review`, gated by a new `supervisorOnlyGuard`, UX convenience only), "View Details" fetches and shows the prepared amount/currency/note/preparer inline, "Review" re-fetches the current Cost Summary first (so If-Match always targets its own fresh RowVersion) then submits — disabled while in flight (double-submit prevention), refreshes the list on a 404/409 (stale/already-reviewed/gone). The Work Order detail page's own Prepare/Edit form (Team Lead) now also fetches the existing Cost Summary on load when one exists, pre-filling the form — Ticket 4a's own flagged gap, closed now that Read exists.
+
+**For the future Work Order Close ticket:** `reviewed_at` becoming non-null here is the exact evidence Close's guard (`docs/13` §4.15 Decision 4, corrected) must check — Close must never be reduced to checking Work Order status `COMPLETED` alone. Review itself never changes the Work Order's own status; only the future Close ticket's own `ST-WO-006` transition does.
+
+**Not in this round:** Reject/Return-for-correction/Reopen of a Cost Summary, a Review reason/comment field, Work Order Close, the Corrective Action lifecycle, Cancel Work Order, invitation/activation, Time Correction.
+
+- Trace: CST-API-002; BR-08; CST-001/003..011; TC-CST-001 (still only partially satisfied — Review's own behavior has no baseline test case at all).
+
 ---
 
 ## 3. Common Conventions (as implemented)

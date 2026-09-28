@@ -45,6 +45,13 @@ internal sealed class CostSummaryConfiguration : IEntityTypeConfiguration<CostSu
             .IsUnique()
             .HasDatabaseName("UQ_cost_summary_work_order_id");
 
+        // `docs/13` §4.19: the Supervisor pending-review queue filters exactly this predicate — a filtered index
+        // stays small regardless of table growth, since most rows are eventually reviewed (mirrors the existing
+        // IX_work_order_list_search precedent: a candidate list-query index added when a new list is introduced).
+        builder.HasIndex(summary => summary.ReviewedAt)
+            .HasDatabaseName("IX_cost_summary_pending_review")
+            .HasFilter("[reviewed_at] IS NULL");
+
         builder.HasOne<WorkOrder>()
             .WithMany()
             .HasForeignKey(summary => summary.WorkOrderId)
