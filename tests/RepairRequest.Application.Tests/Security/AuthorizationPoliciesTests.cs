@@ -39,7 +39,8 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.CostSummaryPrepare, [RoleCodes.TeamLead] },
         { AuthorizationPolicies.CostSummaryRead, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
         { AuthorizationPolicies.CostSummaryReview, [RoleCodes.Supervisor] },
-        { AuthorizationPolicies.CostSummaryReadPendingReview, [RoleCodes.Supervisor] }
+        { AuthorizationPolicies.CostSummaryReadPendingReview, [RoleCodes.Supervisor] },
+        { AuthorizationPolicies.WorkOrderClose, [RoleCodes.Supervisor] }
     };
 
     [Theory]
@@ -52,7 +53,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(26, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(27, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -199,6 +200,15 @@ public class AuthorizationPoliciesTests
     {
         // `docs/13` §4.19 — the lookup exists only to support Review, same actor.
         Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryReadPendingReview]);
+    }
+
+    [Fact]
+    public void WorkOrderClose_IsSupervisorOnly()
+    {
+        // ST-WO-006; WO-API-010; BR-08; `docs/13` §4.20 — the baseline actor is Supervisor alone. Team Lead,
+        // Coordinator, Requester and Approver are deliberately excluded; site scope and the Close guards are
+        // enforced by the service, and there is no Separation of Duties for Close (Q5).
+        Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderClose]);
     }
 
     [Fact]

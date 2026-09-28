@@ -15,6 +15,8 @@ namespace RepairRequest.Application.WorkOrders;
 /// (Prepare's If-Match target once a row already exists — see <see cref="ICostSummaryStore"/>'s own remarks) and
 /// gate the Prepare/Edit UI to a not-yet-reviewed Cost Summary, without a dedicated Cost Summary read endpoint
 /// (deferred to the Review ticket) — never the amount/currency/note themselves, only these two signal fields.
+/// <see cref="ClosedAt"/> is added by `docs/13` §4.20 (ST-WO-006, Q7) so the moment of Close is visible;
+/// <c>closed_by</c> is deliberately not projected — it stays in the database and the WORK_ORDER_CLOSED audit only.
 /// </summary>
 public sealed record WorkOrderDto(
     Guid WorkOrderId,
@@ -29,7 +31,8 @@ public sealed record WorkOrderDto(
     IReadOnlyList<ServiceVisitDto> Visits,
     Guid? AcceptanceContactId,
     byte[]? CostSummaryRowVersion,
-    DateTime? CostSummaryReviewedAt);
+    DateTime? CostSummaryReviewedAt,
+    DateTime? ClosedAt);
 
 /// <summary>
 /// Service Visit projection (S2-003; RR-DD-001 SV-001..018), embedded in the Work Order detail response — no

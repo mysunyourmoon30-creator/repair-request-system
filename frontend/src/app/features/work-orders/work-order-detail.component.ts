@@ -47,7 +47,15 @@ import { CostSummary, WorkOrderService } from './work-order.service';
         <dd>{{ workOrder.siteCode ?? '—' }}</dd>
         <dt>Equipment Code</dt>
         <dd>{{ workOrder.equipmentCode ?? '—' }}</dd>
+        @if (workOrder.closedAt !== null) {
+          <dt>Closed At</dt>
+          <dd>{{ workOrder.closedAt }}</dd>
+        }
       </dl>
+
+      @if (canClose(workOrder)) {
+        <button type="button" [disabled]="submitting()" (click)="onClose(workOrder)">Close Work Order</button>
+      }
 
       @if (canAccept(workOrder)) {
         <button type="button" [disabled]="submitting()" (click)="onAccept(workOrder)">Accept</button>
@@ -269,6 +277,63 @@ export class WorkOrderDetailComponent {
         }
       },
     });
+  }
+
+  /**
+   * UX only — `docs/13` §4.20. Shown to a Supervisor on a COMPLETED Work Order whose Cost Summary has been
+   * reviewed; the backend always re-checks role, Site scope and every Close guard (Work Summary reviewed, customer
+   * ACCEPT, reviewed Cost Summary) regardless, so this button is never the security boundary.
+   */
+  protected canClose(workOrder: WorkOrder): boolean {
+    return workOrder.status === 'COMPLETED' && workOrder.costSummaryReviewedAt !== null && getCurrentUserRoles().includes('SUPERVISOR');
+  }
+
+  /**
+   * WO-API-010 Close (`docs/13` §4.20). Ignored while a request is already in flight (double-submit prevention,
+   * alongside the disabled button). A 409 shows the server's own guard-specific message (STATE_CONFLICT carries
+   * the unmet prerequisite) and reloads the current Work Order, so the page shows its latest state and a fresh ETag.
+   */
+  protected onClose(workOrder: WorkOrder): void {
+    if (this.submitting()) {
+      return;
+    }
+
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    this.workOrders.close(workOrder.workOrderId, this.quoted(workOrder.rowVersion)).subscribe({
+      next: (updated) => {
+        this.workOrder.set(updated);
+        this.submitting.set(false);
+      },
+      error: (response: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.actionError.set(this.describeClose(response));
+
+        if (response.status === 409) {
+          this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });
+        }
+      },
+    });
+  }
+
+  private describeClose(response: HttpErrorResponse): string {
+    const problem = response.error as { code?: string; detail?: string } | null;
+
+    switch (response.status) {
+      case 401:
+        return 'You are not signed in, or your session has expired. Please sign in again.';
+      case 403:
+        return 'You do not have permission to close this Work Order.';
+      case 404:
+        return 'This Work Order was not found, or is outside your data scope.';
+      case 409:
+        return problem?.code === 'STATE_CONFLICT' && problem.detail
+          ? problem.detail
+          : 'This Work Order was changed by another request. The latest details are shown.';
+      default:
+        return this.describe(response);
+    }
   }
 
   /** UX only — `docs/13` §4.18. The backend always re-checks role and state regardless. */

@@ -29,6 +29,7 @@ public sealed class WorkOrdersController : CommandControllerBase
     private readonly WorkSummaryService _workSummaries;
     private readonly WorkOrderAcceptanceService _acceptance;
     private readonly CostSummaryService _costSummaries;
+    private readonly WorkOrderCloseService _close;
     private readonly PagingOptions _paging;
 
     public WorkOrdersController(
@@ -37,6 +38,7 @@ public sealed class WorkOrdersController : CommandControllerBase
         WorkSummaryService workSummaries,
         WorkOrderAcceptanceService acceptance,
         CostSummaryService costSummaries,
+        WorkOrderCloseService close,
         ICurrentUserAccessor currentUserAccessor,
         IOptions<PagingOptions> paging)
         : base(currentUserAccessor)
@@ -46,6 +48,7 @@ public sealed class WorkOrdersController : CommandControllerBase
         _workSummaries = workSummaries;
         _acceptance = acceptance;
         _costSummaries = costSummaries;
+        _close = close;
         _paging = paging.Value;
     }
 
@@ -351,5 +354,35 @@ public sealed class WorkOrdersController : CommandControllerBase
         }
 
         return DetailResult(result.Value, ResourceType, CostSummaryResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// WO-API-010 Close Work Order (ST-WO-006; BR-08; `docs/13` §4.20): Supervisor only, within the caller's Site
+    /// scope. If-Match is checked against the Work Order's own RowVersion. Empty request body —
+    /// <c>closed_by</c>/<c>closed_at</c> are always server-derived. Requires the Work Order to be COMPLETED, a
+    /// current Work Summary that was reviewed, a customer ACCEPT on the current submission, and a reviewed Cost
+    /// Summary — any miss is 409 STATE_CONFLICT with a specific message. Moves the Work Order to CLOSED and
+    /// returns it with a fresh ETag.
+    /// </summary>
+    [HttpPost("{workOrderId:guid}/close")]
+    [Authorize(Policy = AuthorizationPolicies.WorkOrderClose)]
+    [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Close(Guid workOrderId, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _close.CloseAsync(context, workOrderId, rowVersion, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
+        // The caller just passed IDataScope.WorkOrders() inside Close, so the ordinary scoped read-back covers them.
+        var workOrder = await _workOrders.GetAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
     }
 }

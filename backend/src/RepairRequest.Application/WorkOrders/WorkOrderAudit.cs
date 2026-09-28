@@ -52,6 +52,12 @@ public static class WorkOrderAudit
     public const string CorrectiveActionIdField = "correctiveActionId";
 
     /// <summary>
+    /// ST-WO-006 (`docs/13` §4.20). The baseline names only "Close audit" (TC-WO-011); this follows the same
+    /// self-named `&lt;ENTITY&gt;_&lt;PAST_TENSE_VERB&gt;` convention as every other action code in this class.
+    /// </summary>
+    public const string ClosedAction = "WORK_ORDER_CLOSED";
+
+    /// <summary>
     /// No literal baseline action-code string exists for Cost Summary Prepare anywhere in `docs/02`, `docs/06` or
     /// `docs/09` (BR-08's own "System Result/Audit" text names only Close's audit; TC-CST-001's "Expected Audit"
     /// names only "Cost review audit", which describes Review, not Prepare). These two names follow the same
@@ -379,6 +385,29 @@ public static class WorkOrderAudit
             newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
             {
                 [CostSummaryIdField] = costSummary.Id
+            }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WO-006 success (BR-08; `docs/13` §4.20): COMPLETED -&gt; CLOSED by a Supervisor. The reviewed Cost Summary
+    /// that satisfied the guard is referenced in the new value; the closing Supervisor is <c>context.User.UserId</c>
+    /// (the audit row's own actor column — <c>closed_by</c> is deliberately not exposed elsewhere, Q7). No reason applies.
+    /// </summary>
+    public static AuditHistory Closed(CommandContext context, WorkOrder workOrder, Guid costSummaryId, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            ClosedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Completed),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Closed),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [CostSummaryIdField] = costSummaryId
             }),
             reason: null,
             context.User.UserId,

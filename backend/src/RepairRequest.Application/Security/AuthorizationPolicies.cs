@@ -149,6 +149,14 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string CostSummaryReadPendingReview = "CostSummary.ReadPendingReview";
 
+    /// <summary>
+    /// Close a COMPLETED Work Order (ST-WO-006; WO-API-010; BR-08; `docs/13` §4.20). Supervisor only, per the
+    /// baseline actor of ST-WO-006, BR-08 and `docs/09`. Role gate only — site scope (<see
+    /// cref="IDataScope.WorkOrders"/>) and every Close guard (COMPLETED, reviewed Work Summary, customer ACCEPT,
+    /// reviewed Cost Summary) are enforced by the Application service. No Separation of Duties (Q5).
+    /// </summary>
+    public const string WorkOrderClose = "WorkOrder.Close";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -192,7 +200,8 @@ public static class AuthorizationPolicies
             [CostSummaryPrepare] = [RoleCodes.TeamLead],
             [CostSummaryRead] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
             [CostSummaryReview] = [RoleCodes.Supervisor],
-            [CostSummaryReadPendingReview] = [RoleCodes.Supervisor]
+            [CostSummaryReadPendingReview] = [RoleCodes.Supervisor],
+            [WorkOrderClose] = [RoleCodes.Supervisor]
         };
 }
 

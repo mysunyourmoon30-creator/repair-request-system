@@ -95,6 +95,9 @@ public static class InfrastructureServiceCollectionExtensions
         services.AddScoped<IWorkOrderAcceptanceStore, WorkOrderAcceptanceStore>();
         services.AddScoped<ICostSummaryStore, CostSummaryStore>();
 
+        // Work Order Close persistence port (ST-WO-006; WO-API-010); `docs/13` §4.20.
+        services.AddScoped<IWorkOrderCloseStore, WorkOrderCloseStore>();
+
         // S1-006: attachment metadata, private file storage and the malware scanning provider (DEC-PS1-005).
         services.AddScoped<IAttachmentStore, AttachmentStore>();
         services.AddOptions<FileStorageOptions>()

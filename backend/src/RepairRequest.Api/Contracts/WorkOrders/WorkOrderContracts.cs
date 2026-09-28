@@ -22,6 +22,7 @@ public sealed class WorkOrderListRequest
 /// <see cref="AcceptanceContactId"/> is added by `docs/13` §4.16 (UC-WO-021) — a raw id only, so an Angular
 /// caller can compare it against their own signed-in user id to decide whether to show the Accept button; never
 /// the contact's name/email (this response never leaks <c>AcceptanceContactSnapshot</c>).
+/// <see cref="ClosedAt"/> is added by `docs/13` §4.20 (Q7); <c>closed_by</c> is never exposed here.
 /// </summary>
 public sealed record WorkOrderResponse(
     Guid WorkOrderId,
@@ -36,7 +37,8 @@ public sealed record WorkOrderResponse(
     IReadOnlyList<ServiceVisitResponse> Visits,
     Guid? AcceptanceContactId,
     string? CostSummaryRowVersion,
-    DateTime? CostSummaryReviewedAt);
+    DateTime? CostSummaryReviewedAt,
+    DateTime? ClosedAt);
 
 /// <summary>Service Visit response (S2-003; RR-DD-001 SV-001..018). Team/technician are raw ids — no directory to resolve a display name from.</summary>
 public sealed record ServiceVisitResponse(
@@ -218,7 +220,8 @@ public static class WorkOrderResponses
             dto.Visits.Select(ServiceVisitResponses.ToResponse).ToList(),
             dto.AcceptanceContactId,
             dto.CostSummaryRowVersion is null ? null : Convert.ToBase64String(dto.CostSummaryRowVersion),
-            dto.CostSummaryReviewedAt);
+            dto.CostSummaryReviewedAt,
+            dto.ClosedAt);
 }
 
 public static class EligibleAcceptanceContactResponses
