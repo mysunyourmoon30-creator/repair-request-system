@@ -4,7 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 import { getCurrentUserId, getCurrentUserRoles } from '../../core/auth/current-user-role';
 import { MISSED_VISIT_DECISIONS, ServiceVisit, WorkOrder } from './work-order.models';
-import { WorkOrderService } from './work-order.service';
+import { CostSummary, WorkOrderService } from './work-order.service';
 
 /**
  * Work Order Detail: the S2-001 read-only view, extended in S2-003 with Schedule (shown while OPEN) and, per
@@ -64,12 +64,21 @@ import { WorkOrderService } from './work-order.service';
       @if (canPrepareCostSummary(workOrder)) {
         <details>
           <summary>Prepare Cost Summary</summary>
-          <form (submit)="onPrepareCostSummary($event, workOrder, totalAmount, currencyCode, note)">
-            <label>Total Amount <input #totalAmount type="number" step="0.01" min="0" required /></label>
-            <label>Currency Code <input #currencyCode type="text" maxlength="3" required /></label>
-            <label>Note <input #note type="text" /></label>
-            <button type="submit" [disabled]="submitting()">Save Cost Summary</button>
-          </form>
+          @if (existingCostSummary(); as loaded) {
+            <form (submit)="onPrepareCostSummary($event, workOrder, totalAmount, currencyCode, note)">
+              <label>Total Amount <input #totalAmount type="number" step="0.01" min="0" required [value]="loaded.totalAmount" /></label>
+              <label>Currency Code <input #currencyCode type="text" maxlength="3" required [value]="loaded.currencyCode" /></label>
+              <label>Note <input #note type="text" [value]="loaded.note ?? ''" /></label>
+              <button type="submit" [disabled]="submitting()">Save Cost Summary</button>
+            </form>
+          } @else {
+            <form (submit)="onPrepareCostSummary($event, workOrder, totalAmount, currencyCode, note)">
+              <label>Total Amount <input #totalAmount type="number" step="0.01" min="0" required /></label>
+              <label>Currency Code <input #currencyCode type="text" maxlength="3" required /></label>
+              <label>Note <input #note type="text" /></label>
+              <button type="submit" [disabled]="submitting()">Save Cost Summary</button>
+            </form>
+          }
         </details>
       }
 
@@ -189,6 +198,9 @@ export class WorkOrderDetailComponent {
   protected readonly actionError = signal<string | null>(null);
   protected readonly missedDecisions = MISSED_VISIT_DECISIONS;
 
+  /** Fetched once on load, when the caller can Prepare and a Cost Summary already exists, so the Edit form can be pre-filled — `docs/13` §4.19 Decision 5's own gap in Ticket 4a, closed now that a read endpoint exists. */
+  protected readonly existingCostSummary = signal<CostSummary | null>(null);
+
   constructor() {
     const workOrderId = this.route.snapshot.paramMap.get('id');
     if (!workOrderId) {
@@ -201,6 +213,10 @@ export class WorkOrderDetailComponent {
       next: (workOrder) => {
         this.workOrder.set(workOrder);
         this.loading.set(false);
+
+        if (this.canPrepareCostSummary(workOrder) && workOrder.costSummaryRowVersion !== null) {
+          this.workOrders.getCostSummary(workOrder.workOrderId).subscribe((costSummary) => this.existingCostSummary.set(costSummary));
+        }
       },
       error: (response: HttpErrorResponse) => {
         this.loading.set(false);
@@ -261,12 +277,12 @@ export class WorkOrderDetailComponent {
   }
 
   /**
-   * CST-API-002 (`docs/13` §4.18). No read endpoint exists in this ticket's scope, so this form cannot pre-fill
-   * the current amount/currency/note on a second edit — the Team Lead re-enters every field each time. If-Match
+   * CST-API-001/`docs/13` §4.19 Decision 5. Pre-filled from `existingCostSummary()` when one already exists
+   * (fetched via the read endpoint on load — closes the gap Ticket 4a flagged, now that Read exists). If-Match
    * targets the Cost Summary's own rowVersion once one exists (never the Work Order's, which Prepare never
-   * changes); on success the held Work Order signal is patched with the fresh Cost Summary rowVersion so the
-   * next edit in this same page session targets the right token. A stale/changed Cost Summary (409) reloads the
-   * current Work Order, the same convention `onReject` already uses.
+   * changes); on success both the held Work Order signal and `existingCostSummary` are updated so the next edit
+   * in this same page session targets the right token and shows the just-saved values. A stale/changed Cost
+   * Summary (409) reloads both the current Work Order and the current Cost Summary.
    */
   protected onPrepareCostSummary(event: Event, workOrder: WorkOrder, totalAmount: HTMLInputElement, currencyCode: HTMLInputElement, note: HTMLInputElement): void {
     event.preventDefault();
@@ -283,6 +299,7 @@ export class WorkOrderDetailComponent {
       .subscribe({
         next: (costSummary) => {
           this.workOrder.set({ ...workOrder, costSummaryRowVersion: costSummary.rowVersion, costSummaryReviewedAt: costSummary.reviewedAt });
+          this.existingCostSummary.set(costSummary);
           this.submitting.set(false);
         },
         error: (response: HttpErrorResponse) => {
@@ -291,6 +308,7 @@ export class WorkOrderDetailComponent {
 
           if (response.status === 409) {
             this.workOrders.get(workOrder.workOrderId).subscribe((current) => this.workOrder.set(current));
+            this.workOrders.getCostSummary(workOrder.workOrderId).subscribe((current) => this.existingCostSummary.set(current));
           }
         },
       });

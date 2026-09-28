@@ -60,6 +60,23 @@ public sealed class CostSummary
         PreparedAt = DomainGuard.Utc(preparedAt, nameof(preparedAt));
     }
 
+    /// <summary>
+    /// CST-API-002 (`docs/13` §4.19; Supervisor only). Only from a null <see cref="ReviewedAt"/> — a second
+    /// Review is rejected here too, defense-in-depth alongside the Application service's own check. Eligibility
+    /// (caller holds Supervisor, is not <see cref="PreparedBy"/>, current Site scope) is the Application
+    /// service's responsibility before this is called.
+    /// </summary>
+    public void Review(Guid reviewedBy, DateTime reviewedAt)
+    {
+        if (ReviewedAt is not null)
+        {
+            throw new DomainRuleViolationException("This Work Order's Cost Summary has already been reviewed.");
+        }
+
+        ReviewedBy = DomainGuard.NotEmpty(reviewedBy, nameof(reviewedBy));
+        ReviewedAt = DomainGuard.Utc(reviewedAt, nameof(reviewedAt));
+    }
+
     /// <summary>CST-001. Assigned on insert (sequential GUID).</summary>
     public Guid Id { get; private set; }
 

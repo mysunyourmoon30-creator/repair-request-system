@@ -10,7 +10,7 @@ using RepairRequest.Infrastructure.Persistence;
 
 namespace RepairRequest.Infrastructure.WorkOrders;
 
-/// <summary>EF Core implementation of the Cost Summary Prepare port (CST-API-001; `docs/13` §4.18).</summary>
+/// <summary>EF Core implementation of the Cost Summary Prepare (CST-API-001; `docs/13` §4.18), Read and Review (CST-API-002; `docs/13` §4.19) port.</summary>
 internal sealed class CostSummaryStore : ICostSummaryStore
 {
     private const int DeadlockVictim = 1205;
@@ -51,13 +51,64 @@ internal sealed class CostSummaryStore : ICostSummaryStore
         }
     }
 
-    public Task<WorkOrder?> LoadWorkOrderForPrepareAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
+    public Task<WorkOrder?> LoadWorkOrderInScopeAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
         _scope.WorkOrders(user).SingleOrDefaultAsync(workOrder => workOrder.Id == workOrderId, cancellationToken);
 
     public Task<CostSummary?> GetTrackedCostSummaryAsync(Guid workOrderId, CancellationToken cancellationToken) =>
         _db.CostSummaries.SingleOrDefaultAsync(summary => summary.WorkOrderId == workOrderId, cancellationToken);
 
+    public Task<CostSummaryDto?> GetCostSummaryDtoAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken)
+    {
+        var scopedWorkOrderIds = _scope.WorkOrders(user).Select(workOrder => workOrder.Id);
+
+        return _db.CostSummaries.AsNoTracking()
+            .Where(summary => summary.WorkOrderId == workOrderId && scopedWorkOrderIds.Contains(summary.WorkOrderId))
+            .Select(summary => new CostSummaryDto(
+                summary.Id, summary.WorkOrderId, summary.TotalAmount, summary.CurrencyCode, summary.Note,
+                summary.PreparedBy, summary.PreparedAt, summary.ReviewedBy, summary.ReviewedAt, summary.RowVersion))
+            .SingleOrDefaultAsync(cancellationToken);
+    }
+
     public void Add(CostSummary costSummary) => _db.CostSummaries.Add(costSummary);
+
+    public async Task<PagedResult<PendingCostSummaryReviewDto>> ListPendingReviewAsync(CurrentUser user, PendingCostSummaryReviewQuery query, CancellationToken cancellationToken)
+    {
+        var scopedWorkOrderIds = _scope.WorkOrders(user).Where(workOrder => workOrder.Status == WorkOrderStatus.Completed).Select(workOrder => workOrder.Id);
+
+        var source = _db.CostSummaries.AsNoTracking()
+            .Where(summary => summary.ReviewedAt == null && scopedWorkOrderIds.Contains(summary.WorkOrderId));
+
+        var paging = query.Paging;
+        var totalCount = await source.CountAsync(cancellationToken);
+        var skip = (long)(paging.Page - 1) * paging.PageSize;
+
+        IReadOnlyList<PendingCostSummaryReviewDto> items = skip >= totalCount
+            ? []
+            : await Project(source
+                    // Newest-prepared-first, with a stable id tie-breaker — this queue is a technical addition
+                    // (docs/13 §4.19), not baseline-ordered, chosen to mirror this codebase's own established
+                    // newest-first convention (DEC-S2-001-04).
+                    .OrderByDescending(summary => summary.PreparedAt)
+                    .ThenByDescending(summary => summary.Id)
+                    .Skip((int)skip)
+                    .Take(paging.PageSize))
+                .ToListAsync(cancellationToken);
+
+        return new PagedResult<PendingCostSummaryReviewDto>(items, paging.Page, paging.PageSize, totalCount);
+    }
+
+    private IQueryable<PendingCostSummaryReviewDto> Project(IQueryable<CostSummary> summaries) =>
+        from summary in summaries
+        join workOrder in _db.WorkOrders on summary.WorkOrderId equals workOrder.Id
+        join request in _db.RepairRequests on workOrder.RepairRequestId equals request.Id
+        select new PendingCostSummaryReviewDto(
+            workOrder.Id,
+            workOrder.WorkOrderNo,
+            _db.Sites.Where(site => site.Id == request.SiteId).Select(site => site.SiteCode).FirstOrDefault(),
+            summary.TotalAmount,
+            summary.CurrencyCode,
+            summary.PreparedBy,
+            summary.PreparedAt);
 
     public void AddAudit(AuditHistory audit) => _db.AuditHistory.Add(audit);
 

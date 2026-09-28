@@ -63,6 +63,9 @@ public static class WorkOrderAudit
     /// </summary>
     public const string CostSummaryPreparedAction = "COST_SUMMARY_PREPARED";
     public const string CostSummaryUpdatedAction = "COST_SUMMARY_UPDATED";
+
+    /// <summary>CST-API-002 (`docs/13` §4.19). Same established self-named convention as Prepare/Update — flagged for the same reason.</summary>
+    public const string CostSummaryReviewedAction = "COST_SUMMARY_REVIEWED";
     public const string CostSummaryIdField = "costSummaryId";
     public const string TotalAmountField = "totalAmount";
     public const string CurrencyCodeField = "currencyCode";
@@ -351,6 +354,31 @@ public static class WorkOrderAudit
                 [CostSummaryIdField] = costSummary.Id,
                 [TotalAmountField] = costSummary.TotalAmount,
                 [CurrencyCodeField] = costSummary.CurrencyCode
+            }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// CST-API-002 success (`docs/13` §4.19): the Work Order's own status does not change (Review never
+    /// transitions it, only Close does, per BR-08/ST-WO-006) — fromState/toState are both COMPLETED, recording
+    /// the write. The Cost Summary's id is referenced; the reviewer is <c>context.User.UserId</c> (the same
+    /// column every audit row already uses for its actor), so no separate reviewer field is needed in the JSON
+    /// payload.
+    /// </summary>
+    public static AuditHistory CostSummaryReviewed(CommandContext context, WorkOrder workOrder, CostSummary costSummary, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            CostSummaryReviewedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Completed),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Completed),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [CostSummaryIdField] = costSummary.Id
             }),
             reason: null,
             context.User.UserId,

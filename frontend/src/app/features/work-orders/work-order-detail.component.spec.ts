@@ -394,6 +394,36 @@ describe('WorkOrderDetailComponent', () => {
     expect(costSummaryForm(fixture.nativeElement as HTMLElement)).toBeDefined();
   });
 
+  it('pre-fills the Prepare form with the existing Cost Summary when one already exists', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    fixture.detectChanges();
+    httpMock
+      .expectOne(`${baseUrl}/abc-123`)
+      .flush({ ...completedWorkOrder, costSummaryRowVersion: 'cs-v1', costSummaryReviewedAt: null });
+    fixture.detectChanges();
+
+    httpMock.expectOne(`${baseUrl}/abc-123/cost-summary`).flush({
+      costSummaryId: 'cs-1',
+      workOrderId: 'abc-123',
+      totalAmount: 1234.56,
+      currencyCode: 'USD',
+      note: 'Parts and labor.',
+      preparedBy: 'tl-1',
+      preparedAt: '2026-09-27T00:00:00Z',
+      reviewedBy: null,
+      reviewedAt: null,
+      rowVersion: 'cs-v1',
+    });
+    fixture.detectChanges();
+
+    const form = costSummaryForm(fixture.nativeElement as HTMLElement);
+    const inputs = form.querySelectorAll('input');
+    expect((inputs[0] as HTMLInputElement).value).toBe('1234.56');
+    expect((inputs[1] as HTMLInputElement).value).toBe('USD');
+    expect((inputs[2] as HTMLInputElement).value).toBe('Parts and labor.');
+  });
+
   it('hides Prepare Cost Summary for a non-Team-Lead role', () => {
     localStorage.setItem('accessToken', tokenWithPayload({ sub: 'other-1', role: 'SUPERVISOR' }));
     const fixture = createComponent('abc-123');
@@ -500,8 +530,22 @@ describe('WorkOrderDetailComponent', () => {
 
     fillCostSummaryForm(costSummaryForm(root), '1', 'USD');
 
-    httpMock.expectOne(`${baseUrl}/abc-123/cost-summary`).flush('Conflict', { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne((request) => request.method === 'PUT' && request.url === `${baseUrl}/abc-123/cost-summary`)
+      .flush('Conflict', { status: 409, statusText: 'Conflict' });
     httpMock.expectOne(`${baseUrl}/abc-123`).flush({ ...completedWorkOrder, rowVersion: 'v2' });
+    httpMock.expectOne((request) => request.method === 'GET' && request.url === `${baseUrl}/abc-123/cost-summary`)
+      .flush({
+        costSummaryId: 'cs-1',
+        workOrderId: 'abc-123',
+        totalAmount: 1,
+        currencyCode: 'USD',
+        note: null,
+        preparedBy: 'tl-1',
+        preparedAt: '2026-09-27T00:00:00Z',
+        reviewedBy: null,
+        reviewedAt: null,
+        rowVersion: 'cs-v1',
+      });
     fixture.detectChanges();
 
     expect(root.textContent).toContain('changed or is no longer in a valid state');

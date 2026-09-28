@@ -1,4 +1,5 @@
 import { Routes } from '@angular/router';
+import { supervisorOnlyGuard } from './core/auth/supervisor-only.guard';
 import { teamLeadOrSupervisorGuard } from './core/auth/team-lead-or-supervisor.guard';
 import { technicianOnlyGuard } from './core/auth/technician-only.guard';
 
@@ -23,6 +24,12 @@ export const routes: Routes = [
     canActivate: [teamLeadOrSupervisorGuard],
     loadComponent: () =>
       import('./features/work-orders/work-summary-review.component').then((m) => m.WorkSummaryReviewComponent),
+  },
+  {
+    path: 'cost-summary-review',
+    canActivate: [supervisorOnlyGuard],
+    loadComponent: () =>
+      import('./features/work-orders/cost-summary-review.component').then((m) => m.CostSummaryReviewComponent),
   },
   {
     path: 'repair-requests',

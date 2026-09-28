@@ -168,6 +168,24 @@ public sealed record CostSummaryResponse(
     DateTime? ReviewedAt,
     string RowVersion);
 
+/// <summary>Pending Cost Summary Review queue: paging only (`docs/13` §4.19, technical addition).</summary>
+public sealed class PendingCostSummaryReviewListRequest
+{
+    public int? Page { get; init; }
+
+    public int? PageSize { get; init; }
+}
+
+/// <summary>One queue item (`docs/13` §4.19) — a lightweight projection, never the full Work Order graph.</summary>
+public sealed record PendingCostSummaryReviewResponse(
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    string? SiteCode,
+    decimal TotalAmount,
+    string CurrencyCode,
+    Guid PreparedBy,
+    DateTime PreparedAt);
+
 /// <summary>Work Summary response (UC-WO-020; `docs/13` §4.15) — returned by Submit and by the Work Summary read.</summary>
 public sealed record WorkSummaryResponse(
     Guid WorkSummaryId,
@@ -223,6 +241,12 @@ public static class CostSummaryResponses
             dto.ReviewedBy,
             dto.ReviewedAt,
             Convert.ToBase64String(dto.RowVersion));
+}
+
+public static class PendingCostSummaryReviewResponses
+{
+    public static PendingCostSummaryReviewResponse ToResponse(PendingCostSummaryReviewDto dto) =>
+        new(dto.WorkOrderId, dto.WorkOrderNo, dto.SiteCode, dto.TotalAmount, dto.CurrencyCode, dto.PreparedBy, dto.PreparedAt);
 }
 
 public static class WorkSessionResponses

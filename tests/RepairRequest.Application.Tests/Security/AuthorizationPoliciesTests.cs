@@ -36,7 +36,10 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.WorkOrderReadEligibleAcceptanceContacts, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
         { AuthorizationPolicies.WorkOrderAccept, [RoleCodes.Requester] },
         { AuthorizationPolicies.WorkOrderReject, [RoleCodes.Requester] },
-        { AuthorizationPolicies.CostSummaryPrepare, [RoleCodes.TeamLead] }
+        { AuthorizationPolicies.CostSummaryPrepare, [RoleCodes.TeamLead] },
+        { AuthorizationPolicies.CostSummaryRead, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
+        { AuthorizationPolicies.CostSummaryReview, [RoleCodes.Supervisor] },
+        { AuthorizationPolicies.CostSummaryReadPendingReview, [RoleCodes.Supervisor] }
     };
 
     [Theory]
@@ -49,7 +52,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(23, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(26, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -165,8 +168,37 @@ public class AuthorizationPoliciesTests
     {
         // CST-API-001; BR-08; `docs/13` §4.18 — the first Team-Lead-only policy in this codebase (every prior
         // Team Lead capability was shared with Supervisor). Supervisor is deliberately excluded: Review is a
-        // separate, not-yet-implemented action.
+        // separate action, enforced with its own policy.
         Assert.Equal([RoleCodes.TeamLead], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryPrepare]);
+    }
+
+    [Fact]
+    public void CostSummaryRead_IsTeamLeadOrSupervisor_AndExcludesEveryOtherRole()
+    {
+        // `docs/13` §4.19 — the same two actors as the write actions on this resource; Requester/Technician/
+        // Approver/Coordinator/Administrator must never see cost amounts.
+        Assert.Equal(
+            new[] { RoleCodes.TeamLead, RoleCodes.Supervisor }.Order(),
+            AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryRead].Order());
+        Assert.DoesNotContain(RoleCodes.Requester, AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryRead]);
+        Assert.DoesNotContain(RoleCodes.Technician, AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryRead]);
+    }
+
+    [Fact]
+    public void CostSummaryReview_IsSupervisorOnly()
+    {
+        // CST-API-002; BR-08; `docs/13` §4.19 — the first Supervisor-only policy in this codebase (every prior
+        // Supervisor capability was shared with Team Lead). Team Lead is deliberately excluded: Prepare and
+        // Review are separate actions with separate policies. Role gate only; the real check (Separation of
+        // Duties — reviewer must not be preparer) is resource-specific, enforced by the service.
+        Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryReview]);
+    }
+
+    [Fact]
+    public void CostSummaryReadPendingReview_IsSupervisorOnly()
+    {
+        // `docs/13` §4.19 — the lookup exists only to support Review, same actor.
+        Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryReadPendingReview]);
     }
 
     [Fact]
