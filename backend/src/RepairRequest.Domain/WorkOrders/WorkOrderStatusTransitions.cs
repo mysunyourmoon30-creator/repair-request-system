@@ -17,9 +17,11 @@ public sealed record WorkOrderStatusTransition(
 /// resource-specific check, not a role-scoped query). ST-WO-007 is added for Customer Reject (UC-WO-022;
 /// BR-07/BR-15; `docs/13` §4.17), same actor as ST-WO-005. ST-WO-006 is added for Work Order Close (BR-08;
 /// `docs/13` §4.20), actor Supervisor — its Cost Summary/Work Summary/acceptance prerequisites are data guards
-/// the Application service checks, not part of this status matrix. Actor enforcement itself always lives in the
-/// API authorization policy / Application service, not here. Every later Work Order transition
-/// (ST-WO-008..011) remains out of scope.
+/// the Application service checks, not part of this status matrix. ST-WO-008/009 are added for Corrective Action
+/// Submit Plan (Team Lead) and Approve Plan (Supervisor) (`docs/13` §4.21; Ticket 6) — the Corrective Action's own
+/// status guard is enforced by the Application service, not here. Actor enforcement itself always lives in the
+/// API authorization policy / Application service, not here. ST-WO-010/011 (Start Rework, Cancel) remain out of
+/// scope.
 /// </summary>
 public static class WorkOrderStatusTransitions
 {
@@ -32,6 +34,8 @@ public static class WorkOrderStatusTransitions
         new("ST-WO-005", WorkOrderStatus.AwaitingCustomerAcceptance, "Accept", WorkOrderStatus.Completed),
         new("ST-WO-006", WorkOrderStatus.Completed, "Close", WorkOrderStatus.Closed),
         new("ST-WO-007", WorkOrderStatus.AwaitingCustomerAcceptance, "Reject", WorkOrderStatus.CorrectiveActionRequired),
+        new("ST-WO-008", WorkOrderStatus.CorrectiveActionRequired, "SubmitCorrectivePlan", WorkOrderStatus.CorrectivePlanPending),
+        new("ST-WO-009", WorkOrderStatus.CorrectivePlanPending, "ApproveCorrectivePlan", WorkOrderStatus.CorrectivePlanApproved),
     ];
 
     public static bool IsAllowed(WorkOrderStatus from, WorkOrderStatus to) =>

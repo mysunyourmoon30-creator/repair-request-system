@@ -67,6 +67,31 @@ export interface PendingCostSummaryReview {
   preparedAt: string;
 }
 
+/** CA-API-001 Submit Plan body (`docs/13` §4.21). Both fields required. */
+export interface SubmitCorrectivePlanRequest {
+  planText: string;
+  planFileAssetId: string;
+}
+
+/**
+ * Corrective Action shape (`docs/13` §4.21). Matches `CorrectiveActionResponse` on the backend exactly.
+ * `workOrderRowVersion` is the token the *next* If-Match must carry — the linked Work Order's own RowVersion, not
+ * a `corrective_action` token (see the backend's own remarks) — the same cross-resource ETag shape already used
+ * by `WorkSessionResponse.workOrderRowVersion` (check-out).
+ */
+export interface CorrectiveAction {
+  correctiveActionId: string;
+  workOrderId: string;
+  cycleNo: number;
+  status: string;
+  ownerTeamLeadId: string | null;
+  planText: string | null;
+  planFileAssetId: string | null;
+  approvedBy: string | null;
+  approvedAt: string | null;
+  workOrderRowVersion: string;
+}
+
 /** Note: field names differ from `ScheduleWorkOrderRequest` (`assignedTeamId`, not `ownerTeamId`) — matches the backend's `NewVisitScheduleRequest`. */
 export interface NewVisitScheduleRequest {
   assignedTeamId: string;
@@ -91,6 +116,7 @@ export class WorkOrderService {
   private readonly http = inject(HttpClient);
   private readonly baseUrl = `${environment.apiBaseUrl}/v1/work-orders`;
   private readonly visitsBaseUrl = `${environment.apiBaseUrl}/v1/service-visits`;
+  private readonly correctiveActionsBaseUrl = `${environment.apiBaseUrl}/v1/corrective-actions`;
 
   list(page: number, pageSize: number, status: string | null): Observable<PagedResponse<WorkOrder>> {
     let params = new HttpParams().set('page', page).set('pageSize', pageSize);
@@ -160,6 +186,22 @@ export class WorkOrderService {
    */
   close(workOrderId: string, ifMatch: string): Observable<WorkOrder> {
     return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/close`, null, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /**
+   * CA-API-001 Submit Plan (ST-CA-002; Team Lead only; `docs/13` §4.21). `ifMatch` is the linked Work Order's own
+   * `rowVersion` (from `workOrder.rowVersion` on first submit, or the previous response's `workOrderRowVersion`).
+   */
+  submitCorrectivePlan(correctiveActionId: string, ifMatch: string, body: SubmitCorrectivePlanRequest): Observable<CorrectiveAction> {
+    return this.http.post<CorrectiveAction>(`${this.correctiveActionsBaseUrl}/${correctiveActionId}/submit-plan`, body, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /**
+   * CA-API-002 Approve Plan (ST-CA-003; Supervisor only; `docs/13` §4.21). No body — no Separation of Duties
+   * (Decision d). `ifMatch` is the linked Work Order's own `rowVersion`.
+   */
+  approveCorrectivePlan(correctiveActionId: string, ifMatch: string): Observable<CorrectiveAction> {
+    return this.http.post<CorrectiveAction>(`${this.correctiveActionsBaseUrl}/${correctiveActionId}/approve-plan`, null, { headers: { 'If-Match': ifMatch } });
   }
 
   reschedule(serviceVisitId: string, ifMatch: string, body: RescheduleServiceVisitRequest): Observable<WorkOrder> {

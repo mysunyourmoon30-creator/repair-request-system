@@ -23,6 +23,8 @@ public sealed class WorkOrderListRequest
 /// caller can compare it against their own signed-in user id to decide whether to show the Accept button; never
 /// the contact's name/email (this response never leaks <c>AcceptanceContactSnapshot</c>).
 /// <see cref="ClosedAt"/> is added by `docs/13` §4.20 (Q7); <c>closed_by</c> is never exposed here.
+/// <see cref="CorrectiveActionId"/>/<see cref="CorrectiveActionStatus"/> are added by `docs/13` §4.21 Decision (b)
+/// (Ticket 6) — the minimum read model, never the plan's own text/file/approver.
 /// </summary>
 public sealed record WorkOrderResponse(
     Guid WorkOrderId,
@@ -38,7 +40,9 @@ public sealed record WorkOrderResponse(
     Guid? AcceptanceContactId,
     string? CostSummaryRowVersion,
     DateTime? CostSummaryReviewedAt,
-    DateTime? ClosedAt);
+    DateTime? ClosedAt,
+    Guid? CorrectiveActionId,
+    string? CorrectiveActionStatus);
 
 /// <summary>Service Visit response (S2-003; RR-DD-001 SV-001..018). Team/technician are raw ids — no directory to resolve a display name from.</summary>
 public sealed record ServiceVisitResponse(
@@ -221,7 +225,9 @@ public static class WorkOrderResponses
             dto.AcceptanceContactId,
             dto.CostSummaryRowVersion is null ? null : Convert.ToBase64String(dto.CostSummaryRowVersion),
             dto.CostSummaryReviewedAt,
-            dto.ClosedAt);
+            dto.ClosedAt,
+            dto.CorrectiveActionId,
+            dto.CorrectiveActionStatus is null ? null : CorrectiveActionStatusCodes.ToCode(dto.CorrectiveActionStatus.Value));
 }
 
 public static class EligibleAcceptanceContactResponses

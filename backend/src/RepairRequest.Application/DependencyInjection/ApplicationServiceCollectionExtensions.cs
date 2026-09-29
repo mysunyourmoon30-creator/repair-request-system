@@ -70,6 +70,9 @@ public static class ApplicationServiceCollectionExtensions
         // Work Order Close (ST-WO-006; WO-API-010; Supervisor only); `docs/13` §4.20.
         services.AddScoped<WorkOrderCloseService>();
 
+        // Corrective Action Submit Plan (Team Lead) / Approve Plan (Supervisor); `docs/13` §4.21.
+        services.AddScoped<CorrectiveActionService>();
+
         return services;
     }
 }

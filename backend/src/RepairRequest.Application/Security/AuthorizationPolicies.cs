@@ -157,6 +157,20 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string WorkOrderClose = "WorkOrder.Close";
 
+    /// <summary>
+    /// Submit a DRAFT Corrective Action's plan (ST-CA-002; CA-API-001; `docs/13` §4.21). Team Lead only — role
+    /// gate only; site scope (<see cref="IDataScope.WorkOrders"/>) via the linked Work Order and the state guard
+    /// are enforced by the Application service.
+    /// </summary>
+    public const string CorrectiveActionSubmitPlan = "CorrectiveAction.SubmitPlan";
+
+    /// <summary>
+    /// Approve a Corrective Action's submitted plan (ST-CA-003; CA-API-002; `docs/13` §4.21). Supervisor only —
+    /// role gate only; site scope and the state guard are enforced by the Application service. No Separation of
+    /// Duties (§4.21 Decision d, a recorded review risk, not a baseline requirement).
+    /// </summary>
+    public const string CorrectiveActionApprovePlan = "CorrectiveAction.ApprovePlan";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -201,7 +215,9 @@ public static class AuthorizationPolicies
             [CostSummaryRead] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
             [CostSummaryReview] = [RoleCodes.Supervisor],
             [CostSummaryReadPendingReview] = [RoleCodes.Supervisor],
-            [WorkOrderClose] = [RoleCodes.Supervisor]
+            [WorkOrderClose] = [RoleCodes.Supervisor],
+            [CorrectiveActionSubmitPlan] = [RoleCodes.TeamLead],
+            [CorrectiveActionApprovePlan] = [RoleCodes.Supervisor]
         };
 }
 

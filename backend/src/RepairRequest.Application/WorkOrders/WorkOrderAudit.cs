@@ -50,12 +50,27 @@ public static class WorkOrderAudit
     public const string RejectedAction = "WORK_ORDER_REJECTED";
     public const string CustomerAcceptanceIdField = "customerAcceptanceId";
     public const string CorrectiveActionIdField = "correctiveActionId";
+    public const string WorkOrderIdField = "workOrderId";
 
     /// <summary>
     /// ST-WO-006 (`docs/13` §4.20). The baseline names only "Close audit" (TC-WO-011); this follows the same
     /// self-named `&lt;ENTITY&gt;_&lt;PAST_TENSE_VERB&gt;` convention as every other action code in this class.
     /// </summary>
     public const string ClosedAction = "WORK_ORDER_CLOSED";
+
+    /// <summary>
+    /// Corrective Action's own entity type (`docs/13` §4.21; Ticket 6) — the first action codes in this class
+    /// whose entity is not the Work Order/Service Visit/Work Session, since the Corrective Action itself is the
+    /// row that changed; the Work Order id (whose own status also changes, ST-WO-008/009) is referenced in
+    /// <c>new_value_json</c> instead.
+    /// </summary>
+    public const string CorrectiveActionEntityType = "CORRECTIVE_ACTION";
+
+    /// <summary>ST-CA-002 (`docs/13` §4.21). Self-named, no literal baseline action-code string exists.</summary>
+    public const string CorrectiveActionPlanSubmittedAction = "CORRECTIVE_ACTION_PLAN_SUBMITTED";
+
+    /// <summary>ST-CA-003 (`docs/13` §4.21). Self-named, no literal baseline action-code string exists.</summary>
+    public const string CorrectiveActionPlanApprovedAction = "CORRECTIVE_ACTION_PLAN_APPROVED";
 
     /// <summary>
     /// No literal baseline action-code string exists for Cost Summary Prepare anywhere in `docs/02`, `docs/06` or
@@ -408,6 +423,50 @@ public static class WorkOrderAudit
             newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
             {
                 [CostSummaryIdField] = costSummaryId
+            }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-CA-002 success (`docs/13` §4.21): DRAFT -&gt; PENDING_PLAN_APPROVAL by the submitting Team Lead. The Work
+    /// Order id (whose own status advances to CORRECTIVE_PLAN_PENDING, ST-WO-008) is referenced in the new value.
+    /// </summary>
+    public static AuditHistory CorrectiveActionPlanSubmitted(CommandContext context, CorrectiveAction correctiveAction, WorkOrder workOrder, DateTime occurredAt) =>
+        new(
+            correctiveAction.TenantId,
+            CorrectiveActionEntityType,
+            correctiveAction.Id,
+            CorrectiveActionPlanSubmittedAction,
+            fromState: CorrectiveActionStatusCodes.ToCode(CorrectiveActionStatus.Draft),
+            toState: CorrectiveActionStatusCodes.ToCode(CorrectiveActionStatus.PendingPlanApproval),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [WorkOrderIdField] = workOrder.Id
+            }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-CA-003 success (`docs/13` §4.21): PENDING_PLAN_APPROVAL -&gt; APPROVED by a Supervisor. The Work Order id
+    /// (whose own status advances to CORRECTIVE_PLAN_APPROVED, ST-WO-009) is referenced in the new value.
+    /// </summary>
+    public static AuditHistory CorrectiveActionPlanApproved(CommandContext context, CorrectiveAction correctiveAction, WorkOrder workOrder, DateTime occurredAt) =>
+        new(
+            correctiveAction.TenantId,
+            CorrectiveActionEntityType,
+            correctiveAction.Id,
+            CorrectiveActionPlanApprovedAction,
+            fromState: CorrectiveActionStatusCodes.ToCode(CorrectiveActionStatus.PendingPlanApproval),
+            toState: CorrectiveActionStatusCodes.ToCode(CorrectiveActionStatus.Approved),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [WorkOrderIdField] = workOrder.Id
             }),
             reason: null,
             context.User.UserId,
