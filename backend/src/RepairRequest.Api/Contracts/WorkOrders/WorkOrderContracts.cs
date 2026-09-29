@@ -24,7 +24,11 @@ public sealed class WorkOrderListRequest
 /// the contact's name/email (this response never leaks <c>AcceptanceContactSnapshot</c>).
 /// <see cref="ClosedAt"/> is added by `docs/13` §4.20 (Q7); <c>closed_by</c> is never exposed here.
 /// <see cref="CorrectiveActionId"/>/<see cref="CorrectiveActionStatus"/> are added by `docs/13` §4.21 Decision (b)
-/// (Ticket 6) — the minimum read model, never the plan's own text/file/approver.
+/// (Ticket 6) — the minimum read model, never the plan's own text/file/approver. <see cref="CorrectiveServiceVisitId"/>
+/// is added by `docs/13` §4.22 (CA-API-003) — a signal field only, gating the Coordinator's "Schedule Rework" action.
+/// <see cref="CorrectiveActionRowVersion"/> is also added by §4.22 — Schedule Rework's own If-Match token (the
+/// Corrective Action's own RowVersion, not the Work Order's), recoverable here the same way <see cref="CostSummaryRowVersion"/>
+/// already is.
 /// </summary>
 public sealed record WorkOrderResponse(
     Guid WorkOrderId,
@@ -42,7 +46,9 @@ public sealed record WorkOrderResponse(
     DateTime? CostSummaryReviewedAt,
     DateTime? ClosedAt,
     Guid? CorrectiveActionId,
-    string? CorrectiveActionStatus);
+    string? CorrectiveActionStatus,
+    Guid? CorrectiveServiceVisitId,
+    string? CorrectiveActionRowVersion);
 
 /// <summary>Service Visit response (S2-003; RR-DD-001 SV-001..018). Team/technician are raw ids — no directory to resolve a display name from.</summary>
 public sealed record ServiceVisitResponse(
@@ -227,7 +233,9 @@ public static class WorkOrderResponses
             dto.CostSummaryReviewedAt,
             dto.ClosedAt,
             dto.CorrectiveActionId,
-            dto.CorrectiveActionStatus is null ? null : CorrectiveActionStatusCodes.ToCode(dto.CorrectiveActionStatus.Value));
+            dto.CorrectiveActionStatus is null ? null : CorrectiveActionStatusCodes.ToCode(dto.CorrectiveActionStatus.Value),
+            dto.CorrectiveServiceVisitId,
+            dto.CorrectiveActionRowVersion is null ? null : Convert.ToBase64String(dto.CorrectiveActionRowVersion));
 }
 
 public static class EligibleAcceptanceContactResponses

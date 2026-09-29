@@ -42,7 +42,8 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.CostSummaryReadPendingReview, [RoleCodes.Supervisor] },
         { AuthorizationPolicies.WorkOrderClose, [RoleCodes.Supervisor] },
         { AuthorizationPolicies.CorrectiveActionSubmitPlan, [RoleCodes.TeamLead] },
-        { AuthorizationPolicies.CorrectiveActionApprovePlan, [RoleCodes.Supervisor] }
+        { AuthorizationPolicies.CorrectiveActionApprovePlan, [RoleCodes.Supervisor] },
+        { AuthorizationPolicies.CorrectiveActionScheduleRework, [RoleCodes.Coordinator] }
     };
 
     [Theory]
@@ -55,7 +56,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(29, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(30, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -84,6 +85,15 @@ public class AuthorizationPoliciesTests
         // ST-WO-001; ST-SV-004..009; UC-WO-003/005..009 — Schedule and every Visit-management action are Coordinator-only.
         Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderSchedule]);
         Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.ServiceVisitManage]);
+    }
+
+    [Fact]
+    public void CorrectiveActionScheduleRework_IsCoordinatorOnly()
+    {
+        // CA-API-003; `docs/13` §4.22 — Portfolio Project Owner directive, not a baseline-literal actor (baseline's
+        // own ST-WO-010 actor is the assigned Technician, for the separate, later "Start Rework"/Check-in
+        // transition this ticket does not implement).
+        Assert.Equal([RoleCodes.Coordinator], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CorrectiveActionScheduleRework]);
     }
 
     [Fact]

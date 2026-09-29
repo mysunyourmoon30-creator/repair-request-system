@@ -95,6 +95,64 @@ internal sealed class CorrectiveActionStore : ICorrectiveActionStore
         }
     }
 
+    public async Task<CorrectiveActionForScheduleRework?> LoadForScheduleReworkAsync(CurrentUser user, Guid correctiveActionId, CancellationToken cancellationToken)
+    {
+        var scopedWorkOrderIds = _scope.WorkOrders(user).Select(workOrder => workOrder.Id);
+
+        var correctiveAction = await _db.CorrectiveActions
+            .SingleOrDefaultAsync(action => action.Id == correctiveActionId && scopedWorkOrderIds.Contains(action.WorkOrderId), cancellationToken);
+        if (correctiveAction is null)
+        {
+            return null;
+        }
+
+        var workOrder = await _db.WorkOrders.SingleOrDefaultAsync(workOrder => workOrder.Id == correctiveAction.WorkOrderId, cancellationToken);
+        if (workOrder is null)
+        {
+            return null;
+        }
+
+        var siteId = await _db.RepairRequests
+            .Where(request => request.Id == workOrder.RepairRequestId)
+            .Select(request => request.SiteId)
+            .SingleOrDefaultAsync(cancellationToken);
+
+        return new CorrectiveActionForScheduleRework(workOrder, correctiveAction, siteId);
+    }
+
+    public Task<bool> IsTechnicianEligibleAsync(Guid tenantId, Guid technicianId, Guid siteId, CancellationToken cancellationToken) =>
+        TechnicianEligibility.IsEligibleAsync(_db, tenantId, technicianId, siteId, cancellationToken);
+
+    public void Add(ServiceVisit visit) => _db.ServiceVisits.Add(visit);
+
+    public async Task<WorkOrderSaveOutcome> SaveScheduleReworkAsync(CorrectiveAction correctiveAction, byte[] expectedRowVersion, CancellationToken cancellationToken)
+    {
+        // Unlike SaveChangesAsync above, this targets the Corrective Action's own RowVersion — Schedule Rework
+        // genuinely mutates this row (CorrectiveServiceVisitId: null -> a real id), so this is a normal,
+        // EF-triggered optimistic-concurrency UPDATE with a real WHERE row_version = @original clause; two
+        // genuinely concurrent Schedule Rework calls on the same Corrective Action can both pass the in-memory
+        // state guard, but only the first commit's UPDATE can match this WHERE clause — the second throws
+        // DbUpdateConcurrencyException, and with it, its newly-added Service Visit row is rolled back too (same
+        // transaction, same SaveChangesAsync call) — `docs/13` §4.22.
+        _db.Entry(correctiveAction).Property(item => item.RowVersion).OriginalValue = expectedRowVersion;
+
+        try
+        {
+            await _db.SaveChangesAsync(cancellationToken);
+            return WorkOrderSaveOutcome.Saved;
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            _db.ChangeTracker.Clear();
+            return WorkOrderSaveOutcome.ConcurrencyConflict;
+        }
+        catch (DbUpdateException exception) when (SqlErrorNumber(exception) is DeadlockVictim)
+        {
+            _db.ChangeTracker.Clear();
+            return WorkOrderSaveOutcome.ConcurrencyConflict;
+        }
+    }
+
     private static int? SqlErrorNumber(Exception exception) =>
         exception switch
         {

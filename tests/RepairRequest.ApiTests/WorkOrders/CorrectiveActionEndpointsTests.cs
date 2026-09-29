@@ -25,12 +25,14 @@ public sealed class CorrectiveActionApiFactory : AuthApiFactory
 }
 
 /// <summary>
-/// Corrective Action Submit Plan (ST-CA-002; CA-API-001; Team Lead) and Approve Plan (ST-CA-003; CA-API-002;
-/// Supervisor) end to end, plus the minimum read model (`correctiveActionId`/`correctiveActionStatus` on
-/// `WorkOrderResponse`) — `docs/13` §4.21; Ticket 6. If-Match on both actions is checked against the linked Work
-/// Order's own RowVersion. No Separation of Duties guards Approve Plan (Decision d). This file covers Submit
-/// Plan/Approve Plan only, per §4.21's own scope boundary: no Start Rework, no resubmission/re-acceptance, no
-/// change to `WorkOrder.TeamLeadId`, no Cancel Work Order, no Time Correction.
+/// Corrective Action Submit Plan (ST-CA-002; CA-API-001; Team Lead), Approve Plan (ST-CA-003; CA-API-002;
+/// Supervisor) and Schedule Rework (CA-API-003; Coordinator) end to end, plus the minimum read model
+/// (`correctiveActionId`/`correctiveActionStatus`/`correctiveServiceVisitId` on `WorkOrderResponse`) — `docs/13`
+/// §4.21 (Ticket 6) and §4.22 (CA-API-003). If-Match on Submit/Approve Plan is checked against the linked Work
+/// Order's own RowVersion; Schedule Rework's is checked against the Corrective Action's own RowVersion instead
+/// (see its own remarks). No Separation of Duties guards Approve Plan (Decision d). Schedule Rework's own scope
+/// boundary (§4.22): no Technician Check-in, no rework completion, no re-acceptance, no Service Report, no Time
+/// Correction, no Visit-scheduling-time overlap guard (baseline-silent, not baseline-permitting — see §4.22).
 /// </summary>
 public sealed class CorrectiveActionEndpointsTests : IClassFixture<CorrectiveActionApiFactory>
 {
@@ -114,6 +116,8 @@ public sealed class CorrectiveActionEndpointsTests : IClassFixture<CorrectiveAct
 
         Assert.True(body.GetProperty("correctiveActionId").ValueKind == JsonValueKind.Null);
         Assert.True(body.GetProperty("correctiveActionStatus").ValueKind == JsonValueKind.Null);
+        Assert.True(body.GetProperty("correctiveServiceVisitId").ValueKind == JsonValueKind.Null);
+        Assert.True(body.GetProperty("correctiveActionRowVersion").ValueKind == JsonValueKind.Null);
     }
 
     [Fact]
@@ -527,6 +531,279 @@ public sealed class CorrectiveActionEndpointsTests : IClassFixture<CorrectiveAct
         Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == r.CorrectiveActionId && a.ActionCode == "CORRECTIVE_ACTION_PLAN_APPROVED")));
     }
 
+    // ---------------- Schedule Rework: success ----------------
+
+    [Fact]
+    public async Task ScheduleRework_Success_CreatesAndLinksTheVisit_WritesOneAuditRow_AndKeepsBothStatusesUnchanged()
+    {
+        var r = await ApprovedAsync();
+        var before = DateTime.UtcNow.AddSeconds(-2);
+
+        var response = await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator,
+            ScheduleReworkBody(r), await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator));
+        var after = DateTime.UtcNow.AddSeconds(2);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        var body = await JsonAsync(response);
+        Assert.Equal("APPROVED", body.GetProperty("status").GetString());
+        var visitId = body.GetProperty("correctiveServiceVisitId").GetGuid();
+        Assert.NotEqual(Guid.Empty, visitId);
+
+        var correctiveAction = await WithDbAsync(db => db.CorrectiveActions.AsNoTracking().SingleAsync(item => item.Id == r.CorrectiveActionId));
+        Assert.Equal(CorrectiveActionStatus.Approved, correctiveAction.Status);
+        Assert.Equal(visitId, correctiveAction.CorrectiveServiceVisitId);
+
+        var visit = await WithDbAsync(db => db.ServiceVisits.AsNoTracking().SingleAsync(item => item.Id == visitId));
+        Assert.Equal(r.WorkOrderId, visit.WorkOrderId);
+        Assert.Equal(ServiceVisitType.Corrective, visit.VisitType);
+        Assert.Equal(ServiceVisitStatus.Scheduled, visit.Status);
+        Assert.Equal(r.Technician.UserId, visit.AssignedTechnicianId);
+
+        var workOrder = await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(item => item.Id == r.WorkOrderId));
+        Assert.Equal(WorkOrderStatus.CorrectivePlanApproved, workOrder.Status);
+
+        var audit = await WithDbAsync(db => db.AuditHistory.AsNoTracking().SingleAsync(a => a.EntityId == r.CorrectiveActionId && a.ActionCode == "CORRECTIVE_ACTION_REWORK_SCHEDULED"));
+        Assert.Equal("CORRECTIVE_ACTION", audit.EntityType);
+        Assert.Equal("APPROVED", audit.FromState);
+        Assert.Equal("APPROVED", audit.ToState);
+        Assert.Equal(r.Coordinator.UserId, audit.ActorId);
+        Assert.InRange(audit.OccurredAt, before, after);
+        Assert.Contains(r.WorkOrderId.ToString(), audit.NewValueJson!, StringComparison.OrdinalIgnoreCase);
+
+        // The ETag is the Corrective Action's own new RowVersion, not the Work Order's (the Work Order's never changed).
+        Assert.Equal(Convert.ToBase64String(correctiveAction.RowVersion), response.Headers.ETag!.Tag.Trim('"'));
+    }
+
+    [Fact]
+    public async Task GetWorkOrder_ShowsCorrectiveServiceVisitId_OnlyOnceReworkIsScheduled()
+    {
+        var r = await ApprovedAsync();
+        var before = await JsonAsync(await SendAsync(HttpMethod.Get, $"{WorkOrders}/{r.WorkOrderId}", r.Owner, null, null));
+        Assert.True(before.GetProperty("correctiveServiceVisitId").ValueKind == JsonValueKind.Null);
+
+        var scheduled = await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator,
+            ScheduleReworkBody(r), await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator));
+        Assert.Equal(HttpStatusCode.OK, scheduled.StatusCode);
+
+        var after = await JsonAsync(await SendAsync(HttpMethod.Get, $"{WorkOrders}/{r.WorkOrderId}", r.Owner, null, null));
+        Assert.Equal((await JsonAsync(scheduled)).GetProperty("correctiveServiceVisitId").GetGuid(), after.GetProperty("correctiveServiceVisitId").GetGuid());
+    }
+
+    [Fact]
+    public async Task GetWorkOrder_ShowsCorrectiveActionRowVersion_AndItRotatesAfterScheduleRework()
+    {
+        // `docs/13` §4.22: the only way an Angular client can learn Schedule Rework's own If-Match token before
+        // its first call — mirrors `costSummaryRowVersion`'s identical purpose.
+        var r = await ApprovedAsync();
+        var beforeEtag = await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator);
+        Assert.NotNull(beforeEtag);
+
+        var scheduled = await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator, ScheduleReworkBody(r), beforeEtag);
+        Assert.Equal(HttpStatusCode.OK, scheduled.StatusCode);
+
+        var afterEtag = await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator);
+        Assert.NotEqual(beforeEtag, afterEtag);
+        Assert.Equal(scheduled.Headers.ETag!.Tag, afterEtag);
+    }
+
+    // ---------------- Schedule Rework: authorization / scope ----------------
+
+    [Theory]
+    [InlineData(RoleCodes.Requester)]
+    [InlineData(RoleCodes.Approver)]
+    [InlineData(RoleCodes.Technician)]
+    [InlineData(RoleCodes.TeamLead)]
+    [InlineData(RoleCodes.Supervisor)]
+    [InlineData(RoleCodes.Administrator)]
+    public async Task ScheduleRework_ByAnyoneWithoutTheCoordinatorRole_Get403_AndNothingChanges(string role)
+    {
+        var r = await ApprovedAsync();
+        var caller = await CallerAsync(r.TenantId, [r.Site], role);
+
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", caller, ScheduleReworkBody(r), StaleETag),
+            HttpStatusCode.Forbidden, "ACCESS_DENIED");
+
+        await AssertNoReworkScheduledAsync(r.CorrectiveActionId);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_ByACoordinatorOfAnotherTenant_Get404()
+    {
+        var r = await ApprovedAsync();
+        var foreign = await CallerAsync(Guid.NewGuid(), [], RoleCodes.Coordinator);
+
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", foreign, ScheduleReworkBody(r), StaleETag),
+            HttpStatusCode.NotFound, "NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task ScheduleRework_ByACoordinatorWithNoSiteScopeOnThisWorkOrder_Get404()
+    {
+        var r = await ApprovedAsync();
+        var outOfScope = await CallerAsync(r.TenantId, [], RoleCodes.Coordinator);
+
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", outOfScope, ScheduleReworkBody(r), StaleETag),
+            HttpStatusCode.NotFound, "NOT_FOUND");
+        await AssertNoReworkScheduledAsync(r.CorrectiveActionId);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_OfAnUnknownCorrectiveAction_Get404()
+    {
+        var r = await ApprovedAsync();
+
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{Guid.NewGuid()}/schedule-rework", r.Coordinator, ScheduleReworkBody(r), StaleETag),
+            HttpStatusCode.NotFound, "NOT_FOUND");
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WithoutIfMatch_Returns400_AndWithoutAToken_Returns401()
+    {
+        var r = await ApprovedAsync();
+        var etag = await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator);
+        var body = ScheduleReworkBody(r);
+
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator, body, null),
+            HttpStatusCode.BadRequest, "BAD_REQUEST");
+        Assert.Equal(
+            HttpStatusCode.Unauthorized,
+            (await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", null, body, etag)).StatusCode);
+        await AssertNoReworkScheduledAsync(r.CorrectiveActionId);
+    }
+
+    // ---------------- Schedule Rework: validation ----------------
+
+    [Fact]
+    public async Task ScheduleRework_WithoutATeam_Returns422_AndWritesNothing()
+    {
+        var r = await ApprovedAsync();
+
+        var body = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator,
+                new { assignedTeamId = (Guid?)null, assignedTechnicianId = r.Technician.UserId, scheduledStartAt = "2026-10-05T08:00:00Z", scheduledEndAt = "2026-10-05T10:00:00Z" },
+                await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator)),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(body.GetProperty("errors").TryGetProperty("assignedTeamId", out _));
+        await AssertNoReworkScheduledAsync(r.CorrectiveActionId);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WithAnEndBeforeTheStart_Returns422_AndWritesNothing()
+    {
+        var r = await ApprovedAsync();
+
+        var body = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator,
+                new { assignedTeamId = Guid.NewGuid(), assignedTechnicianId = r.Technician.UserId, scheduledStartAt = "2026-10-05T10:00:00Z", scheduledEndAt = "2026-10-05T08:00:00Z" },
+                await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator)),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(body.GetProperty("errors").TryGetProperty("scheduledEndAt", out _));
+        await AssertNoReworkScheduledAsync(r.CorrectiveActionId);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_TechnicianOutsideTheWorkOrdersSite_Returns422_AndWritesNothing()
+    {
+        var r = await ApprovedAsync();
+        var outsideSite = await SiteAsync(r.TenantId);
+        var outsideTechnician = await CallerAsync(r.TenantId, [outsideSite], RoleCodes.Technician);
+
+        var body = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator,
+                new { assignedTeamId = Guid.NewGuid(), assignedTechnicianId = outsideTechnician.UserId, scheduledStartAt = "2026-10-05T08:00:00Z", scheduledEndAt = "2026-10-05T10:00:00Z" },
+                await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator)),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(body.GetProperty("errors").TryGetProperty("assignedTechnicianId", out _));
+        await AssertNoReworkScheduledAsync(r.CorrectiveActionId);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_NonTechnicianAssignee_Returns422_AndWritesNothing()
+    {
+        var r = await ApprovedAsync();
+
+        var body = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator,
+                new { assignedTeamId = Guid.NewGuid(), assignedTechnicianId = r.Owner.UserId, scheduledStartAt = "2026-10-05T08:00:00Z", scheduledEndAt = "2026-10-05T10:00:00Z" },
+                await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator)),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.True(body.GetProperty("errors").TryGetProperty("assignedTechnicianId", out _));
+        await AssertNoReworkScheduledAsync(r.CorrectiveActionId);
+    }
+
+    // ---------------- Schedule Rework: state / concurrency ----------------
+
+    [Fact]
+    public async Task ScheduleRework_BeforeThePlanIsApproved_Returns409StateConflict()
+    {
+        var r = await SubmittedAsync();
+        var coordinator = await CallerAsync(r.TenantId, [r.Site], RoleCodes.Coordinator);
+
+        var body = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", coordinator,
+                new { assignedTeamId = Guid.NewGuid(), assignedTechnicianId = r.Technician.UserId, scheduledStartAt = "2026-10-05T08:00:00Z", scheduledEndAt = "2026-10-05T10:00:00Z" },
+                await CorrectiveActionETagAsync(r.WorkOrderId, coordinator)),
+            HttpStatusCode.Conflict, "STATE_CONFLICT");
+        Assert.Equal("Only an APPROVED Corrective Action can have its rework scheduled.", body.GetProperty("detail").GetString());
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WithAStaleRowVersion_Returns409ConcurrencyConflict_AndWritesNothing()
+    {
+        var r = await ApprovedAsync();
+
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator, ScheduleReworkBody(r), StaleETag),
+            HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT");
+        await AssertNoReworkScheduledAsync(r.CorrectiveActionId);
+    }
+
+    [Fact]
+    public async Task ASecondScheduleRework_Returns409StateConflict_AndKeepsTheFirstVisitLinked_AndWritesNoSecondAudit()
+    {
+        var r = await ApprovedAsync();
+        var first = await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator,
+            ScheduleReworkBody(r), await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator));
+        Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+        var firstVisitId = (await JsonAsync(first)).GetProperty("correctiveServiceVisitId").GetGuid();
+
+        var body = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator, ScheduleReworkBody(r), first.Headers.ETag!.Tag),
+            HttpStatusCode.Conflict, "STATE_CONFLICT");
+        Assert.Equal("This Corrective Action's rework has already been scheduled.", body.GetProperty("detail").GetString());
+
+        var correctiveAction = await WithDbAsync(db => db.CorrectiveActions.AsNoTracking().SingleAsync(item => item.Id == r.CorrectiveActionId));
+        Assert.Equal(firstVisitId, correctiveAction.CorrectiveServiceVisitId);
+        Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == r.CorrectiveActionId && a.ActionCode == "CORRECTIVE_ACTION_REWORK_SCHEDULED")));
+        Assert.Equal(1, await WithDbAsync(db => db.ServiceVisits.AsNoTracking().CountAsync(v => v.WorkOrderId == r.WorkOrderId && v.VisitType == ServiceVisitType.Corrective)));
+    }
+
+    [Fact]
+    public async Task TwoConcurrentScheduleRework_ExactlyOneSucceeds_WithExactlyOneVisit_AndNoDuplicateAudit()
+    {
+        // `docs/13` §4.22's own "duplicate-request protection" requirement: a failed action creates neither a
+        // Visit nor an audit/state change.
+        var r = await ApprovedAsync();
+        var etag = await CorrectiveActionETagAsync(r.WorkOrderId, r.Coordinator);
+        var body = ScheduleReworkBody(r);
+
+        var responses = await Task.WhenAll(
+            Task.Run(() => SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator, body, etag)),
+            Task.Run(() => SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/schedule-rework", r.Coordinator, body, etag)));
+
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
+        Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
+        Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == r.CorrectiveActionId && a.ActionCode == "CORRECTIVE_ACTION_REWORK_SCHEDULED")));
+        Assert.Equal(1, await WithDbAsync(db => db.ServiceVisits.AsNoTracking().CountAsync(v => v.WorkOrderId == r.WorkOrderId && v.VisitType == ServiceVisitType.Corrective)));
+        var workOrder = await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(item => item.Id == r.WorkOrderId));
+        Assert.Equal(WorkOrderStatus.CorrectivePlanApproved, workOrder.Status);
+    }
+
     // ---------------- Helpers ----------------
 
     private async Task AssertStillDraftAsync(Guid correctiveActionId)
@@ -544,6 +821,33 @@ public sealed class CorrectiveActionEndpointsTests : IClassFixture<CorrectiveAct
         return response.Headers.ETag!.Tag;
     }
 
+    /// <summary>
+    /// The Corrective Action's own current RowVersion (Schedule Rework's own If-Match token — §4.22), read the
+    /// same way the real Angular client would: off `WorkOrderResponse.correctiveActionRowVersion`, not the
+    /// database directly — proving that field is actually wired end to end.
+    /// </summary>
+    private async Task<string> CorrectiveActionETagAsync(Guid workOrderId, Caller caller)
+    {
+        var body = await JsonAsync(await SendAsync(HttpMethod.Get, $"{WorkOrders}/{workOrderId}", caller, null, null));
+        return $"\"{body.GetProperty("correctiveActionRowVersion").GetString()}\"";
+    }
+
+    private static object ScheduleReworkBody(Rejected r) => new
+    {
+        assignedTeamId = Guid.NewGuid(),
+        assignedTechnicianId = r.Technician.UserId,
+        scheduledStartAt = "2026-10-05T08:00:00Z",
+        scheduledEndAt = "2026-10-05T10:00:00Z"
+    };
+
+    private async Task AssertNoReworkScheduledAsync(Guid correctiveActionId)
+    {
+        var correctiveAction = await WithDbAsync(db => db.CorrectiveActions.AsNoTracking().SingleAsync(item => item.Id == correctiveActionId));
+        Assert.Null(correctiveAction.CorrectiveServiceVisitId);
+        Assert.Equal(0, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == correctiveActionId && a.ActionCode == "CORRECTIVE_ACTION_REWORK_SCHEDULED")));
+        Assert.Equal(0, await WithDbAsync(db => db.ServiceVisits.AsNoTracking().CountAsync(v => v.WorkOrderId == correctiveAction.WorkOrderId && v.VisitType == ServiceVisitType.Corrective)));
+    }
+
     /// <summary>A Corrective Action with its plan already submitted (PENDING_PLAN_APPROVAL), ready for Approve Plan.</summary>
     private async Task<Rejected> SubmittedAsync()
     {
@@ -552,6 +856,16 @@ public sealed class CorrectiveActionEndpointsTests : IClassFixture<CorrectiveAct
         var submitted = await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/submit-plan", teamLead,
             new { planText = "Plan.", planFileAssetId = r.PlanFileAssetId }, await WorkOrderETagAsync(r.WorkOrderId, teamLead));
         Assert.Equal(HttpStatusCode.OK, submitted.StatusCode);
+        return r;
+    }
+
+    /// <summary>A Corrective Action with its plan already approved (APPROVED), ready for Schedule Rework.</summary>
+    private async Task<Rejected> ApprovedAsync()
+    {
+        var r = await SubmittedAsync();
+        var supervisor = await CallerAsync(r.TenantId, [r.Site], RoleCodes.Supervisor);
+        var approved = await SendAsync(HttpMethod.Post, $"{CorrectiveActions}/{r.CorrectiveActionId}/approve-plan", supervisor, null, await WorkOrderETagAsync(r.WorkOrderId, supervisor));
+        Assert.Equal(HttpStatusCode.OK, approved.StatusCode);
         return r;
     }
 

@@ -21,7 +21,13 @@ namespace RepairRequest.Application.WorkOrders;
 /// (Ticket 6) as the minimum read model needed to reach `CA-API-001`/`CA-API-002` — signal fields only, derived
 /// live from the linked Corrective Action (never a duplicated/cached copy), never <c>plan_text</c>/
 /// <c>plan_file_asset_id</c>/<c>approved_by</c>/<c>approved_at</c>, which stay hidden behind those two endpoints'
-/// own direct responses.
+/// own direct responses. <see cref="CorrectiveServiceVisitId"/> is added by `docs/13` §4.22 (CA-API-003) so an
+/// Angular Coordinator client can gate the "Schedule Rework" action on <c>correctiveActionStatus == APPROVED &amp;&amp;
+/// correctiveServiceVisitId == null</c> — a signal field only, never the linked Visit's own schedule/assignee.
+/// <see cref="CorrectiveActionRowVersion"/> is also added by §4.22, the same "recover a concurrency token across
+/// page reloads" purpose <see cref="CostSummaryRowVersion"/> already serves — Schedule Rework's own If-Match
+/// target is the Corrective Action's own RowVersion (not the Work Order's, see `ICorrectiveActionStore`'s own
+/// remarks), and without this field the client would have no way to learn it before the first Schedule Rework call.
 /// </summary>
 public sealed record WorkOrderDto(
     Guid WorkOrderId,
@@ -39,7 +45,9 @@ public sealed record WorkOrderDto(
     DateTime? CostSummaryReviewedAt,
     DateTime? ClosedAt,
     Guid? CorrectiveActionId,
-    CorrectiveActionStatus? CorrectiveActionStatus);
+    CorrectiveActionStatus? CorrectiveActionStatus,
+    Guid? CorrectiveServiceVisitId,
+    byte[]? CorrectiveActionRowVersion);
 
 /// <summary>
 /// Service Visit projection (S2-003; RR-DD-001 SV-001..018), embedded in the Work Order detail response — no

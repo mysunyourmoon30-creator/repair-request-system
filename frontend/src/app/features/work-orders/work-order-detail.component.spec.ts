@@ -33,6 +33,8 @@ describe('WorkOrderDetailComponent', () => {
     closedAt: null,
     correctiveActionId: null,
     correctiveActionStatus: null,
+    correctiveServiceVisitId: null,
+    correctiveActionRowVersion: null,
   };
 
   const scheduledVisit = {
@@ -757,6 +759,7 @@ describe('WorkOrderDetailComponent', () => {
     approvedBy: null,
     approvedAt: null,
     workOrderRowVersion: 'v2',
+    correctiveServiceVisitId: null,
   };
 
   function submitPlanForm(root: HTMLElement): HTMLFormElement {
@@ -934,5 +937,129 @@ describe('WorkOrderDetailComponent', () => {
     fixture.detectChanges();
 
     expect(root.textContent).toContain('You do not have permission to perform this action.');
+  });
+
+  // ---------------- Corrective Action: Schedule Rework (`docs/13` §4.22) ----------------
+
+  const approvedCorrectiveAction: WorkOrder = {
+    ...draftCorrectiveAction,
+    correctiveActionStatus: 'APPROVED',
+    correctiveActionRowVersion: 'ca-v1',
+  };
+
+  const scheduleReworkResponse = {
+    ...correctiveActionResponse,
+    status: 'APPROVED',
+    approvedBy: 'sup-1',
+    approvedAt: '2026-09-29T09:00:00Z',
+    correctiveServiceVisitId: 'visit-2',
+  };
+
+  function scheduleReworkForm(root: HTMLElement): HTMLFormElement {
+    return Array.from(root.querySelectorAll('form')).find((form) => form.textContent?.includes('Schedule Rework'))!;
+  }
+
+  function fillScheduleReworkForm(form: HTMLFormElement, teamId: string, technicianId: string, start: string, end: string): void {
+    const inputs = form.querySelectorAll('input');
+    (inputs[0] as HTMLInputElement).value = teamId;
+    (inputs[1] as HTMLInputElement).value = technicianId;
+    (inputs[2] as HTMLInputElement).value = start;
+    (inputs[3] as HTMLInputElement).value = end;
+    form.dispatchEvent(new Event('submit'));
+  }
+
+  it('shows Schedule Rework only for a signed-in Coordinator while APPROVED with no rework scheduled yet', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'coord-1', role: 'COORDINATOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, approvedCorrectiveAction);
+
+    expect(scheduleReworkForm(fixture.nativeElement as HTMLElement)).toBeDefined();
+  });
+
+  it('hides Schedule Rework for a non-Coordinator role, and once a rework Visit is already linked', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+    const nonCoordinatorFixture = createComponent('abc-123');
+    loadWorkOrder(nonCoordinatorFixture, approvedCorrectiveAction);
+    expect((nonCoordinatorFixture.nativeElement as HTMLElement).textContent).not.toContain('Schedule Rework');
+
+    httpMock.verify();
+    TestBed.resetTestingModule();
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'coord-1', role: 'COORDINATOR' }));
+    const alreadyScheduledFixture = createComponent('abc-123');
+    loadWorkOrder(alreadyScheduledFixture, { ...approvedCorrectiveAction, correctiveServiceVisitId: 'visit-2' });
+    expect((alreadyScheduledFixture.nativeElement as HTMLElement).textContent).not.toContain('Schedule Rework');
+  });
+
+  it("schedules rework using the Corrective Action's own quoted correctiveActionRowVersion, then reloads the Work Order", () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'coord-1', role: 'COORDINATOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, approvedCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillScheduleReworkForm(scheduleReworkForm(root), 'team-2', 'tech-2', '2026-10-05T08:00', '2026-10-05T10:00');
+
+    const req = httpMock.expectOne(`${correctiveActionsBaseUrl}/ca-1/schedule-rework`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('If-Match')).toBe('"ca-v1"');
+    expect(req.request.body).toEqual({
+      assignedTeamId: 'team-2',
+      assignedTechnicianId: 'tech-2',
+      scheduledStartAt: '2026-10-05T08:00Z',
+      scheduledEndAt: '2026-10-05T10:00Z',
+    });
+    req.flush(scheduleReworkResponse);
+
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush({ ...approvedCorrectiveAction, correctiveServiceVisitId: 'visit-2' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('visit-2');
+    expect(scheduleReworkForm(root)).toBeUndefined();
+  });
+
+  it('disables Schedule Rework while the request is in flight, preventing a double submit', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'coord-1', role: 'COORDINATOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, approvedCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    const form = scheduleReworkForm(root);
+    fillScheduleReworkForm(form, 'team-2', 'tech-2', '2026-10-05T08:00', '2026-10-05T10:00');
+    fixture.detectChanges();
+
+    expect(form.querySelector('button')!.disabled).toBe(true);
+
+    httpMock.expectOne(`${correctiveActionsBaseUrl}/ca-1/schedule-rework`).flush(scheduleReworkResponse);
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush({ ...approvedCorrectiveAction, correctiveServiceVisitId: 'visit-2' });
+  });
+
+  it('shows the server message and reloads the Work Order when Schedule Rework returns 409', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'coord-1', role: 'COORDINATOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, approvedCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillScheduleReworkForm(scheduleReworkForm(root), 'team-2', 'tech-2', '2026-10-05T08:00', '2026-10-05T10:00');
+    httpMock
+      .expectOne(`${correctiveActionsBaseUrl}/ca-1/schedule-rework`)
+      .flush({ code: 'STATE_CONFLICT', detail: "This Corrective Action's rework has already been scheduled." }, { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush(approvedCorrectiveAction);
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('has already been scheduled');
+  });
+
+  it('shows a 422 field error when Schedule Rework is rejected for an ineligible technician', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'coord-1', role: 'COORDINATOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, approvedCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillScheduleReworkForm(scheduleReworkForm(root), 'team-2', 'tech-2', '2026-10-05T08:00', '2026-10-05T10:00');
+    httpMock
+      .expectOne(`${correctiveActionsBaseUrl}/ca-1/schedule-rework`)
+      .flush({ errors: { assignedTechnicianId: ['The technician must be an active Technician assigned to this Work Order’s Site.'] } }, { status: 422, statusText: 'Unprocessable Entity' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('The technician must be an active Technician');
   });
 });

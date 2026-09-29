@@ -189,4 +189,65 @@ public class CorrectiveActionDomainTests
         Assert.Equal(CorrectiveActionStatus.PendingPlanApproval, action.Status);
         Assert.Null(action.ApprovedBy);
     }
+
+    // ---------------- ScheduleRework (CA-API-003; `docs/13` §4.22) ----------------
+
+    private static CorrectiveAction Approved()
+    {
+        var action = Draft();
+        action.SubmitPlan(Guid.NewGuid(), "Plan.", Guid.NewGuid());
+        action.ApprovePlan(Guid.NewGuid(), Now);
+        return action;
+    }
+
+    [Fact]
+    public void ScheduleRework_FromApproved_LinksTheServiceVisit_AndKeepsStatusApproved()
+    {
+        var action = Approved();
+        var visitId = Guid.NewGuid();
+
+        action.ScheduleRework(visitId);
+
+        Assert.Equal(visitId, action.CorrectiveServiceVisitId);
+        Assert.Equal(CorrectiveActionStatus.Approved, action.Status);
+    }
+
+    [Theory]
+    [InlineData(CorrectiveActionStatus.Draft)]
+    [InlineData(CorrectiveActionStatus.PendingPlanApproval)]
+    public void ScheduleRework_WhenNotApproved_Throws_AndDoesNotMutate(CorrectiveActionStatus status)
+    {
+        var action = Draft();
+        if (status == CorrectiveActionStatus.PendingPlanApproval)
+        {
+            action.SubmitPlan(Guid.NewGuid(), "Plan.", Guid.NewGuid());
+        }
+
+        Assert.Throws<DomainRuleViolationException>(() => action.ScheduleRework(Guid.NewGuid()));
+
+        Assert.Equal(status, action.Status);
+        Assert.Null(action.CorrectiveServiceVisitId);
+    }
+
+    [Fact]
+    public void ScheduleRework_WhenAlreadyScheduled_Throws_AndKeepsTheFirstVisitLinked()
+    {
+        var action = Approved();
+        var firstVisitId = Guid.NewGuid();
+        action.ScheduleRework(firstVisitId);
+
+        Assert.Throws<DomainRuleViolationException>(() => action.ScheduleRework(Guid.NewGuid()));
+
+        Assert.Equal(firstVisitId, action.CorrectiveServiceVisitId);
+    }
+
+    [Fact]
+    public void ScheduleRework_RequiresANonEmptyServiceVisitId_AndDoesNotMutate()
+    {
+        var action = Approved();
+
+        Assert.Throws<ArgumentException>(() => action.ScheduleRework(Guid.Empty));
+
+        Assert.Null(action.CorrectiveServiceVisitId);
+    }
 }

@@ -6,10 +6,17 @@ using RepairRequest.Domain.WorkOrders;
 namespace RepairRequest.Application.WorkOrders;
 
 /// <summary>
-/// Persistence port for Corrective Action Submit Plan (ST-CA-002; CA-API-001) and Approve Plan (ST-CA-003;
-/// CA-API-002) — `docs/13` §4.21; Ticket 6. Both actions load the Corrective Action together with its Work Order
-/// (tracked) and save both in one transaction, guarded by the Work Order's own RowVersion — see the interface's
-/// own remarks on why no `corrective_action` concurrency token exists.
+/// A Corrective Action loaded for Schedule Rework, with its Work Order and the Work Order's Repair Request's Site
+/// (for the technician eligibility check) — `docs/13` §4.22.
+/// </summary>
+public sealed record CorrectiveActionForScheduleRework(WorkOrder WorkOrder, CorrectiveAction CorrectiveAction, Guid? SiteId);
+
+/// <summary>
+/// Persistence port for Corrective Action Submit Plan (ST-CA-002; CA-API-001), Approve Plan (ST-CA-003;
+/// CA-API-002) — `docs/13` §4.21; Ticket 6 — and Schedule Rework (CA-API-003; `docs/13` §4.22). Submit/Approve
+/// Plan load the Corrective Action together with its Work Order (tracked) and save both in one transaction,
+/// guarded by the Work Order's own RowVersion — see the interface's own remarks on why no `corrective_action`
+/// concurrency token existed before Schedule Rework needed one.
 /// </summary>
 public interface ICorrectiveActionStore
 {
@@ -36,4 +43,21 @@ public interface ICorrectiveActionStore
 
     /// <summary>Saves the Work Order (and, via the same tracked context, the Corrective Action), guarded by <paramref name="expectedRowVersion"/> — the Work Order's own token.</summary>
     Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkOrder workOrder, byte[] expectedRowVersion, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Loads the Corrective Action for Schedule Rework, or null unless it exists and its Work Order is within the
+    /// caller's <see cref="IDataScope.WorkOrders"/> scope — same non-leaking shape as <see cref="LoadInScopeAsync"/>.
+    /// </summary>
+    Task<CorrectiveActionForScheduleRework?> LoadForScheduleReworkAsync(CurrentUser user, Guid correctiveActionId, CancellationToken cancellationToken);
+
+    Task<bool> IsTechnicianEligibleAsync(Guid tenantId, Guid technicianId, Guid siteId, CancellationToken cancellationToken);
+
+    void Add(ServiceVisit visit);
+
+    /// <summary>
+    /// Saves the Corrective Action (and, via the same tracked context, the new Service Visit), guarded by
+    /// <paramref name="expectedRowVersion"/> — the Corrective Action's own token this time (`docs/13` §4.22), not
+    /// the Work Order's, since Schedule Rework changes neither the Work Order's Status nor its RowVersion.
+    /// </summary>
+    Task<WorkOrderSaveOutcome> SaveScheduleReworkAsync(CorrectiveAction correctiveAction, byte[] expectedRowVersion, CancellationToken cancellationToken);
 }

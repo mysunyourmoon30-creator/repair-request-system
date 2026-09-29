@@ -6,9 +6,11 @@ namespace RepairRequest.Api.Contracts.WorkOrders;
 public sealed record SubmitCorrectivePlanRequest(string? PlanText, Guid? PlanFileAssetId);
 
 /// <summary>
-/// Corrective Action response (`docs/13` §4.21), returned by Submit Plan and Approve Plan. <see cref="WorkOrderRowVersion"/>
-/// is the token the caller's next If-Match must carry — the Work Order's own RowVersion, not a `corrective_action`
-/// token (see the store's own remarks) — the same cross-resource ETag shape as <c>WorkSessionResponse.WorkOrderRowVersion</c>.
+/// Corrective Action response (`docs/13` §4.21/§4.22), returned by Submit Plan, Approve Plan and Schedule Rework.
+/// <see cref="WorkOrderRowVersion"/> is Submit/Approve Plan's own next If-Match token — the Work Order's own
+/// RowVersion, not a `corrective_action` token (see the store's own remarks) — the same cross-resource ETag shape
+/// as <c>WorkSessionResponse.WorkOrderRowVersion</c>. Schedule Rework's own next If-Match token is instead carried
+/// in the response's <c>ETag</c> header (the Corrective Action's own RowVersion — `docs/13` §4.22), not this body.
 /// </summary>
 public sealed record CorrectiveActionResponse(
     Guid CorrectiveActionId,
@@ -20,7 +22,8 @@ public sealed record CorrectiveActionResponse(
     Guid? PlanFileAssetId,
     Guid? ApprovedBy,
     DateTime? ApprovedAt,
-    string WorkOrderRowVersion);
+    string WorkOrderRowVersion,
+    Guid? CorrectiveServiceVisitId);
 
 public static class CorrectiveActionResponses
 {
@@ -35,5 +38,6 @@ public static class CorrectiveActionResponses
             dto.PlanFileAssetId,
             dto.ApprovedBy,
             dto.ApprovedAt,
-            Convert.ToBase64String(dto.WorkOrderRowVersion));
+            Convert.ToBase64String(dto.WorkOrderRowVersion),
+            dto.CorrectiveServiceVisitId);
 }

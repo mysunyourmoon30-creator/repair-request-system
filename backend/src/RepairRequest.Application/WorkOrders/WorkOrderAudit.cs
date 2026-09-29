@@ -72,6 +72,9 @@ public static class WorkOrderAudit
     /// <summary>ST-CA-003 (`docs/13` §4.21). Self-named, no literal baseline action-code string exists.</summary>
     public const string CorrectiveActionPlanApprovedAction = "CORRECTIVE_ACTION_PLAN_APPROVED";
 
+    /// <summary>CA-API-003 (`docs/13` §4.22). Self-named, same established convention — no literal baseline action-code string exists.</summary>
+    public const string CorrectiveActionReworkScheduledAction = "CORRECTIVE_ACTION_REWORK_SCHEDULED";
+
     /// <summary>
     /// No literal baseline action-code string exists for Cost Summary Prepare anywhere in `docs/02`, `docs/06` or
     /// `docs/09` (BR-08's own "System Result/Audit" text names only Close's audit; TC-CST-001's "Expected Audit"
@@ -467,6 +470,35 @@ public static class WorkOrderAudit
             newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
             {
                 [WorkOrderIdField] = workOrder.Id
+            }),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// CA-API-003 success (`docs/13` §4.22): the Corrective Action's own Status stays APPROVED throughout (fromState
+    /// == toState, same "records the write, not a transition" shape as <see cref="CostSummaryPrepared"/>) — Schedule
+    /// Rework deliberately does not advance ST-CA-* or ST-WO-*; the new corrective Service Visit and the Work
+    /// Order id are both referenced in the new value. No reason applies.
+    /// </summary>
+    public static AuditHistory CorrectiveActionReworkScheduled(CommandContext context, CorrectiveAction correctiveAction, WorkOrder workOrder, ServiceVisit visit, DateTime occurredAt) =>
+        new(
+            correctiveAction.TenantId,
+            CorrectiveActionEntityType,
+            correctiveAction.Id,
+            CorrectiveActionReworkScheduledAction,
+            fromState: CorrectiveActionStatusCodes.ToCode(CorrectiveActionStatus.Approved),
+            toState: CorrectiveActionStatusCodes.ToCode(CorrectiveActionStatus.Approved),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(new Dictionary<string, object?>
+            {
+                [WorkOrderIdField] = workOrder.Id,
+                [ServiceVisitIdField] = visit.Id,
+                [ServiceVisitFields.AssignedTeamId] = visit.AssignedTeamId,
+                [ServiceVisitFields.AssignedTechnicianId] = visit.AssignedTechnicianId,
+                [ServiceVisitFields.ScheduledStartAt] = visit.ScheduledStartAt,
+                [ServiceVisitFields.ScheduledEndAt] = visit.ScheduledEndAt
             }),
             reason: null,
             context.User.UserId,

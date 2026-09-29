@@ -171,6 +171,16 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string CorrectiveActionApprovePlan = "CorrectiveAction.ApprovePlan";
 
+    /// <summary>
+    /// Schedule an APPROVED Corrective Action's rework, creating and linking its corrective Service Visit
+    /// (CA-API-003; `docs/13` §4.22). Coordinator only — a Portfolio Project Owner directive, not a
+    /// baseline-literal actor (baseline's own `ST-WO-010` actor is the assigned Technician, for the later, separate
+    /// "Start Rework"/Check-in transition this ticket does not implement — see the class remarks below). Role gate
+    /// only; site scope (<see cref="IDataScope.WorkOrders"/>) via the linked Work Order and the state guard are
+    /// enforced by the Application service.
+    /// </summary>
+    public const string CorrectiveActionScheduleRework = "CorrectiveAction.ScheduleRework";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -217,7 +227,8 @@ public static class AuthorizationPolicies
             [CostSummaryReadPendingReview] = [RoleCodes.Supervisor],
             [WorkOrderClose] = [RoleCodes.Supervisor],
             [CorrectiveActionSubmitPlan] = [RoleCodes.TeamLead],
-            [CorrectiveActionApprovePlan] = [RoleCodes.Supervisor]
+            [CorrectiveActionApprovePlan] = [RoleCodes.Supervisor],
+            [CorrectiveActionScheduleRework] = [RoleCodes.Coordinator]
         };
 }
 

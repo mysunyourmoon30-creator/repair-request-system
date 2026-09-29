@@ -21,18 +21,24 @@ public class CorrectiveActionServiceTests
     private readonly CorrectiveActionService _service;
     private readonly Guid _teamLeadId = Guid.NewGuid();
     private readonly Guid _supervisorId = Guid.NewGuid();
+    private readonly Guid _coordinatorId = Guid.NewGuid();
     private readonly Guid _tenantId = Guid.NewGuid();
     private readonly Guid _planFileAssetId = Guid.NewGuid();
+    private readonly Guid _teamId = Guid.NewGuid();
+    private readonly Guid _technicianId = Guid.NewGuid();
 
     public CorrectiveActionServiceTests()
     {
         _service = new CorrectiveActionService(_store, new CorrectiveActionFixedClock(Now));
         _store.PlanFileUsable = true;
+        _store.TechnicianEligible = true;
     }
 
     private CommandContext TeamLeadContext() => new(new CurrentUser(_teamLeadId, _tenantId, [RoleCodes.TeamLead]), Guid.NewGuid());
 
     private CommandContext SupervisorContext() => new(new CurrentUser(_supervisorId, _tenantId, [RoleCodes.Supervisor]), Guid.NewGuid());
+
+    private CommandContext CoordinatorContext() => new(new CurrentUser(_coordinatorId, _tenantId, [RoleCodes.Coordinator]), Guid.NewGuid());
 
     /// <summary>
     /// A DRAFT Corrective Action and its Work Order (walked through the real ST-WO-001..007 transitions to
@@ -57,7 +63,28 @@ public class CorrectiveActionServiceTests
         return (workOrder, correctiveAction);
     }
 
+    /// <summary>
+    /// An APPROVED Corrective Action and its Work Order (CORRECTIVE_PLAN_APPROVED), with a valid Site wired into
+    /// the fake store — ready for Schedule Rework.
+    /// </summary>
+    private (WorkOrder WorkOrder, CorrectiveAction CorrectiveAction) ApprovedReady()
+    {
+        var (workOrder, correctiveAction) = Ready();
+        correctiveAction.SubmitPlan(_teamLeadId, "Plan.", _planFileAssetId);
+        workOrder.SubmitCorrectivePlan();
+        correctiveAction.ApprovePlan(_supervisorId, Now.UtcDateTime);
+        workOrder.ApproveCorrectivePlan();
+        _store.SiteId = Guid.NewGuid();
+        return (workOrder, correctiveAction);
+    }
+
+    private Task<CommandResult<CorrectiveActionDto>> ScheduleRework(Guid correctiveActionId, byte[] expectedRowVersion) =>
+        _service.ScheduleReworkAsync(CoordinatorContext(), correctiveActionId, expectedRowVersion, _teamId, _technicianId, Now, Now.AddHours(2), CancellationToken.None);
+
     private static void SetId(object entity, Guid id) => entity.GetType().GetProperty("Id")!.SetValue(entity, id);
+
+    private static void SetRowVersion(CorrectiveAction correctiveAction, byte[] rowVersion) =>
+        correctiveAction.GetType().GetProperty(nameof(CorrectiveAction.RowVersion))!.SetValue(correctiveAction, rowVersion);
 
     private void AssertNothingWritten()
     {
@@ -315,6 +342,216 @@ public class CorrectiveActionServiceTests
 
         Assert.Equal(1, _store.TransactionCount);
     }
+
+    // ---------------- Schedule Rework (CA-API-003; `docs/13` §4.22): success ----------------
+
+    [Fact]
+    public async Task ScheduleRework_FromApproved_CreatesTheVisit_LinksIt_AndWritesOneAuditRow_AndKeepsBothStatusesUnchanged()
+    {
+        var (workOrder, correctiveAction) = ApprovedReady();
+
+        var result = await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion);
+
+        Assert.True(result.Succeeded);
+        var visit = Assert.Single(_store.AddedVisits);
+        Assert.Equal(ServiceVisitType.Corrective, visit.VisitType);
+        Assert.Equal(_teamId, visit.AssignedTeamId);
+        Assert.Equal(_technicianId, visit.AssignedTechnicianId);
+        Assert.Equal(correctiveAction.CorrectiveServiceVisitId, visit.Id);
+        Assert.Equal(CorrectiveActionStatus.Approved, correctiveAction.Status);
+        Assert.Equal(WorkOrderStatus.CorrectivePlanApproved, workOrder.Status);
+        Assert.Equal(1, _store.SaveCalls);
+
+        var audit = Assert.Single(_store.Audits);
+        Assert.Equal("CORRECTIVE_ACTION", audit.EntityType);
+        Assert.Equal(correctiveAction.Id, audit.EntityId);
+        Assert.Equal("CORRECTIVE_ACTION_REWORK_SCHEDULED", audit.ActionCode);
+        Assert.Equal("APPROVED", audit.FromState);
+        Assert.Equal("APPROVED", audit.ToState);
+        Assert.Equal(_coordinatorId, audit.ActorId);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_SavesWithTheCorrectiveActionsOwnRowVersionAsTheCompareAndSwapToken()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+        var expected = new byte[] { 1, 2, 3 };
+        SetRowVersion(correctiveAction, expected);
+
+        await ScheduleRework(correctiveAction.Id, expected);
+
+        Assert.Same(expected, _store.LastExpectedRowVersion);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_RunsInsideTheStoresTransaction()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+
+        await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion);
+
+        Assert.Equal(1, _store.TransactionCount);
+    }
+
+    // ---------------- Schedule Rework: scope / concurrency / state ----------------
+
+    [Fact]
+    public async Task ScheduleRework_WhenOutOfScopeOrMissing_IsNotFound_AndWritesNothing()
+    {
+        var result = await ScheduleRework(Guid.NewGuid(), []);
+
+        Assert.Equal(CommandFailure.NotFound, result.Error!.Failure);
+        AssertNothingWritten();
+        Assert.Empty(_store.AddedVisits);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WithAStaleRowVersion_IsAConcurrencyConflict_BeforeAnyGuard_AndWritesNothing()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+
+        var result = await ScheduleRework(correctiveAction.Id, [9, 9, 9]);
+
+        Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error!.Failure);
+        AssertNothingWritten();
+        Assert.Empty(_store.AddedVisits);
+        Assert.Null(correctiveAction.CorrectiveServiceVisitId);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WhenTheSaveLosesTheRace_IsAConcurrencyConflict_AndTheLoserCreatesNoVisit()
+    {
+        // The genuinely-concurrent-duplicate case: two Schedule Rework calls both pass the in-memory guard before
+        // either commits; the loser's UPDATE affects zero rows (its WHERE row_version = @original no longer
+        // matches). `docs/13` §4.22's own "duplicate-request protection" requirement.
+        var (_, correctiveAction) = ApprovedReady();
+        _store.ScheduleReworkSaveOutcome = WorkOrderSaveOutcome.ConcurrencyConflict;
+
+        var result = await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion);
+
+        Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error!.Failure);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WhenStillPendingPlanApproval_IsAStateConflict_AndWritesNothing()
+    {
+        var (workOrder, correctiveAction) = Ready();
+        correctiveAction.SubmitPlan(_teamLeadId, "Plan.", _planFileAssetId);
+        workOrder.SubmitCorrectivePlan();
+        _store.SiteId = Guid.NewGuid();
+
+        var result = await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion);
+
+        Assert.Equal(CommandFailure.StateConflict, result.Error!.Failure);
+        Assert.Equal("Only an APPROVED Corrective Action can have its rework scheduled.", result.Error.Message);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WhenAlreadyScheduled_IsAStateConflict_AndWritesNoSecondAudit()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+        Assert.True((await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion)).Succeeded);
+
+        var second = await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion);
+
+        Assert.Equal(CommandFailure.StateConflict, second.Error!.Failure);
+        Assert.Equal("This Corrective Action's rework has already been scheduled.", second.Error.Message);
+        Assert.Single(_store.Audits);
+        Assert.Single(_store.AddedVisits);
+    }
+
+    // ---------------- Schedule Rework: validation ----------------
+
+    [Fact]
+    public async Task ScheduleRework_WithoutATeam_IsAValidationFailure_AndWritesNothing()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+
+        var result = await _service.ScheduleReworkAsync(
+            CoordinatorContext(), correctiveAction.Id, correctiveAction.RowVersion, null, _technicianId, Now, Now.AddHours(2), CancellationToken.None);
+
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error!.Failure);
+        Assert.Contains(ServiceVisitFields.AssignedTeamId, result.Error.Errors.Keys);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WithoutAScheduledStart_IsAValidationFailure()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+
+        var result = await _service.ScheduleReworkAsync(
+            CoordinatorContext(), correctiveAction.Id, correctiveAction.RowVersion, _teamId, _technicianId, null, Now.AddHours(2), CancellationToken.None);
+
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error!.Failure);
+        Assert.Contains(ServiceVisitFields.ScheduledStartAt, result.Error.Errors.Keys);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WithoutAScheduledEnd_IsAValidationFailure()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+
+        var result = await _service.ScheduleReworkAsync(
+            CoordinatorContext(), correctiveAction.Id, correctiveAction.RowVersion, _teamId, _technicianId, Now, null, CancellationToken.None);
+
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error!.Failure);
+        Assert.Contains(ServiceVisitFields.ScheduledEndAt, result.Error.Errors.Keys);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WithAnEndBeforeTheStart_IsAValidationFailure()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+
+        var result = await _service.ScheduleReworkAsync(
+            CoordinatorContext(), correctiveAction.Id, correctiveAction.RowVersion, _teamId, _technicianId, Now, Now.AddHours(-1), CancellationToken.None);
+
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error!.Failure);
+        Assert.Contains(ServiceVisitFields.ScheduledEndAt, result.Error.Errors.Keys);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WithoutATechnician_IsAValidationFailure()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+
+        var result = await _service.ScheduleReworkAsync(
+            CoordinatorContext(), correctiveAction.Id, correctiveAction.RowVersion, _teamId, null, Now, Now.AddHours(2), CancellationToken.None);
+
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error!.Failure);
+        Assert.Contains(ServiceVisitFields.AssignedTechnicianId, result.Error.Errors.Keys);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WhenTheTechnicianIsNotEligible_IsAValidationFailure()
+    {
+        var (_, correctiveAction) = ApprovedReady();
+        _store.TechnicianEligible = false;
+
+        var result = await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion);
+
+        Assert.Equal(CommandFailure.ValidationFailed, result.Error!.Failure);
+        Assert.Contains(ServiceVisitFields.AssignedTechnicianId, result.Error.Errors.Keys);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task ScheduleRework_ChecksTechnicianEligibilityAgainstTheWorkOrdersOwnTenantAndSite()
+    {
+        var (workOrder, correctiveAction) = ApprovedReady();
+
+        await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion);
+
+        Assert.Equal(workOrder.TenantId, _store.LastTechnicianTenantIdChecked);
+        Assert.Equal(_technicianId, _store.LastTechnicianIdChecked);
+        Assert.Equal(_store.SiteId, _store.LastTechnicianSiteIdChecked);
+    }
 }
 
 internal sealed class FakeCorrectiveActionStore : ICorrectiveActionStore
@@ -328,6 +565,20 @@ internal sealed class FakeCorrectiveActionStore : ICorrectiveActionStore
     public Guid? LastPlanFileTenantIdChecked { get; private set; }
 
     public Guid? LastPlanFileIdChecked { get; private set; }
+
+    public Guid? SiteId { get; set; }
+
+    public bool TechnicianEligible { get; set; }
+
+    public Guid? LastTechnicianTenantIdChecked { get; private set; }
+
+    public Guid? LastTechnicianIdChecked { get; private set; }
+
+    public Guid? LastTechnicianSiteIdChecked { get; private set; }
+
+    public List<ServiceVisit> AddedVisits { get; } = [];
+
+    public WorkOrderSaveOutcome ScheduleReworkSaveOutcome { get; set; } = WorkOrderSaveOutcome.Saved;
 
     public List<AuditHistory> Audits { get; } = [];
 
@@ -360,6 +611,37 @@ internal sealed class FakeCorrectiveActionStore : ICorrectiveActionStore
         SaveCalls++;
         LastExpectedRowVersion = expectedRowVersion;
         return Task.FromResult(WorkOrderSaveOutcome.Saved);
+    }
+
+    public Task<CorrectiveActionForScheduleRework?> LoadForScheduleReworkAsync(CurrentUser user, Guid correctiveActionId, CancellationToken cancellationToken) =>
+        Task.FromResult(WorkOrder is null || CorrectiveAction is null ? null : new CorrectiveActionForScheduleRework(WorkOrder, CorrectiveAction, SiteId));
+
+    public Task<bool> IsTechnicianEligibleAsync(Guid tenantId, Guid technicianId, Guid siteId, CancellationToken cancellationToken)
+    {
+        LastTechnicianTenantIdChecked = tenantId;
+        LastTechnicianIdChecked = technicianId;
+        LastTechnicianSiteIdChecked = siteId;
+        return Task.FromResult(TechnicianEligible);
+    }
+
+    public void Add(ServiceVisit visit)
+    {
+        // Mimics EF Core's client-side sequential-GUID key generator, which assigns ServiceVisit.Id once the
+        // entity becomes tracked (i.e. here) rather than at SaveChanges — the same timing the production code
+        // relies on (see CorrectiveActionService.ScheduleReworkLockedAsync's own ordering comment).
+        if (visit.Id == Guid.Empty)
+        {
+            visit.GetType().GetProperty(nameof(ServiceVisit.Id))!.SetValue(visit, Guid.NewGuid());
+        }
+
+        AddedVisits.Add(visit);
+    }
+
+    public Task<WorkOrderSaveOutcome> SaveScheduleReworkAsync(CorrectiveAction correctiveAction, byte[] expectedRowVersion, CancellationToken cancellationToken)
+    {
+        SaveCalls++;
+        LastExpectedRowVersion = expectedRowVersion;
+        return Task.FromResult(ScheduleReworkSaveOutcome);
     }
 }
 
