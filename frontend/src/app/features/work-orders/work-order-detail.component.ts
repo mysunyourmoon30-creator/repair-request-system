@@ -51,10 +51,29 @@ import { CostSummary, WorkOrderService } from './work-order.service';
           <dt>Closed At</dt>
           <dd>{{ workOrder.closedAt }}</dd>
         }
+        @if (workOrder.correctiveActionStatus !== null) {
+          <dt>Corrective Action</dt>
+          <dd>{{ workOrder.correctiveActionStatus }}</dd>
+        }
       </dl>
 
       @if (canClose(workOrder)) {
         <button type="button" [disabled]="submitting()" (click)="onClose(workOrder)">Close Work Order</button>
+      }
+
+      @if (canSubmitCorrectivePlan(workOrder)) {
+        <details>
+          <summary>Submit Corrective Plan</summary>
+          <form (submit)="onSubmitCorrectivePlan($event, workOrder, planText, planFileAssetId)">
+            <label>Plan <textarea #planText required></textarea></label>
+            <label>Plan File Asset ID <input #planFileAssetId type="text" required /></label>
+            <button type="submit" [disabled]="submitting()">Submit Plan</button>
+          </form>
+        </details>
+      }
+
+      @if (canApproveCorrectivePlan(workOrder)) {
+        <button type="button" [disabled]="submitting()" (click)="onApproveCorrectivePlan(workOrder)">Approve Corrective Plan</button>
       }
 
       @if (canAccept(workOrder)) {
@@ -331,6 +350,99 @@ export class WorkOrderDetailComponent {
         return problem?.code === 'STATE_CONFLICT' && problem.detail
           ? problem.detail
           : 'This Work Order was changed by another request. The latest details are shown.';
+      default:
+        return this.describe(response);
+    }
+  }
+
+  /** UX only — `docs/13` §4.21. The backend always re-checks role, Site scope and the DRAFT-only state guard regardless. */
+  protected canSubmitCorrectivePlan(workOrder: WorkOrder): boolean {
+    return workOrder.correctiveActionStatus === 'DRAFT' && getCurrentUserRoles().includes('TEAM_LEAD');
+  }
+
+  /**
+   * CA-API-001 (`docs/13` §4.21). If-Match targets the Work Order's own `rowVersion` (Submit Plan advances its
+   * status, ST-WO-008) — never a `corrective_action` token, which does not exist. A 409 reloads the current Work
+   * Order, since the held ETag can no longer match once either side has changed.
+   */
+  protected onSubmitCorrectivePlan(event: Event, workOrder: WorkOrder, planText: HTMLTextAreaElement, planFileAssetId: HTMLInputElement): void {
+    event.preventDefault();
+    if (this.submitting() || workOrder.correctiveActionId === null) {
+      return;
+    }
+
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    this.workOrders
+      .submitCorrectivePlan(workOrder.correctiveActionId, this.quoted(workOrder.rowVersion), {
+        planText: planText.value,
+        planFileAssetId: planFileAssetId.value,
+      })
+      .subscribe({
+        next: () => {
+          this.submitting.set(false);
+          this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });
+        },
+        error: (response: HttpErrorResponse) => {
+          this.submitting.set(false);
+          this.actionError.set(this.describeCorrectiveAction(response));
+
+          if (response.status === 409) {
+            this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });
+          }
+        },
+      });
+  }
+
+  /** UX only — `docs/13` §4.21. The backend always re-checks role, Site scope and the state guard regardless. No Separation of Duties (Decision d). */
+  protected canApproveCorrectivePlan(workOrder: WorkOrder): boolean {
+    return workOrder.correctiveActionStatus === 'PENDING_PLAN_APPROVAL' && getCurrentUserRoles().includes('SUPERVISOR');
+  }
+
+  /** CA-API-002 (`docs/13` §4.21). No body. If-Match targets the Work Order's own `rowVersion` (ST-WO-009). */
+  protected onApproveCorrectivePlan(workOrder: WorkOrder): void {
+    if (this.submitting() || workOrder.correctiveActionId === null) {
+      return;
+    }
+
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    this.workOrders.approveCorrectivePlan(workOrder.correctiveActionId, this.quoted(workOrder.rowVersion)).subscribe({
+      next: () => {
+        this.submitting.set(false);
+        this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });
+      },
+      error: (response: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.actionError.set(this.describeCorrectiveAction(response));
+
+        if (response.status === 409) {
+          this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });
+        }
+      },
+    });
+  }
+
+  private describeCorrectiveAction(response: HttpErrorResponse): string {
+    const problem = response.error as { code?: string; detail?: string } | null;
+
+    switch (response.status) {
+      case 401:
+        return 'You are not signed in, or your session has expired. Please sign in again.';
+      case 403:
+        return 'You do not have permission to perform this action.';
+      case 404:
+        return 'This Corrective Action was not found, or is outside your data scope.';
+      case 409:
+        return problem?.code === 'STATE_CONFLICT' && problem.detail
+          ? problem.detail
+          : 'This Corrective Action was changed by another request. The latest details are shown.';
+      case 422: {
+        const errors = (response.error as { errors?: Record<string, string[]> } | null)?.errors;
+        return errors ? Object.values(errors).flat().join(' ') : 'One or more fields are invalid.';
+      }
       default:
         return this.describe(response);
     }

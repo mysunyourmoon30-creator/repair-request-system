@@ -4,14 +4,17 @@ namespace RepairRequest.Domain.WorkOrders;
 
 /// <summary>
 /// Corrective Action cycle (`docs/02` CA-001/003..012; `docs/07` §3 "CustomerAcceptance 1:0..1 CorrectiveAction —
-/// REJECT creates one corrective cycle"; `docs/13` §4.17). Only <see cref="CreateDraft"/> is exercised in this
-/// ticket's scope (ST-CA-001) — the plan/approve/rework/resubmit cycle (ST-CA-002/003 and beyond) belongs to a
-/// future ticket, so every field of that later half is nullable here and populated by nothing yet.
+/// REJECT creates one corrective cycle"; `docs/13` §4.17/§4.21). <see cref="CreateDraft"/> (ST-CA-001, Ticket 3),
+/// <see cref="SubmitPlan"/> (ST-CA-002, Ticket 6) and <see cref="ApprovePlan"/> (ST-CA-003, Ticket 6) are
+/// implemented; rework/resubmission beyond ST-CA-003 belongs to a future ticket, so <see cref="CorrectiveServiceVisitId"/>
+/// stays nullable and populated by nothing yet.
 /// <see cref="OwnerTeamLeadId"/> (CA-007) is documented "Y" (required) in the baseline, but nothing in ST-CA-001
-/// or UC-WO-022 assigns a Team Lead at DRAFT-creation time — that assignment is ST-CA-002's own step ("Submit
-/// Plan", Team Lead actor). Per `docs/13` §4.17 (recorded, not silently applied), this field is a directed
-/// deviation to nullable-for-now, mirroring the established "trim a guard, defer, record it" pattern already used
-/// for BR-06's Check-out split and Ticket 2's Close guard.
+/// or UC-WO-022 assigns a Team Lead at DRAFT-creation time. Per `docs/13` §4.21 Decision (a) (Portfolio Project
+/// Owner directive, recorded not silently applied), it stays null through DRAFT and is bound atomically, once, by
+/// <see cref="SubmitPlan"/> to the authorized submitting Team Lead — mirroring the established
+/// "assign on first use" precedent already used for <see cref="WorkOrder.AcceptanceContactId"/>. No other mutator
+/// exists for it, and the Corrective Action's own status guard (only reachable from <see cref="CorrectiveActionStatus.Draft"/>)
+/// makes a second assignment unreachable, so no unaudited owner change is possible.
 /// </summary>
 public sealed class CorrectiveAction
 {
@@ -40,6 +43,53 @@ public sealed class CorrectiveAction
     public static CorrectiveAction CreateDraft(Guid tenantId, Guid workOrderId, Guid acceptanceId, int cycleNo) =>
         new(tenantId, workOrderId, acceptanceId, cycleNo);
 
+    /// <summary>
+    /// ST-CA-002 Submit Plan (CA-API-001; `docs/13` §4.21 Decision a). Only from DRAFT. Aggregate-local guard
+    /// only: eligibility (caller holds Team Lead, current Site scope) is the Application service's responsibility
+    /// before this is called. <paramref name="ownerTeamLeadId"/> is bound here, atomically, to the calling Team
+    /// Lead — the field's only mutator, ever. <paramref name="planText"/>/<paramref name="planFileAssetId"/>
+    /// non-blank/length validation is the Application service's responsibility before this is called.
+    /// </summary>
+    public void SubmitPlan(Guid ownerTeamLeadId, string planText, Guid planFileAssetId)
+    {
+        if (!CorrectiveActionStatusTransitions.IsAllowed(Status, CorrectiveActionStatus.PendingPlanApproval))
+        {
+            throw new DomainRuleViolationException("Only a DRAFT Corrective Action can have its plan submitted.");
+        }
+
+        // Validate every argument before assigning any, so a bad one never leaves the aggregate half-submitted.
+        var validatedOwnerTeamLeadId = DomainGuard.NotEmpty(ownerTeamLeadId, nameof(ownerTeamLeadId));
+        var validatedPlanText = DomainGuard.RequiredText(planText, PlanTextMaxLength, nameof(planText));
+        var validatedPlanFileAssetId = DomainGuard.NotEmpty(planFileAssetId, nameof(planFileAssetId));
+
+        OwnerTeamLeadId = validatedOwnerTeamLeadId;
+        PlanText = validatedPlanText;
+        PlanFileAssetId = validatedPlanFileAssetId;
+        Status = CorrectiveActionStatus.PendingPlanApproval;
+    }
+
+    /// <summary>
+    /// ST-CA-003 Approve Plan (CA-API-002; `docs/13` §4.21). Only from PENDING_PLAN_APPROVAL. Aggregate-local
+    /// guard only: eligibility (caller holds Supervisor, current Site scope) is the Application service's
+    /// responsibility before this is called. No Separation of Duties is enforced here — `docs/13` §4.21 Decision
+    /// (d) records the absence of a same-user guard as a review risk, not a baseline requirement.
+    /// </summary>
+    public void ApprovePlan(Guid approvedBy, DateTime approvedAt)
+    {
+        if (!CorrectiveActionStatusTransitions.IsAllowed(Status, CorrectiveActionStatus.Approved))
+        {
+            throw new DomainRuleViolationException("Only a Corrective Action with a submitted plan can be approved.");
+        }
+
+        // Validate both before assigning either, so a bad argument never leaves the aggregate half-approved.
+        var validatedApprovedBy = DomainGuard.NotEmpty(approvedBy, nameof(approvedBy));
+        var validatedApprovedAt = DomainGuard.Utc(approvedAt, nameof(approvedAt));
+
+        ApprovedBy = validatedApprovedBy;
+        ApprovedAt = validatedApprovedAt;
+        Status = CorrectiveActionStatus.Approved;
+    }
+
     /// <summary>CA-001. Assigned on insert (sequential GUID).</summary>
     public Guid Id { get; private set; }
 
@@ -55,22 +105,22 @@ public sealed class CorrectiveAction
     /// <summary>CA-005. Unique per Work Order (1-based).</summary>
     public int CycleNo { get; private set; }
 
-    /// <summary>CA-006. Closed three-value allowlist — see <see cref="CorrectiveActionStatus"/>. Always DRAFT in this ticket's scope.</summary>
+    /// <summary>CA-006. Closed three-value allowlist — see <see cref="CorrectiveActionStatus"/>.</summary>
     public CorrectiveActionStatus Status { get; private set; }
 
-    /// <summary>CA-007. Nullable-for-now deviation — see class remarks.</summary>
+    /// <summary>CA-007. Null through DRAFT; bound once, atomically, by <see cref="SubmitPlan"/> — see class remarks.</summary>
     public Guid? OwnerTeamLeadId { get; private set; }
 
-    /// <summary>CA-008. Required only before Submit Plan (future ticket).</summary>
+    /// <summary>CA-008. Set by <see cref="SubmitPlan"/>.</summary>
     public string? PlanText { get; private set; }
 
-    /// <summary>CA-009. Required only before Submit Plan (future ticket).</summary>
+    /// <summary>CA-009. Set by <see cref="SubmitPlan"/>.</summary>
     public Guid? PlanFileAssetId { get; private set; }
 
-    /// <summary>CA-010. Set only on Supervisor approval (future ticket).</summary>
+    /// <summary>CA-010. Set by <see cref="ApprovePlan"/>.</summary>
     public Guid? ApprovedBy { get; private set; }
 
-    /// <summary>CA-011. Set only on Supervisor approval (future ticket).</summary>
+    /// <summary>CA-011. Set by <see cref="ApprovePlan"/>.</summary>
     public DateTime? ApprovedAt { get; private set; }
 
     /// <summary>CA-012. Set only once the corrective Service Visit is scheduled (future ticket).</summary>

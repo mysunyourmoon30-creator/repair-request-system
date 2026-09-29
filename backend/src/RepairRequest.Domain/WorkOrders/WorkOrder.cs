@@ -182,6 +182,38 @@ public sealed class WorkOrder
     }
 
     /// <summary>
+    /// ST-WO-008 Submit Corrective Plan (`docs/13` §4.21; Ticket 6). Only from CORRECTIVE_ACTION_REQUIRED.
+    /// Aggregate-local guard only: the Corrective Action's own guard (its status must be DRAFT) and the caller's
+    /// Team Lead role/scope are the Application service's responsibility before this is called. This transition
+    /// exists on <see cref="WorkOrder"/>, not <see cref="CorrectiveAction"/>, because the resource whose status
+    /// actually advances for concurrency purposes is the Work Order — see `docs/13` §4.21's own concurrency note.
+    /// </summary>
+    public void SubmitCorrectivePlan()
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.CorrectivePlanPending))
+        {
+            throw new DomainRuleViolationException("Only a Work Order awaiting a corrective action can have its plan submitted.");
+        }
+
+        Status = WorkOrderStatus.CorrectivePlanPending;
+    }
+
+    /// <summary>
+    /// ST-WO-009 Approve Corrective Plan (`docs/13` §4.21; Ticket 6). Only from CORRECTIVE_PLAN_PENDING.
+    /// Aggregate-local guard only: the Corrective Action's own guard (its status must be PENDING_PLAN_APPROVAL) and
+    /// the caller's Supervisor role/scope are the Application service's responsibility before this is called.
+    /// </summary>
+    public void ApproveCorrectivePlan()
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.CorrectivePlanApproved))
+        {
+            throw new DomainRuleViolationException("Only a Work Order with a submitted corrective plan can have its plan approved.");
+        }
+
+        Status = WorkOrderStatus.CorrectivePlanApproved;
+    }
+
+    /// <summary>
     /// ST-WO-006 Close (BR-08; `docs/13` §4.20). Only from COMPLETED. Aggregate-local guard only: the data
     /// prerequisites (a current Work Summary that was reviewed, a customer ACCEPT on the current submission, and a
     /// reviewed Cost Summary) and the caller's Supervisor role/scope are the Application service's responsibility

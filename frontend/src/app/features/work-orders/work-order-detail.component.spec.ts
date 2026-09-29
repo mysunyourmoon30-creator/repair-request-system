@@ -31,6 +31,8 @@ describe('WorkOrderDetailComponent', () => {
     costSummaryRowVersion: null,
     costSummaryReviewedAt: null,
     closedAt: null,
+    correctiveActionId: null,
+    correctiveActionStatus: null,
   };
 
   const scheduledVisit = {
@@ -729,5 +731,208 @@ describe('WorkOrderDetailComponent', () => {
     fixture.detectChanges();
 
     expect(root.textContent).toContain('not found, or is outside your data scope');
+  });
+
+  // ---------------- Corrective Action: Submit Plan / Approve Plan (`docs/13` §4.21) ----------------
+
+  const correctiveActionsBaseUrl = `${environment.apiBaseUrl}/v1/corrective-actions`;
+
+  const draftCorrectiveAction: WorkOrder = {
+    ...baseWorkOrder,
+    status: 'CORRECTIVE_ACTION_REQUIRED',
+    correctiveActionId: 'ca-1',
+    correctiveActionStatus: 'DRAFT',
+  };
+
+  const pendingCorrectiveAction: WorkOrder = { ...draftCorrectiveAction, correctiveActionStatus: 'PENDING_PLAN_APPROVAL' };
+
+  const correctiveActionResponse = {
+    correctiveActionId: 'ca-1',
+    workOrderId: 'abc-123',
+    cycleNo: 1,
+    status: 'PENDING_PLAN_APPROVAL',
+    ownerTeamLeadId: 'tl-1',
+    planText: 'Replace the seal.',
+    planFileAssetId: 'file-1',
+    approvedBy: null,
+    approvedAt: null,
+    workOrderRowVersion: 'v2',
+  };
+
+  function submitPlanForm(root: HTMLElement): HTMLFormElement {
+    return Array.from(root.querySelectorAll('form')).find((form) => form.textContent?.includes('Submit Plan'))!;
+  }
+
+  function fillSubmitPlanForm(form: HTMLFormElement, planText: string, planFileAssetId: string): void {
+    const textarea = form.querySelector('textarea') as HTMLTextAreaElement;
+    const input = form.querySelector('input') as HTMLInputElement;
+    textarea.value = planText;
+    input.value = planFileAssetId;
+    form.dispatchEvent(new Event('submit'));
+  }
+
+  function approvePlanButton(root: HTMLElement): HTMLButtonElement | undefined {
+    return Array.from(root.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Approve Corrective Plan');
+  }
+
+  it('shows Submit Corrective Plan only for a signed-in Team Lead while the Corrective Action is DRAFT', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, draftCorrectiveAction);
+
+    expect(submitPlanForm(fixture.nativeElement as HTMLElement)).toBeDefined();
+  });
+
+  it('hides Submit Corrective Plan for a non-Team-Lead role, and once the Corrective Action is no longer DRAFT', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+    const asSupervisorFixture = createComponent('abc-123');
+    loadWorkOrder(asSupervisorFixture, draftCorrectiveAction);
+    expect((asSupervisorFixture.nativeElement as HTMLElement).textContent).not.toContain('Submit Corrective Plan');
+
+    httpMock.verify();
+    TestBed.resetTestingModule();
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const pendingFixture = createComponent('abc-123');
+    loadWorkOrder(pendingFixture, pendingCorrectiveAction);
+    expect((pendingFixture.nativeElement as HTMLElement).textContent).not.toContain('Submit Corrective Plan');
+  });
+
+  it("submits the plan using the Work Order's own quoted rowVersion, then reloads the Work Order", () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, draftCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillSubmitPlanForm(submitPlanForm(root), 'Replace the seal.', 'file-1');
+
+    const req = httpMock.expectOne(`${correctiveActionsBaseUrl}/ca-1/submit-plan`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('If-Match')).toBe('"v1"');
+    expect(req.request.body).toEqual({ planText: 'Replace the seal.', planFileAssetId: 'file-1' });
+    req.flush(correctiveActionResponse);
+
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush(pendingCorrectiveAction);
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('PENDING_PLAN_APPROVAL');
+  });
+
+  it('disables Submit Plan while the request is in flight, preventing a double submit', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, draftCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    const form = submitPlanForm(root);
+    fillSubmitPlanForm(form, 'Plan.', 'file-1');
+    fixture.detectChanges();
+
+    expect(form.querySelector('button')!.disabled).toBe(true);
+
+    httpMock.expectOne(`${correctiveActionsBaseUrl}/ca-1/submit-plan`).flush(correctiveActionResponse);
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush(pendingCorrectiveAction);
+  });
+
+  it('shows the server message and reloads the Work Order when Submit Plan returns 409', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, draftCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillSubmitPlanForm(submitPlanForm(root), 'Plan.', 'file-1');
+    httpMock
+      .expectOne(`${correctiveActionsBaseUrl}/ca-1/submit-plan`)
+      .flush({ code: 'STATE_CONFLICT', detail: "This Corrective Action's plan has already been submitted." }, { status: 409, statusText: 'Conflict' });
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush(pendingCorrectiveAction);
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('has already been submitted');
+  });
+
+  it('shows a 422 field error when Submit Plan is rejected for a missing plan file', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, draftCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    fillSubmitPlanForm(submitPlanForm(root), 'Plan.', 'file-1');
+    httpMock
+      .expectOne(`${correctiveActionsBaseUrl}/ca-1/submit-plan`)
+      .flush({ errors: { planFileAssetId: ['The plan file was not found.'] } }, { status: 422, statusText: 'Unprocessable Entity' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('The plan file was not found.');
+  });
+
+  it('shows Approve Corrective Plan only for a signed-in Supervisor while the Corrective Action is PENDING_PLAN_APPROVAL', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, pendingCorrectiveAction);
+
+    expect(approvePlanButton(fixture.nativeElement as HTMLElement)).toBeDefined();
+  });
+
+  it('hides Approve Corrective Plan for a non-Supervisor role, and while the Corrective Action is still DRAFT', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+    const nonSupervisorFixture = createComponent('abc-123');
+    loadWorkOrder(nonSupervisorFixture, pendingCorrectiveAction);
+    expect(approvePlanButton(nonSupervisorFixture.nativeElement as HTMLElement)).toBeUndefined();
+
+    httpMock.verify();
+    TestBed.resetTestingModule();
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+    const draftFixture = createComponent('abc-123');
+    loadWorkOrder(draftFixture, draftCorrectiveAction);
+    expect(approvePlanButton(draftFixture.nativeElement as HTMLElement)).toBeUndefined();
+  });
+
+  it("approves using the Work Order's own quoted rowVersion with an empty body, then reloads the Work Order", () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, pendingCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    approvePlanButton(root)!.click();
+
+    const req = httpMock.expectOne(`${correctiveActionsBaseUrl}/ca-1/approve-plan`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('If-Match')).toBe('"v1"');
+    expect(req.request.body).toBeNull();
+    req.flush({ ...correctiveActionResponse, status: 'APPROVED', approvedBy: 'sup-1', approvedAt: '2026-09-29T09:00:00Z' });
+
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush({ ...pendingCorrectiveAction, correctiveActionStatus: 'APPROVED' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('APPROVED');
+    expect(approvePlanButton(root)).toBeUndefined();
+  });
+
+  it('disables Approve Corrective Plan while the request is in flight, ignoring a second click (double-submit)', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, pendingCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    approvePlanButton(root)!.click();
+    fixture.detectChanges();
+    expect(approvePlanButton(root)!.disabled).toBe(true);
+
+    approvePlanButton(root)!.click();
+
+    httpMock.expectOne(`${correctiveActionsBaseUrl}/ca-1/approve-plan`).flush({ ...correctiveActionResponse, status: 'APPROVED' });
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush({ ...pendingCorrectiveAction, correctiveActionStatus: 'APPROVED' });
+  });
+
+  it('shows a permission message when Approve Plan returns 403', () => {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, pendingCorrectiveAction);
+    const root = fixture.nativeElement as HTMLElement;
+
+    approvePlanButton(root)!.click();
+    httpMock.expectOne(`${correctiveActionsBaseUrl}/ca-1/approve-plan`).flush({ code: 'ACCESS_DENIED' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('You do not have permission to perform this action.');
   });
 });

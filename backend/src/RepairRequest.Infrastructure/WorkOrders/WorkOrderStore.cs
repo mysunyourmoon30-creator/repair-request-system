@@ -128,5 +128,14 @@ internal sealed class WorkOrderStore : IWorkOrderStore
             workOrder.AcceptanceContactId,
             _db.CostSummaries.Where(summary => summary.WorkOrderId == workOrder.Id).Select(summary => (byte[]?)summary.RowVersion).FirstOrDefault(),
             _db.CostSummaries.Where(summary => summary.WorkOrderId == workOrder.Id).Select(summary => summary.ReviewedAt).FirstOrDefault(),
-            workOrder.ClosedAt);
+            workOrder.ClosedAt,
+            // Latest cycle only (`docs/13` §4.21 Decision b) — mirrors the same "highest round/cycle" convention
+            // already used for CustomerAcceptance/Close (docs/13 §4.20 Q2); at most one cycle exists until the
+            // future rework ticket ships, but this stays correct once it does.
+            _db.CorrectiveActions.Where(action => action.WorkOrderId == workOrder.Id)
+                .OrderByDescending(action => action.CycleNo).ThenByDescending(action => action.Id)
+                .Select(action => (Guid?)action.Id).FirstOrDefault(),
+            _db.CorrectiveActions.Where(action => action.WorkOrderId == workOrder.Id)
+                .OrderByDescending(action => action.CycleNo).ThenByDescending(action => action.Id)
+                .Select(action => (CorrectiveActionStatus?)action.Status).FirstOrDefault());
 }

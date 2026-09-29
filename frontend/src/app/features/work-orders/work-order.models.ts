@@ -10,6 +10,9 @@
  * Order's own `rowVersion`, which does not change during Prepare).
  * `closedAt` is added by `docs/13` §4.20 (ST-WO-006, Q7): the moment of Close, null until the Work Order is CLOSED.
  * `closedBy` is deliberately not part of this shape — the backend never exposes it (database and audit only).
+ * `correctiveActionId`/`correctiveActionStatus` are added by `docs/13` §4.21 Decision (b) (Ticket 6) — the
+ * minimum read model, null until Reject creates one; never `planText`/`planFileAssetId`/`approvedBy`/`approvedAt`,
+ * which stay behind the Corrective Action endpoints' own direct responses.
  */
 export interface WorkOrder {
   workOrderId: string;
@@ -26,6 +29,8 @@ export interface WorkOrder {
   costSummaryRowVersion: string | null;
   costSummaryReviewedAt: string | null;
   closedAt: string | null;
+  correctiveActionId: string | null;
+  correctiveActionStatus: string | null;
 }
 
 /**

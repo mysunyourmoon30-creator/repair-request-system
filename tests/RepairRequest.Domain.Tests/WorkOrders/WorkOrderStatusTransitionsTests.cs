@@ -91,9 +91,31 @@ public class WorkOrderStatusTransitionsTests
     }
 
     [Fact]
+    public void SubmitCorrectivePlan_IsAllowed_FromCorrectiveActionRequiredOnly()
+    {
+        Assert.True(WorkOrderStatusTransitions.IsAllowed(WorkOrderStatus.CorrectiveActionRequired, WorkOrderStatus.CorrectivePlanPending));
+        Assert.Contains(
+            WorkOrderStatusTransitions.All,
+            transition => transition.TransitionId == "ST-WO-008"
+                && transition.From == WorkOrderStatus.CorrectiveActionRequired
+                && transition.To == WorkOrderStatus.CorrectivePlanPending);
+    }
+
+    [Fact]
+    public void ApproveCorrectivePlan_IsAllowed_FromCorrectivePlanPendingOnly()
+    {
+        Assert.True(WorkOrderStatusTransitions.IsAllowed(WorkOrderStatus.CorrectivePlanPending, WorkOrderStatus.CorrectivePlanApproved));
+        Assert.Contains(
+            WorkOrderStatusTransitions.All,
+            transition => transition.TransitionId == "ST-WO-009"
+                && transition.From == WorkOrderStatus.CorrectivePlanPending
+                && transition.To == WorkOrderStatus.CorrectivePlanApproved);
+    }
+
+    [Fact]
     public void Matrix_ContainsExactlyTheImplementedTransitions()
     {
-        Assert.Equal(7, WorkOrderStatusTransitions.All.Count);
+        Assert.Equal(9, WorkOrderStatusTransitions.All.Count);
     }
 
     [Theory]

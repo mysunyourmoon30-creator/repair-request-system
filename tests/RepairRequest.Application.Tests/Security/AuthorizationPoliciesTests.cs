@@ -40,7 +40,9 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.CostSummaryRead, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
         { AuthorizationPolicies.CostSummaryReview, [RoleCodes.Supervisor] },
         { AuthorizationPolicies.CostSummaryReadPendingReview, [RoleCodes.Supervisor] },
-        { AuthorizationPolicies.WorkOrderClose, [RoleCodes.Supervisor] }
+        { AuthorizationPolicies.WorkOrderClose, [RoleCodes.Supervisor] },
+        { AuthorizationPolicies.CorrectiveActionSubmitPlan, [RoleCodes.TeamLead] },
+        { AuthorizationPolicies.CorrectiveActionApprovePlan, [RoleCodes.Supervisor] }
     };
 
     [Theory]
@@ -53,7 +55,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(27, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(29, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -209,6 +211,21 @@ public class AuthorizationPoliciesTests
         // Coordinator, Requester and Approver are deliberately excluded; site scope and the Close guards are
         // enforced by the service, and there is no Separation of Duties for Close (Q5).
         Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderClose]);
+    }
+
+    [Fact]
+    public void CorrectiveActionSubmitPlan_IsTeamLeadOnly()
+    {
+        // ST-CA-002; CA-API-001; `docs/13` §4.21 — role gate only; site scope and the DRAFT-only state guard are
+        // enforced by the Application service.
+        Assert.Equal([RoleCodes.TeamLead], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CorrectiveActionSubmitPlan]);
+    }
+
+    [Fact]
+    public void CorrectiveActionApprovePlan_IsSupervisorOnly()
+    {
+        // ST-CA-003; CA-API-002; `docs/13` §4.21 Decision (d) — no Separation of Duties; role gate only.
+        Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CorrectiveActionApprovePlan]);
     }
 
     [Fact]
