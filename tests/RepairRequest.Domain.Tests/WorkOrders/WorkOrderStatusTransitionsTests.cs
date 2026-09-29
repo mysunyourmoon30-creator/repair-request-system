@@ -79,9 +79,48 @@ public class WorkOrderStatusTransitionsTests
     }
 
     [Fact]
+    public void Close_IsAllowed_FromCompletedOnly()
+    {
+        Assert.True(WorkOrderStatusTransitions.IsAllowed(WorkOrderStatus.Completed, WorkOrderStatus.Closed));
+        Assert.Contains(
+            WorkOrderStatusTransitions.All,
+            transition => transition.TransitionId == "ST-WO-006"
+                && transition.From == WorkOrderStatus.Completed
+                && transition.Action == "Close"
+                && transition.To == WorkOrderStatus.Closed);
+    }
+
+    [Fact]
     public void Matrix_ContainsExactlyTheImplementedTransitions()
     {
-        Assert.Equal(6, WorkOrderStatusTransitions.All.Count);
+        Assert.Equal(7, WorkOrderStatusTransitions.All.Count);
+    }
+
+    [Theory]
+    [InlineData(WorkOrderStatus.Open)]
+    [InlineData(WorkOrderStatus.Scheduled)]
+    [InlineData(WorkOrderStatus.InProgress)]
+    [InlineData(WorkOrderStatus.AwaitingSupervisorReview)]
+    [InlineData(WorkOrderStatus.AwaitingCustomerAcceptance)]
+    [InlineData(WorkOrderStatus.CorrectiveActionRequired)]
+    [InlineData(WorkOrderStatus.Closed)]
+    [InlineData(WorkOrderStatus.Cancelled)]
+    public void Close_IsNotAllowed_FromAnyOtherState(WorkOrderStatus from)
+    {
+        Assert.False(WorkOrderStatusTransitions.IsAllowed(from, WorkOrderStatus.Closed));
+    }
+
+    [Theory]
+    [InlineData(WorkOrderStatus.Open)]
+    [InlineData(WorkOrderStatus.Completed)]
+    [InlineData(WorkOrderStatus.Closed)]
+    [InlineData(WorkOrderStatus.AwaitingCustomerAcceptance)]
+    [InlineData(WorkOrderStatus.CorrectiveActionRequired)]
+    public void Closed_IsTerminal_NoTransitionLeavesIt(WorkOrderStatus to)
+    {
+        // No Reopen in MVP (docs/01 §4; docs/03 §7).
+        Assert.DoesNotContain(WorkOrderStatusTransitions.All, transition => transition.From == WorkOrderStatus.Closed);
+        Assert.False(WorkOrderStatusTransitions.IsAllowed(WorkOrderStatus.Closed, to));
     }
 
     [Theory]

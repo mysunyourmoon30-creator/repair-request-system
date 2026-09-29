@@ -127,5 +127,6 @@ internal sealed class WorkOrderStore : IWorkOrderStore
                 .ToList(),
             workOrder.AcceptanceContactId,
             _db.CostSummaries.Where(summary => summary.WorkOrderId == workOrder.Id).Select(summary => (byte[]?)summary.RowVersion).FirstOrDefault(),
-            _db.CostSummaries.Where(summary => summary.WorkOrderId == workOrder.Id).Select(summary => summary.ReviewedAt).FirstOrDefault());
+            _db.CostSummaries.Where(summary => summary.WorkOrderId == workOrder.Id).Select(summary => summary.ReviewedAt).FirstOrDefault(),
+            workOrder.ClosedAt);
 }

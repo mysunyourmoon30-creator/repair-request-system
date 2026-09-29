@@ -154,6 +154,14 @@ export class WorkOrderService {
     return this.http.post<CostSummary>(`${this.baseUrl}/${workOrderId}/review-cost-summary`, null, { headers: { 'If-Match': ifMatch } });
   }
 
+  /**
+   * WO-API-010 Close Work Order (ST-WO-006; Supervisor only; `docs/13` §4.20). No body — `closedBy`/`closedAt`
+   * are always server-derived. `ifMatch` is the Work Order's own `rowVersion` (Close changes its status).
+   */
+  close(workOrderId: string, ifMatch: string): Observable<WorkOrder> {
+    return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/close`, null, { headers: { 'If-Match': ifMatch } });
+  }
+
   reschedule(serviceVisitId: string, ifMatch: string, body: RescheduleServiceVisitRequest): Observable<WorkOrder> {
     return this.post(serviceVisitId, 'reschedule', ifMatch, body);
   }

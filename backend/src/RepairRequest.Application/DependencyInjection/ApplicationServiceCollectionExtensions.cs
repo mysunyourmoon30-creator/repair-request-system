@@ -67,6 +67,9 @@ public static class ApplicationServiceCollectionExtensions
         services.AddScoped<WorkOrderAcceptanceService>();
         services.AddScoped<CostSummaryService>();
 
+        // Work Order Close (ST-WO-006; WO-API-010; Supervisor only); `docs/13` §4.20.
+        services.AddScoped<WorkOrderCloseService>();
+
         return services;
     }
 }

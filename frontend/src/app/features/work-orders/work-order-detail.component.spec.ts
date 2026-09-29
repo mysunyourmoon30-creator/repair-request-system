@@ -30,6 +30,7 @@ describe('WorkOrderDetailComponent', () => {
     acceptanceContactId: null,
     costSummaryRowVersion: null,
     costSummaryReviewedAt: null,
+    closedAt: null,
   };
 
   const scheduledVisit = {
@@ -549,5 +550,184 @@ describe('WorkOrderDetailComponent', () => {
     fixture.detectChanges();
 
     expect(root.textContent).toContain('changed or is no longer in a valid state');
+  });
+
+  // ---------------- Close Work Order (`docs/13` §4.20) ----------------
+
+  const closableWorkOrder: WorkOrder = {
+    ...completedWorkOrder,
+    costSummaryRowVersion: 'cs-v2',
+    costSummaryReviewedAt: '2026-09-27T01:00:00Z',
+  };
+
+  function closeButton(root: HTMLElement): HTMLButtonElement | undefined {
+    return Array.from(root.querySelectorAll('button')).find((button) => button.textContent?.trim() === 'Close Work Order');
+  }
+
+  function asSupervisor(): ComponentFixture<WorkOrderDetailComponent> {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+    return createComponent('abc-123');
+  }
+
+  /** Renders the Work Order for the given role and returns whether the Close button is present (fresh TestBed each call). */
+  function closeButtonShownFor(role: string, workOrder: WorkOrder): boolean {
+    localStorage.setItem('accessToken', tokenWithPayload({ sub: 'user-1', role }));
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, workOrder);
+    const shown = closeButton(fixture.nativeElement as HTMLElement) !== undefined;
+
+    httpMock.verify();
+    TestBed.resetTestingModule();
+    return shown;
+  }
+
+  it('shows Close Work Order to a Supervisor on a COMPLETED Work Order whose Cost Summary is reviewed', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, closableWorkOrder);
+
+    expect(closeButton(fixture.nativeElement as HTMLElement)).toBeDefined();
+  });
+
+  it('hides Close Work Order for every role other than Supervisor', () => {
+    const shownFor: string[] = [];
+    for (const role of ['REQUESTER', 'APPROVER', 'COORDINATOR', 'TECHNICIAN', 'TEAM_LEAD', 'ADMINISTRATOR']) {
+      if (closeButtonShownFor(role, closableWorkOrder)) {
+        shownFor.push(role);
+      }
+    }
+
+    expect(shownFor).toEqual([]);
+  });
+
+  it('hides Close Work Order while the Cost Summary is missing or not yet reviewed', () => {
+    const noCostSummary = closeButtonShownFor('SUPERVISOR', { ...closableWorkOrder, costSummaryRowVersion: null, costSummaryReviewedAt: null });
+    const unreviewedCostSummary = closeButtonShownFor('SUPERVISOR', { ...closableWorkOrder, costSummaryReviewedAt: null });
+
+    expect({ noCostSummary, unreviewedCostSummary }).toEqual({ noCostSummary: false, unreviewedCostSummary: false });
+  });
+
+  it('hides Close Work Order unless the Work Order is COMPLETED (including once it is already CLOSED)', () => {
+    const shownFor: string[] = [];
+    for (const status of ['OPEN', 'IN_PROGRESS', 'AWAITING_CUSTOMER_ACCEPTANCE', 'CORRECTIVE_ACTION_REQUIRED', 'CLOSED', 'CANCELLED']) {
+      if (closeButtonShownFor('SUPERVISOR', { ...closableWorkOrder, status })) {
+        shownFor.push(status);
+      }
+    }
+
+    expect(shownFor).toEqual([]);
+  });
+
+  it('closes using the Work Order\'s own quoted rowVersion with an empty body, then shows CLOSED and the closed time', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, closableWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    closeButton(root)!.click();
+
+    const req = httpMock.expectOne(`${baseUrl}/abc-123/close`);
+    expect(req.request.method).toBe('POST');
+    expect(req.request.headers.get('If-Match')).toBe('"v1"');
+    expect(req.request.body).toBeNull();
+
+    req.flush({ ...closableWorkOrder, status: 'CLOSED', rowVersion: 'v2', closedAt: '2026-09-28T10:30:00Z' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('CLOSED');
+    expect(root.textContent).toContain('Closed At');
+    expect(root.textContent).toContain('2026-09-28T10:30:00Z');
+    // Once CLOSED, the Close (and Prepare) controls are gone.
+    expect(closeButton(root)).toBeUndefined();
+  });
+
+  it('never shows or requests closedBy', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, closableWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    closeButton(root)!.click();
+    httpMock
+      .expectOne(`${baseUrl}/abc-123/close`)
+      .flush({ ...closableWorkOrder, status: 'CLOSED', rowVersion: 'v2', closedAt: '2026-09-28T10:30:00Z' });
+    fixture.detectChanges();
+
+    expect(root.textContent).not.toContain('closedBy');
+    expect(root.textContent).not.toContain('Closed By');
+  });
+
+  it('disables Close Work Order while the request is in flight, and ignores a second click (double-submit)', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, closableWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    closeButton(root)!.click();
+    fixture.detectChanges();
+    expect(closeButton(root)!.disabled).toBe(true);
+
+    closeButton(root)!.click();
+
+    // Exactly one request despite two clicks (expectOne fails if there are two).
+    httpMock
+      .expectOne(`${baseUrl}/abc-123/close`)
+      .flush({ ...closableWorkOrder, status: 'CLOSED', rowVersion: 'v2', closedAt: '2026-09-28T10:30:00Z' });
+  });
+
+  it('shows the server\'s guard-specific message and reloads the Work Order when Close returns 409 STATE_CONFLICT', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, closableWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    closeButton(root)!.click();
+    httpMock
+      .expectOne(`${baseUrl}/abc-123/close`)
+      .flush(
+        { code: 'STATE_CONFLICT', detail: 'The customer has not accepted this Work Order\'s current Work Summary, so it cannot be closed.' },
+        { status: 409, statusText: 'Conflict' },
+      );
+    httpMock.expectOne((request) => request.method === 'GET' && request.url === `${baseUrl}/abc-123`).flush({ ...closableWorkOrder, rowVersion: 'v2' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('has not accepted this Work Order');
+    // Re-enabled after the failure, so the Supervisor can retry once the prerequisite is fixed.
+    expect(closeButton(root)!.disabled).toBe(false);
+  });
+
+  it('shows a concurrency message and reloads the Work Order when Close returns 409 CONCURRENCY_CONFLICT', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, closableWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    closeButton(root)!.click();
+    httpMock.expectOne(`${baseUrl}/abc-123/close`).flush({ code: 'CONCURRENCY_CONFLICT' }, { status: 409, statusText: 'Conflict' });
+    httpMock
+      .expectOne((request) => request.method === 'GET' && request.url === `${baseUrl}/abc-123`)
+      .flush({ ...closableWorkOrder, status: 'CLOSED', rowVersion: 'v3', closedAt: '2026-09-28T10:30:00Z' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('changed by another request');
+    expect(root.textContent).toContain('CLOSED');
+  });
+
+  it('shows a permission message when Close returns 403', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, closableWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    closeButton(root)!.click();
+    httpMock.expectOne(`${baseUrl}/abc-123/close`).flush({ code: 'ACCESS_DENIED' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('You do not have permission to close this Work Order.');
+  });
+
+  it('shows a not-found message when Close returns 404, without reloading', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, closableWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    closeButton(root)!.click();
+    httpMock.expectOne(`${baseUrl}/abc-123/close`).flush({ code: 'NOT_FOUND' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('not found, or is outside your data scope');
   });
 });

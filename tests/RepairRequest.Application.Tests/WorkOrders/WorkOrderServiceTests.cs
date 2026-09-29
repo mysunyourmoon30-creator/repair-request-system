@@ -36,7 +36,7 @@ public class WorkOrderServiceTests
     public async Task GetAsync_PassesTheCallerAndIdThrough_Unchanged()
     {
         var workOrderId = Guid.NewGuid();
-        var expected = new WorkOrderDto(workOrderId, "WO-1", WorkOrderStatus.Open, Guid.NewGuid(), null, null, null, null, [1], [], null, null, null);
+        var expected = new WorkOrderDto(workOrderId, "WO-1", WorkOrderStatus.Open, Guid.NewGuid(), null, null, null, null, [1], [], null, null, null, null);
         _store.GetResult = expected;
 
         var result = await _service.GetAsync(_user, workOrderId, CancellationToken.None);

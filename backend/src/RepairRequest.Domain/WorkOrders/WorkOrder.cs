@@ -180,4 +180,27 @@ public sealed class WorkOrder
 
         Status = WorkOrderStatus.CorrectiveActionRequired;
     }
+
+    /// <summary>
+    /// ST-WO-006 Close (BR-08; `docs/13` §4.20). Only from COMPLETED. Aggregate-local guard only: the data
+    /// prerequisites (a current Work Summary that was reviewed, a customer ACCEPT on the current submission, and a
+    /// reviewed Cost Summary) and the caller's Supervisor role/scope are the Application service's responsibility
+    /// before this is called. <paramref name="closedBy"/> and <paramref name="closedAt"/> (WO-011/WO-012) are
+    /// server-derived, never client input. Terminal: there is no Reopen in MVP.
+    /// </summary>
+    public void Close(Guid closedBy, DateTime closedAt)
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.Closed))
+        {
+            throw new DomainRuleViolationException("Only a COMPLETED Work Order can be closed.");
+        }
+
+        // Validate both before assigning either, so a bad argument never leaves the aggregate half-closed.
+        var validatedClosedBy = DomainGuard.NotEmpty(closedBy, nameof(closedBy));
+        var validatedClosedAt = DomainGuard.Utc(closedAt, nameof(closedAt));
+
+        ClosedBy = validatedClosedBy;
+        ClosedAt = validatedClosedAt;
+        Status = WorkOrderStatus.Closed;
+    }
 }

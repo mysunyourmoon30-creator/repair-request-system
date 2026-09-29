@@ -300,9 +300,9 @@ public sealed class CostSummaryReviewEndpointsTests : IClassFixture<CostSummaryR
     [Fact]
     public async Task Review_WhenTheWorkOrderIsNotCompleted_Get409StateConflict()
     {
-        // Not reachable via any real API sequence (Prepare itself requires COMPLETED, and nothing currently
-        // transitions a Work Order away from COMPLETED while a Cost Summary exists) — seeded directly to prove
-        // this defense-in-depth guard, required by the approved decision, fires correctly if it is ever reached.
+        // Arranged directly in SQL to isolate this defense-in-depth state guard (required by the approved
+        // decision): the Work Order's status is set away from COMPLETED while a Cost Summary exists. This test
+        // does not assert whether that state can be reached through the public APIs.
         var p = await PreparedAsync();
         await WithDbAsync(db => db.Database.ExecuteSqlInterpolatedAsync(
             $"UPDATE work_order SET status = 'AWAITING_CUSTOMER_ACCEPTANCE' WHERE work_order_id = {p.WorkOrderId}"));

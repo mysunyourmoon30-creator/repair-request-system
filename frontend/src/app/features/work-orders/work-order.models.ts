@@ -8,6 +8,8 @@
  * `costSummaryRowVersion` means no Cost Summary has been prepared yet; once one exists, it is this Work Order's
  * Cost Summary's own concurrency token — Prepare's If-Match target for a second/later edit (never the Work
  * Order's own `rowVersion`, which does not change during Prepare).
+ * `closedAt` is added by `docs/13` §4.20 (ST-WO-006, Q7): the moment of Close, null until the Work Order is CLOSED.
+ * `closedBy` is deliberately not part of this shape — the backend never exposes it (database and audit only).
  */
 export interface WorkOrder {
   workOrderId: string;
@@ -23,6 +25,7 @@ export interface WorkOrder {
   acceptanceContactId: string | null;
   costSummaryRowVersion: string | null;
   costSummaryReviewedAt: string | null;
+  closedAt: string | null;
 }
 
 /**
