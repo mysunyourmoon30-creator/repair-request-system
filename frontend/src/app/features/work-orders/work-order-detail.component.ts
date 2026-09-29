@@ -55,6 +55,10 @@ import { CostSummary, WorkOrderService } from './work-order.service';
           <dt>Corrective Action</dt>
           <dd>{{ workOrder.correctiveActionStatus }}</dd>
         }
+        @if (workOrder.correctiveServiceVisitId !== null) {
+          <dt>Rework Visit</dt>
+          <dd>{{ workOrder.correctiveServiceVisitId }}</dd>
+        }
       </dl>
 
       @if (canClose(workOrder)) {
@@ -74,6 +78,19 @@ import { CostSummary, WorkOrderService } from './work-order.service';
 
       @if (canApproveCorrectivePlan(workOrder)) {
         <button type="button" [disabled]="submitting()" (click)="onApproveCorrectivePlan(workOrder)">Approve Corrective Plan</button>
+      }
+
+      @if (canScheduleRework(workOrder)) {
+        <details>
+          <summary>Schedule Rework</summary>
+          <form (submit)="onScheduleRework($event, workOrder, rwTeamId, rwTechnicianId, rwStartAt, rwEndAt)">
+            <label>Team ID <input #rwTeamId type="text" required /></label>
+            <label>Technician ID <input #rwTechnicianId type="text" required /></label>
+            <label>Scheduled Start <input #rwStartAt type="datetime-local" required /></label>
+            <label>Scheduled End <input #rwEndAt type="datetime-local" required /></label>
+            <button type="submit" [disabled]="submitting()">Schedule Rework</button>
+          </form>
+        </details>
       }
 
       @if (canAccept(workOrder)) {
@@ -423,6 +440,60 @@ export class WorkOrderDetailComponent {
         }
       },
     });
+  }
+
+  /**
+   * UX only — `docs/13` §4.22 (CA-API-003; Portfolio Project Owner directive, not a baseline-literal actor — see
+   * the backend's own remarks). The backend always re-checks role, Site scope and the APPROVED/not-yet-scheduled
+   * state guard regardless.
+   */
+  protected canScheduleRework(workOrder: WorkOrder): boolean {
+    return workOrder.correctiveActionStatus === 'APPROVED' && workOrder.correctiveServiceVisitId === null && getCurrentUserRoles().includes('COORDINATOR');
+  }
+
+  /**
+   * CA-API-003 (`docs/13` §4.22). If-Match targets the Corrective Action's own `correctiveActionRowVersion` —
+   * never the Work Order's `rowVersion`, which Schedule Rework does not change (it leaves the Work Order in
+   * CORRECTIVE_PLAN_APPROVED; only the assigned Technician's later Check-in, not part of this ticket, moves it to
+   * IN_PROGRESS). A 409 reloads the current Work Order, since the held ETag can no longer match either way.
+   */
+  protected onScheduleRework(
+    event: Event,
+    workOrder: WorkOrder,
+    teamId: HTMLInputElement,
+    technicianId: HTMLInputElement,
+    startAt: HTMLInputElement,
+    endAt: HTMLInputElement,
+  ): void {
+    event.preventDefault();
+    if (this.submitting() || workOrder.correctiveActionId === null || workOrder.correctiveActionRowVersion === null) {
+      return;
+    }
+
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    this.workOrders
+      .scheduleRework(workOrder.correctiveActionId, this.quoted(workOrder.correctiveActionRowVersion), {
+        assignedTeamId: teamId.value,
+        assignedTechnicianId: technicianId.value,
+        scheduledStartAt: this.toIso(startAt.value),
+        scheduledEndAt: this.toIso(endAt.value),
+      })
+      .subscribe({
+        next: () => {
+          this.submitting.set(false);
+          this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });
+        },
+        error: (response: HttpErrorResponse) => {
+          this.submitting.set(false);
+          this.actionError.set(this.describeCorrectiveAction(response));
+
+          if (response.status === 409) {
+            this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });
+          }
+        },
+      });
   }
 
   private describeCorrectiveAction(response: HttpErrorResponse): string {

@@ -74,10 +74,12 @@ export interface SubmitCorrectivePlanRequest {
 }
 
 /**
- * Corrective Action shape (`docs/13` §4.21). Matches `CorrectiveActionResponse` on the backend exactly.
- * `workOrderRowVersion` is the token the *next* If-Match must carry — the linked Work Order's own RowVersion, not
- * a `corrective_action` token (see the backend's own remarks) — the same cross-resource ETag shape already used
- * by `WorkSessionResponse.workOrderRowVersion` (check-out).
+ * Corrective Action shape (`docs/13` §4.21/§4.22). Matches `CorrectiveActionResponse` on the backend exactly.
+ * `workOrderRowVersion` is Submit/Approve Plan's *next* If-Match token — the linked Work Order's own RowVersion,
+ * not a `corrective_action` token (see the backend's own remarks) — the same cross-resource ETag shape already
+ * used by `WorkSessionResponse.workOrderRowVersion` (check-out). `correctiveServiceVisitId` is added by §4.22
+ * (CA-API-003) — null until Schedule Rework runs. Schedule Rework's own *next* If-Match token is carried in the
+ * response's `ETag` header instead (the Corrective Action's own RowVersion), not a body field.
  */
 export interface CorrectiveAction {
   correctiveActionId: string;
@@ -90,6 +92,7 @@ export interface CorrectiveAction {
   approvedBy: string | null;
   approvedAt: string | null;
   workOrderRowVersion: string;
+  correctiveServiceVisitId: string | null;
 }
 
 /** Note: field names differ from `ScheduleWorkOrderRequest` (`assignedTeamId`, not `ownerTeamId`) — matches the backend's `NewVisitScheduleRequest`. */
@@ -202,6 +205,15 @@ export class WorkOrderService {
    */
   approveCorrectivePlan(correctiveActionId: string, ifMatch: string): Observable<CorrectiveAction> {
     return this.http.post<CorrectiveAction>(`${this.correctiveActionsBaseUrl}/${correctiveActionId}/approve-plan`, null, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /**
+   * CA-API-003 Schedule Rework (Coordinator only; `docs/13` §4.22). `ifMatch` is the Corrective Action's own
+   * RowVersion (from `workOrder.correctiveActionRowVersion` on first call, or the previous response's own `ETag`
+   * header) — never the Work Order's `rowVersion`, which Schedule Rework does not change.
+   */
+  scheduleRework(correctiveActionId: string, ifMatch: string, body: NewVisitScheduleRequest): Observable<CorrectiveAction> {
+    return this.http.post<CorrectiveAction>(`${this.correctiveActionsBaseUrl}/${correctiveActionId}/schedule-rework`, body, { headers: { 'If-Match': ifMatch } });
   }
 
   reschedule(serviceVisitId: string, ifMatch: string, body: RescheduleServiceVisitRequest): Observable<WorkOrder> {

@@ -13,6 +13,11 @@
  * `correctiveActionId`/`correctiveActionStatus` are added by `docs/13` §4.21 Decision (b) (Ticket 6) — the
  * minimum read model, null until Reject creates one; never `planText`/`planFileAssetId`/`approvedBy`/`approvedAt`,
  * which stay behind the Corrective Action endpoints' own direct responses.
+ * `correctiveServiceVisitId`/`correctiveActionRowVersion` are added by `docs/13` §4.22 (CA-API-003): the former
+ * gates the Coordinator's "Schedule Rework" action (shown only while `correctiveActionStatus === 'APPROVED' &&
+ * correctiveServiceVisitId === null`); the latter is Schedule Rework's own If-Match token (the Corrective Action's
+ * own concurrency token, never the Work Order's `rowVersion`, which Schedule Rework does not change) — the same
+ * "recover a token across page reloads" role `costSummaryRowVersion` already plays.
  */
 export interface WorkOrder {
   workOrderId: string;
@@ -31,6 +36,8 @@ export interface WorkOrder {
   closedAt: string | null;
   correctiveActionId: string | null;
   correctiveActionStatus: string | null;
+  correctiveServiceVisitId: string | null;
+  correctiveActionRowVersion: string | null;
 }
 
 /**

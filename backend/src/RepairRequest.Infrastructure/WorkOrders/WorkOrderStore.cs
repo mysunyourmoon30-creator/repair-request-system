@@ -137,5 +137,12 @@ internal sealed class WorkOrderStore : IWorkOrderStore
                 .Select(action => (Guid?)action.Id).FirstOrDefault(),
             _db.CorrectiveActions.Where(action => action.WorkOrderId == workOrder.Id)
                 .OrderByDescending(action => action.CycleNo).ThenByDescending(action => action.Id)
-                .Select(action => (CorrectiveActionStatus?)action.Status).FirstOrDefault());
+                .Select(action => (CorrectiveActionStatus?)action.Status).FirstOrDefault(),
+            // `docs/13` §4.22 — same latest-cycle-only rule as the two fields above.
+            _db.CorrectiveActions.Where(action => action.WorkOrderId == workOrder.Id)
+                .OrderByDescending(action => action.CycleNo).ThenByDescending(action => action.Id)
+                .Select(action => action.CorrectiveServiceVisitId).FirstOrDefault(),
+            _db.CorrectiveActions.Where(action => action.WorkOrderId == workOrder.Id)
+                .OrderByDescending(action => action.CycleNo).ThenByDescending(action => action.Id)
+                .Select(action => (byte[]?)action.RowVersion).FirstOrDefault());
 }

@@ -7,11 +7,12 @@ using RepairRequest.Application.WorkOrders;
 namespace RepairRequest.Api.Controllers;
 
 /// <summary>
-/// Corrective Action endpoints (`docs/13` §4.21; Ticket 6). Distinct route root from
+/// Corrective Action endpoints (`docs/13` §4.21 Ticket 6; §4.22 CA-API-003). Distinct route root from
 /// <see cref="WorkOrdersController"/> because the baseline's own catalog (`docs/09`) names these resources
 /// `/api/v1/corrective-actions/{id}/...`, not `/api/v1/work-orders/{id}/...` — the Corrective Action is the
-/// resource acted upon, even though both actions also advance the linked Work Order's own status
-/// (ST-WO-008/009) and use its RowVersion as the concurrency token.
+/// resource acted upon. Submit Plan/Approve Plan advance the linked Work Order's own status (ST-WO-008/009) and
+/// use its RowVersion as the concurrency token; Schedule Rework advances neither and uses the Corrective Action's
+/// own RowVersion instead (see its own remarks).
 /// </summary>
 [ApiController]
 [Route("api/v1/corrective-actions")]
@@ -65,5 +66,29 @@ public sealed class CorrectiveActionsController : CommandControllerBase
         var context = await CommandContextAsync(cancellationToken);
         var result = await _correctiveActions.ApprovePlanAsync(context, correctiveActionId, rowVersion, cancellationToken);
         return CommandResult(result, ResourceType, CorrectiveActionResponses.ToResponse, dto => dto.WorkOrderRowVersion);
+    }
+
+    /// <summary>
+    /// CA-API-003 Schedule Rework (Coordinator only; `docs/13` §4.22 — Portfolio Project Owner directive, not a
+    /// baseline-literal actor): only from an APPROVED Corrective Action with no rework scheduled yet. If-Match is
+    /// checked against the Corrective Action's own RowVersion — not the Work Order's, since this action changes
+    /// neither the Corrective Action's nor the Work Order's Status. Creates and links one SCHEDULED corrective
+    /// Service Visit atomically; the Work Order itself stays CORRECTIVE_PLAN_APPROVED (ST-WO-010 "Start Rework" is
+    /// a separate, later, Technician-driven transition this ticket does not implement).
+    /// </summary>
+    [HttpPost("{correctiveActionId:guid}/schedule-rework")]
+    [Authorize(Policy = AuthorizationPolicies.CorrectiveActionScheduleRework)]
+    [ProducesResponseType<CorrectiveActionResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> ScheduleRework(Guid correctiveActionId, [FromBody] NewVisitScheduleRequest request, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _correctiveActions.ScheduleReworkAsync(
+            context, correctiveActionId, rowVersion, request.AssignedTeamId, request.AssignedTechnicianId, request.ScheduledStartAt, request.ScheduledEndAt, cancellationToken);
+        return CommandResult(result, ResourceType, CorrectiveActionResponses.ToResponse, dto => dto.RowVersion);
     }
 }

@@ -42,6 +42,11 @@ internal sealed class CorrectiveActionConfiguration : IEntityTypeConfiguration<C
         builder.Property(action => action.ApprovedAt).HasColumnName("approved_at");
         builder.Property(action => action.CorrectiveServiceVisitId).HasColumnName("corrective_service_visit_id");
 
+        // `docs/13` §4.22 — added for Schedule Rework's own compare-and-swap; see CorrectiveAction.RowVersion's own remarks.
+        builder.Property(action => action.RowVersion)
+            .HasColumnName("row_version")
+            .IsRowVersion();
+
         // CA-005 "Unique per WO"; docs/08 §3 "UNIQUE(corrective_action.work_order_id, cycle_no)".
         builder.HasIndex(action => new { action.WorkOrderId, action.CycleNo })
             .IsUnique()

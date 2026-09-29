@@ -4,10 +4,11 @@ namespace RepairRequest.Domain.WorkOrders;
 
 /// <summary>
 /// Corrective Action cycle (`docs/02` CA-001/003..012; `docs/07` §3 "CustomerAcceptance 1:0..1 CorrectiveAction —
-/// REJECT creates one corrective cycle"; `docs/13` §4.17/§4.21). <see cref="CreateDraft"/> (ST-CA-001, Ticket 3),
-/// <see cref="SubmitPlan"/> (ST-CA-002, Ticket 6) and <see cref="ApprovePlan"/> (ST-CA-003, Ticket 6) are
-/// implemented; rework/resubmission beyond ST-CA-003 belongs to a future ticket, so <see cref="CorrectiveServiceVisitId"/>
-/// stays nullable and populated by nothing yet.
+/// REJECT creates one corrective cycle"; `docs/13` §4.17/§4.21/§4.22). <see cref="CreateDraft"/> (ST-CA-001,
+/// Ticket 3), <see cref="SubmitPlan"/> (ST-CA-002, Ticket 6), <see cref="ApprovePlan"/> (ST-CA-003, Ticket 6) and
+/// <see cref="ScheduleRework"/> (CA-API-003, `docs/13` §4.22) are implemented; resubmission/re-review/re-acceptance
+/// beyond a scheduled rework (`UC-WO-024`) belongs to a future ticket. <see cref="CorrectiveServiceVisitId"/> stays
+/// nullable — null until <see cref="ScheduleRework"/> runs, set once, never cleared.
 /// <see cref="OwnerTeamLeadId"/> (CA-007) is documented "Y" (required) in the baseline, but nothing in ST-CA-001
 /// or UC-WO-022 assigns a Team Lead at DRAFT-creation time. Per `docs/13` §4.21 Decision (a) (Portfolio Project
 /// Owner directive, recorded not silently applied), it stays null through DRAFT and is bound atomically, once, by
@@ -90,6 +91,32 @@ public sealed class CorrectiveAction
         Status = CorrectiveActionStatus.Approved;
     }
 
+    /// <summary>
+    /// CA-API-003 Schedule Rework (`docs/13` §4.22; Portfolio Project Owner directive — Coordinator only, not a
+    /// baseline-literal actor). Only from APPROVED, and only once — <see cref="CorrectiveServiceVisitId"/> is a
+    /// single nullable FK, not a collection, so a second call is rejected rather than silently overwriting the
+    /// first Visit's link. Aggregate-local guard only: eligibility (caller holds Coordinator, current Site scope),
+    /// the linked Service Visit's own creation (team/technician/window) and the Work Order's own status are all
+    /// the Application service's responsibility before this is called. Deliberately does <b>not</b> touch
+    /// <see cref="CorrectiveActionStatus"/> or the Work Order's status — baseline `ST-WO-010` ("Start Rework")
+    /// is a separate, not-yet-implemented transition fired later by the assigned Technician, guarded by "Corrective
+    /// Visit assigned/scheduled" (`docs/03` §3) — i.e. by this method having already run.
+    /// </summary>
+    public void ScheduleRework(Guid correctiveServiceVisitId)
+    {
+        if (Status != CorrectiveActionStatus.Approved)
+        {
+            throw new DomainRuleViolationException("Only an APPROVED Corrective Action can have its rework scheduled.");
+        }
+
+        if (CorrectiveServiceVisitId is not null)
+        {
+            throw new DomainRuleViolationException("This Corrective Action's rework has already been scheduled.");
+        }
+
+        CorrectiveServiceVisitId = DomainGuard.NotEmpty(correctiveServiceVisitId, nameof(correctiveServiceVisitId));
+    }
+
     /// <summary>CA-001. Assigned on insert (sequential GUID).</summary>
     public Guid Id { get; private set; }
 
@@ -123,6 +150,14 @@ public sealed class CorrectiveAction
     /// <summary>CA-011. Set by <see cref="ApprovePlan"/>.</summary>
     public DateTime? ApprovedAt { get; private set; }
 
-    /// <summary>CA-012. Set only once the corrective Service Visit is scheduled (future ticket).</summary>
+    /// <summary>CA-012. Set only once, by <see cref="ScheduleRework"/> (`docs/13` §4.22).</summary>
     public Guid? CorrectiveServiceVisitId { get; private set; }
+
+    /// <summary>
+    /// Optimistic concurrency token for this row itself (`docs/13` §4.22). Absent until this ticket — Submit/Approve
+    /// Plan never needed one because they always also change the Work Order's own Status, so its RowVersion gave a
+    /// real compare-and-swap. <see cref="ScheduleRework"/> changes neither, so it needs its own token, the same
+    /// reason <see cref="CostSummary.RowVersion"/> exists for that aggregate's own re-edit case.
+    /// </summary>
+    public byte[] RowVersion { get; private set; } = [];
 }
