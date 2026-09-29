@@ -19,9 +19,10 @@ public sealed record WorkOrderStatusTransition(
 /// `docs/13` §4.20), actor Supervisor — its Cost Summary/Work Summary/acceptance prerequisites are data guards
 /// the Application service checks, not part of this status matrix. ST-WO-008/009 are added for Corrective Action
 /// Submit Plan (Team Lead) and Approve Plan (Supervisor) (`docs/13` §4.21; Ticket 6) — the Corrective Action's own
-/// status guard is enforced by the Application service, not here. Actor enforcement itself always lives in the
-/// API authorization policy / Application service, not here. ST-WO-010/011 (Start Rework, Cancel) remain out of
-/// scope.
+/// status guard is enforced by the Application service, not here. ST-WO-010 is added for Technician Check-in on
+/// the corrective Visit (`docs/13` §4.23) — the existing generic Check-in flow (<see cref="RepairRequest.Application.WorkOrders.TechnicianCheckInService"/>)
+/// was already Visit-type-agnostic everywhere except this one matrix entry. Actor enforcement itself always lives
+/// in the API authorization policy / Application service, not here. ST-WO-011 (Cancel) remains out of scope.
 /// </summary>
 public static class WorkOrderStatusTransitions
 {
@@ -36,6 +37,7 @@ public static class WorkOrderStatusTransitions
         new("ST-WO-007", WorkOrderStatus.AwaitingCustomerAcceptance, "Reject", WorkOrderStatus.CorrectiveActionRequired),
         new("ST-WO-008", WorkOrderStatus.CorrectiveActionRequired, "SubmitCorrectivePlan", WorkOrderStatus.CorrectivePlanPending),
         new("ST-WO-009", WorkOrderStatus.CorrectivePlanPending, "ApproveCorrectivePlan", WorkOrderStatus.CorrectivePlanApproved),
+        new("ST-WO-010", WorkOrderStatus.CorrectivePlanApproved, "StartRework", WorkOrderStatus.InProgress),
     ];
 
     public static bool IsAllowed(WorkOrderStatus from, WorkOrderStatus to) =>
