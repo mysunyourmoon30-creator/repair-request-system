@@ -80,6 +80,14 @@ public sealed class WorkSessionEndpointsTests : IClassFixture<WorkSessionApiFact
         Assert.Contains("WORK_ORDER_STARTED", auditActions);
         Assert.Contains("SERVICE_VISIT_CHECKED_IN", auditActions);
 
+        // ST-WO-002 specifically (never the corrective ST-WO-010 audit — `docs/13` §4.23) — regression proof that
+        // BeginWork()'s now-dual-source-state guard still dispatches the correct audit for the original path.
+        var workStartedAudit = await WithDbAsync(db => db.AuditHistory.AsNoTracking()
+            .SingleAsync(a => a.EntityId == scenario.WorkOrderId && a.ActionCode == "WORK_ORDER_STARTED"));
+        Assert.Equal("SCHEDULED", workStartedAudit.FromState);
+        Assert.Equal("IN_PROGRESS", workStartedAudit.ToState);
+        Assert.Equal(0, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == scenario.WorkOrderId && a.ActionCode == "WORK_ORDER_REWORK_STARTED")));
+
         // The Check-in audit must reference the real session, the actor must be the technician, and the times
         // are server-derived (occurred_at equals the session's check_in_at, never a client value).
         var checkInAudit = await WithDbAsync(db => db.AuditHistory.AsNoTracking()

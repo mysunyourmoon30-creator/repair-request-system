@@ -19,6 +19,9 @@ public static class WorkOrderAudit
 
     public const string ScheduledAction = "WORK_ORDER_SCHEDULED";
     public const string WorkStartedAction = "WORK_ORDER_STARTED";
+
+    /// <summary>ST-WO-010 (`docs/13` §4.23). Self-named, no literal baseline action-code string exists — kept distinct from <see cref="WorkStartedAction"/> per the established one-code-per-transition-ID convention (confirmed by Portfolio Project Owner directive, not the default).</summary>
+    public const string ReworkStartedAction = "WORK_ORDER_REWORK_STARTED";
     public const string RescheduledAction = "SERVICE_VISIT_RESCHEDULED";
     public const string ReassignedAction = "SERVICE_VISIT_REASSIGNED";
     public const string CancelledAction = "SERVICE_VISIT_CANCELLED";
@@ -125,6 +128,28 @@ public static class WorkOrderAudit
             workOrder.Id,
             WorkStartedAction,
             fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Scheduled),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.InProgress),
+            oldValueJson: null,
+            newValueJson: null,
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-WO-010 success (`docs/13` §4.23): CORRECTIVE_PLAN_APPROVED -&gt; IN_PROGRESS ("Start Rework"), triggered
+    /// by the assigned Technician's Check-in on the corrective Service Visit — the same physical action as
+    /// <see cref="WorkStarted"/>, but a genuinely different transition (a different source state), so it gets its
+    /// own audit action code rather than reusing <see cref="WorkStartedAction"/> — the same one-code-per-
+    /// transition-ID convention every other entry in this class already follows. No reason applies.
+    /// </summary>
+    public static AuditHistory ReworkStarted(CommandContext context, WorkOrder workOrder, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            ReworkStartedAction,
+            fromState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.CorrectivePlanApproved),
             toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.InProgress),
             oldValueJson: null,
             newValueJson: null,

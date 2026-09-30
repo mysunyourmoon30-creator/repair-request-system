@@ -113,9 +113,21 @@ public class WorkOrderStatusTransitionsTests
     }
 
     [Fact]
+    public void StartRework_IsAllowed_FromCorrectivePlanApprovedOnly()
+    {
+        // ST-WO-010 (`docs/13` §4.23): fires through the same Check-in flow as ST-WO-002, on a corrective Visit.
+        Assert.True(WorkOrderStatusTransitions.IsAllowed(WorkOrderStatus.CorrectivePlanApproved, WorkOrderStatus.InProgress));
+        Assert.Contains(
+            WorkOrderStatusTransitions.All,
+            transition => transition.TransitionId == "ST-WO-010"
+                && transition.From == WorkOrderStatus.CorrectivePlanApproved
+                && transition.To == WorkOrderStatus.InProgress);
+    }
+
+    [Fact]
     public void Matrix_ContainsExactlyTheImplementedTransitions()
     {
-        Assert.Equal(9, WorkOrderStatusTransitions.All.Count);
+        Assert.Equal(10, WorkOrderStatusTransitions.All.Count);
     }
 
     [Theory]

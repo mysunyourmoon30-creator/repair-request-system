@@ -99,15 +99,18 @@ public sealed class WorkOrder
     }
 
     /// <summary>
-    /// ST-WO-002 Check-in begins work (S3-001; UC-WO-016; BR-05): SCHEDULED -&gt; IN_PROGRESS, triggered by the
-    /// assigned Technician's Check-in on one of this Work Order's Service Visits. Aggregate-local guard only:
-    /// current state SCHEDULED.
+    /// Begins work, triggered by the assigned Technician's Check-in on one of this Work Order's Service Visits.
+    /// Two source states are allowed: ST-WO-002 (S3-001; UC-WO-016; BR-05) SCHEDULED -&gt; IN_PROGRESS for the
+    /// initial Visit, and ST-WO-010 (`docs/13` §4.23) CORRECTIVE_PLAN_APPROVED -&gt; IN_PROGRESS ("Start Rework")
+    /// for a corrective Visit — both fire through this same method, since the underlying guard
+    /// (<see cref="WorkOrderStatusTransitions"/>) and Check-in flow are identical either way. Aggregate-local
+    /// guard only: current state must allow a transition to IN_PROGRESS.
     /// </summary>
     public void BeginWork()
     {
         if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.InProgress))
         {
-            throw new DomainRuleViolationException("Only a SCHEDULED Work Order can begin work.");
+            throw new DomainRuleViolationException("Only a SCHEDULED Work Order, or one with an APPROVED corrective plan, can begin work.");
         }
 
         Status = WorkOrderStatus.InProgress;
