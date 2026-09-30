@@ -47,10 +47,12 @@ public interface IWorkSummaryStore
     Task<WorkOrderSaveOutcome> SaveChangesAsync(WorkOrder workOrder, byte[] expectedRowVersion, CancellationToken cancellationToken);
 
     /// <summary>
-    /// The Work Order's current Work Summary, scoped to the caller: for a Technician, only when they are the
-    /// assigned Technician of the Visit the summary describes; for Team Lead/Supervisor, within
+    /// The Work Order's current (latest) Work Summary, scoped to the caller: for a Technician, only when they are
+    /// the assigned Technician of the Visit the summary describes; for Team Lead/Supervisor, within
     /// <see cref="IDataScope.WorkOrders"/> site-wide scope. Null when none exists yet or the caller is out of
-    /// scope (identical, non-leaking response either way).
+    /// scope (identical, non-leaking response either way). "Latest" matters once `docs/13` §4.24's rework
+    /// completion is reachable — a Work Order can then carry more than one Work Summary row (one per completed
+    /// Visit), so this returns the most recently created one, never an arbitrary/ambiguous single match.
     /// </summary>
     Task<WorkSummaryDto?> GetWorkSummaryAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken);
 

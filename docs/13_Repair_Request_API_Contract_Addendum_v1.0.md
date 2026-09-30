@@ -597,6 +597,29 @@ Checked every candidate in code — `WorkOrderScheduleService` (`ST-WO-001`/`ST-
 
 - Trace: `ST-WO-010`; `ST-SV-002`/`ST-WS-001` (reused, unchanged); `WS-API-001`; BR-05 (reused, unchanged).
 
+### 4.24 Rework completion — Submit Work Summary / Submit for Acceptance on the corrective Visit
+
+**Context.** `UC-WO-024`'s own Main Flow (`docs/04`, page 11) is *"Schedule corrective Visit; execute work; submit/review summary; same contact re-accepts."* The first two are done (§4.22 Schedule Rework, §4.23 Check-in/Start Rework). This ticket implements the third — `ST-WO-003` Submit Work Summary and `ST-WO-004` Submit for Acceptance, reused for the corrective cycle — and stops exactly at `UC-WO-024`'s own Postcondition, *"New acceptance round pending"* (`AWAITING_CUSTOMER_ACCEPTANCE`). The fourth item, *"same contact re-accepts"* (the customer's actual round-2 Accept/Reject decision), is a separate, later ticket — not implemented or decided here.
+
+**No new API — confirmed, not guessed.** `WSM-API-001`/`WSM-API-002` (`POST /work-orders/{id}/submit-work-summary`, `POST /work-orders/{id}/submit-for-acceptance`) and the read `GET /work-orders/{id}/work-summary` are unchanged routes. Both write actions already gate on `WorkOrderStatusTransitions.IsAllowed(workOrder.Status, ...)`, which matches on status only (`IN_PROGRESS`, `AWAITING_SUPERVISOR_REVIEW`) — identical whether that `IN_PROGRESS` was reached via `ST-WO-002` or `ST-WO-010`. No new domain method, no new transition-matrix row.
+
+**Two real defects found and fixed, not present in the baseline text — both were reachable the moment a Work Order could carry a second Visit's work.**
+
+1. **`GET .../work-summary` would crash (500) once a second `work_summary` row exists.** `WorkSummary` is keyed per-Visit (`WSM-005` "unique per Visit revision" — `UQ_work_summary_service_visit_id_revision_no`, not per-Work-Order); §4.15's own read implementation queried by `WorkOrderId` alone and called `SingleOrDefaultAsync`, which throws once two rows match. `docs/13` §4.15 itself already flagged the assumption this broke ("only revision 1 can exist today... so any row is the current one"). Fixed by ordering the query by `Id` descending (the same "latest row via sequential-GUID insertion order" idea already used for `CustomerAcceptance`/`CorrectiveAction`, here with no separate round/cycle number of its own to order by) and taking the first result.
+2. **`LoadForSubmitAsync` could silently attach a Work Summary to the wrong, already-summarized Visit.** The query ordered the caller's own sessions by `CheckOutAt` descending to find "the checked-out Visit" — but once an older session (the initial Visit's, genuinely `CHECKED_OUT`) coexists with a newer one that is not yet checked out (the corrective Visit's, `CHECKED_IN`), a nullable `CheckOutAt` sorts *after* a real timestamp in descending order, so the query picked the stale initial session instead of recognizing the corrective one as current and reporting "not yet checked out." Reproduced directly by a real test (`SubmitWorkSummary_BeforeTheCorrectiveVisitIsCheckedOut...`, initially failed with an unhandled 500 from the resulting duplicate-`(ServiceVisitId, RevisionNo)` insert). Fixed by ordering on `CheckInAt` (always present, unlike `CheckOutAt`) so the most recently started session is always evaluated first, then checking that session's own status.
+
+**Decision confirmed before implementation — `UC-WO-024`'s own literal text, not guessed.** *"Same controls as normal work + same designated contact"* (`docs/04`, UC-WO-024's own Validation/Authorization row) was not previously enforced: `WorkOrder.SubmitForAcceptance` unconditionally overwrote `AcceptanceContactId` on every call. Per Portfolio Project Owner directive, confirmed before coding: **once an Acceptance Contact has already been designated by an earlier round, a later Submit for Acceptance must supply that same contact — a different (even otherwise-eligible) contact is rejected with `422 VALIDATION_FAILED` on `acceptanceContactId`.** First-time submission (`AcceptanceContactId` still null) is unaffected. This check applies to `SubmitForAcceptance` generically (whichever round reaches `AWAITING_SUPERVISOR_REVIEW` a second time) — in practice today that is reachable only through the corrective cycle, since no other resubmission path exists.
+
+**Audit.** Unchanged — `WORK_SUMMARY_SUBMITTED` and `WORK_ORDER_SUBMITTED_FOR_ACCEPTANCE` fire exactly as before, once per call, regardless of round.
+
+**Authorization matrix.** Unchanged from §4.15 — `WorkOrderSubmitWorkSummary = [Technician]`, `WorkOrderSubmitForAcceptance = [TeamLead, Supervisor]`. No new actor, scope, or policy.
+
+**Angular.** No changes. `work-summary.service.ts`'s `GET .../work-summary` already expects a single `WorkSummary` object; returning "the latest" instead of "the only" keeps the same response shape.
+
+**Not in this round:** customer re-acceptance round 2 (`UC-WO-024`'s own fourth Main Flow item — the actual Accept/Reject decision, `CustomerAcceptance.AcceptanceRoundNo` computation for round 2, and any further corrective cycle on a second Reject); Cancel Work Order (`UC-WO-026`); Service Report; SLA; Time Correction (held branch, untouched).
+
+- Trace: `ST-WO-003`/`ST-WO-004` (reused, unchanged); `UC-WO-024` (Main Flow item 3 only); `WSM-005`; `WSM-API-001`/`WSM-API-002`.
+
 ---
 
 ## 3. Common Conventions (as implemented)

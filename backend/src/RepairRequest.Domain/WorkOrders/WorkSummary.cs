@@ -3,15 +3,19 @@ using RepairRequest.Domain.Common;
 namespace RepairRequest.Domain.WorkOrders;
 
 /// <summary>
-/// Work Summary (RR-DD-001 WSM-001/003..007; UC-WO-020; ST-WO-003). One row per Work Order in this ticket's
-/// scope — <see cref="RevisionNo"/> is always 1, since no resubmission/revise cycle is implemented yet (only the
-/// single Technician-submit, Team-Lead-or-Supervisor-review flow is in scope; `docs/13` §4.15). The unique
-/// (ServiceVisitId, RevisionNo) index this maps to is the DB-level backstop for that invariant, matching
-/// WSM-005's own "Unique per Visit revision" description. <see cref="RepairOutcomeCode"/> is a closed six-value
-/// allowlist (<see cref="WorkOrders.RepairOutcomeCode"/>) per Portfolio Project Owner directive — RR-DD-001
-/// names this "Active Outcome" but defines no master-data table or value list in the baseline itself; parsing
-/// and rejecting an unknown code is the Application service's responsibility before this is called, so by the
-/// time this constructor runs the value is already a valid enum member.
+/// Work Summary (RR-DD-001 WSM-001/003..007; UC-WO-020; ST-WO-003). One row per Service Visit —
+/// <see cref="RevisionNo"/> is always 1, since no in-place revise cycle is implemented for a single Visit (only
+/// the single Technician-submit, Team-Lead-or-Supervisor-review flow per Visit is in scope; `docs/13` §4.15). The
+/// unique (ServiceVisitId, RevisionNo) index this maps to is the DB-level backstop for that invariant, matching
+/// WSM-005's own "Unique per Visit revision" description. As of `docs/13` §4.24 (rework completion, `UC-WO-024`),
+/// a Work Order can carry more than one Work Summary row over its lifetime — one per completed Visit across the
+/// initial and any corrective cycle — so a reader must pick the latest one explicitly rather than assume
+/// singularity (see <see cref="IWorkSummaryStore.GetWorkSummaryAsync"/>'s own remarks).
+/// <see cref="RepairOutcomeCode"/> is a closed six-value allowlist (<see cref="WorkOrders.RepairOutcomeCode"/>)
+/// per Portfolio Project Owner directive — RR-DD-001 names this "Active Outcome" but defines no master-data
+/// table or value list in the baseline itself; parsing and rejecting an unknown code is the Application
+/// service's responsibility before this is called, so by the time this constructor runs the value is already a
+/// valid enum member.
 /// </summary>
 public sealed class WorkSummary
 {
