@@ -12,7 +12,11 @@ namespace RepairRequest.Application.WorkOrders;
 /// client's If-Match, the same convention Check-in gives the Service Visit and Check-out gives the Work
 /// Session), the right source state (409 STATE_CONFLICT), then field validation (422, Submit only). Success sets
 /// the Work Order's status, and for Submit, creates the new Work Summary row — all with server-derived data, one
-/// save, one audit row.
+/// save, one audit row. Both actions are reused unchanged for the rework-completion case (`docs/13` §4.24,
+/// `UC-WO-024`) — `IN_PROGRESS`/`AWAITING_SUPERVISOR_REVIEW` are ordinary Work Order statuses regardless of
+/// whether that `IN_PROGRESS` was reached via `ST-WO-002` or `ST-WO-010`. The one behavioral addition is in
+/// Submit for Acceptance: once an Acceptance Contact has already been designated by an earlier round, a later
+/// round's contact must be the same one (`UC-WO-024`'s own literal text, §4.24 Decision).
 /// </summary>
 public sealed class WorkSummaryService
 {
@@ -132,6 +136,17 @@ public sealed class WorkSummaryService
         if (acceptanceContactId is null || acceptanceContactId == Guid.Empty)
         {
             return CommandError.Validation(SubmitForAcceptanceFields.AcceptanceContactId, "acceptanceContactId is required.");
+        }
+
+        // `docs/13` §4.24 (UC-WO-024, literal baseline text): "same controls as normal work + same designated
+        // contact". Once a contact has already been designated (any prior round — reachable in practice only via
+        // the corrective cycle's own resubmission), a later Submit for Acceptance may not switch to a different
+        // one. First-time submission (AcceptanceContactId still null) is unaffected — any eligible contact stands.
+        if (workOrder.AcceptanceContactId is { } existingContactId && existingContactId != acceptanceContactId.Value)
+        {
+            return CommandError.Validation(
+                SubmitForAcceptanceFields.AcceptanceContactId,
+                "The designated Acceptance Contact cannot be changed — resubmit using the same contact as the previous round.");
         }
 
         var snapshot = await _store.ResolveAcceptanceContactSnapshotAsync(workOrder.TenantId, workOrder.RepairRequestId, acceptanceContactId.Value, cancellationToken);

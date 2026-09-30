@@ -67,12 +67,18 @@ internal sealed class WorkSummaryStore : IWorkSummaryStore
 
         // Every one of the caller's own sessions on a Visit of this Work Order, any status — ownership (404) and
         // "must be CHECKED_OUT" (409) are deliberately separate checks, the same convention every other command
-        // in this codebase uses (scope first, state second).
+        // in this codebase uses (scope first, state second). Ordered by CheckInAt (always present, unlike the
+        // nullable CheckOutAt) so the *current* cycle's session sorts first regardless of whether it has been
+        // checked out yet — `docs/13` §4.24: once the corrective cycle exists, the caller can have an older,
+        // already-CHECKED_OUT session (the initial Visit's) alongside a newer, still-CHECKED_IN one (the
+        // corrective Visit's); ordering by CheckOutAt would put the stale CHECKED_OUT row first (its non-null
+        // timestamp sorts ahead of the active session's null one) and silently accept a Work Summary against the
+        // wrong, already-summarized Visit instead of correctly reporting "not yet checked out" for the real one.
         var ownVisits = await (
             from session in _scope.OwnWorkSessions(user)
             join item in _db.ServiceVisits on session.ServiceVisitId equals item.Id
             where item.WorkOrderId == workOrderId
-            orderby session.CheckOutAt descending
+            orderby session.CheckInAt descending
             select new { session.Status, Visit = item })
             .ToListAsync(cancellationToken);
 
@@ -81,7 +87,8 @@ internal sealed class WorkSummaryStore : IWorkSummaryStore
             return null;
         }
 
-        var checkedOutVisit = ownVisits.Find(row => row.Status == WorkSessionStatus.CheckedOut)?.Visit;
+        var latest = ownVisits[0];
+        var checkedOutVisit = latest.Status == WorkSessionStatus.CheckedOut ? latest.Visit : null;
         return new WorkOrderForSummarySubmit(workOrder, checkedOutVisit);
     }
 
@@ -134,10 +141,17 @@ internal sealed class WorkSummaryStore : IWorkSummaryStore
             scoped = summaries.Where(summary => scopedWorkOrderIds.Contains(summary.WorkOrderId));
         }
 
+        // Latest row only: `WorkSummary` is keyed per-Visit (WSM-005 "unique per Visit revision"), not per-Work
+        // Order — once the corrective cycle's own Submit Work Summary (`docs/13` §4.24) inserts a second row for
+        // the same Work Order (a different ServiceVisitId), `SingleOrDefaultAsync` would throw
+        // InvalidOperationException here. `Id` is a sequential GUID (assigned on insert, per this codebase's own
+        // convention), so ordering by it descending is the same "latest row" pattern already used for
+        // CustomerAcceptance/CorrectiveAction (ordered by round/cycle desc, Id desc as the tie-breaker).
         return await scoped
+            .OrderByDescending(summary => summary.Id)
             .Select(summary => new WorkSummaryDto(
                 summary.Id, summary.WorkOrderId, summary.ServiceVisitId, summary.RevisionNo, summary.SummaryText, summary.RepairOutcomeCode))
-            .SingleOrDefaultAsync(cancellationToken);
+            .FirstOrDefaultAsync(cancellationToken);
     }
 
     public async Task<string?> ResolveAcceptanceContactSnapshotAsync(Guid tenantId, Guid repairRequestId, Guid acceptanceContactId, CancellationToken cancellationToken)
