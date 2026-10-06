@@ -22,7 +22,9 @@ public sealed record WorkOrderStatusTransition(
 /// status guard is enforced by the Application service, not here. ST-WO-010 is added for Technician Check-in on
 /// the corrective Visit (`docs/13` §4.23) — the existing generic Check-in flow (<see cref="RepairRequest.Application.WorkOrders.TechnicianCheckInService"/>)
 /// was already Visit-type-agnostic everywhere except this one matrix entry. Actor enforcement itself always lives
-/// in the API authorization policy / Application service, not here. ST-WO-011 (Cancel) remains out of scope.
+/// in the API authorization policy / Application service, not here. ST-WO-011 (Cancel; `docs/13` §4.25) is added
+/// as eight rows, one per non-terminal, pre-Accept source status (RR-STS-001's own "OPEN/SCHEDULED/IN_PROGRESS/
+/// AWAITING_*/CORRECTIVE_*" shorthand) — COMPLETED, CLOSED and CANCELLED itself remain the only denied sources.
 /// </summary>
 public static class WorkOrderStatusTransitions
 {
@@ -38,6 +40,14 @@ public static class WorkOrderStatusTransitions
         new("ST-WO-008", WorkOrderStatus.CorrectiveActionRequired, "SubmitCorrectivePlan", WorkOrderStatus.CorrectivePlanPending),
         new("ST-WO-009", WorkOrderStatus.CorrectivePlanPending, "ApproveCorrectivePlan", WorkOrderStatus.CorrectivePlanApproved),
         new("ST-WO-010", WorkOrderStatus.CorrectivePlanApproved, "StartRework", WorkOrderStatus.InProgress),
+        new("ST-WO-011", WorkOrderStatus.Open, "Cancel", WorkOrderStatus.Cancelled),
+        new("ST-WO-011", WorkOrderStatus.Scheduled, "Cancel", WorkOrderStatus.Cancelled),
+        new("ST-WO-011", WorkOrderStatus.InProgress, "Cancel", WorkOrderStatus.Cancelled),
+        new("ST-WO-011", WorkOrderStatus.AwaitingSupervisorReview, "Cancel", WorkOrderStatus.Cancelled),
+        new("ST-WO-011", WorkOrderStatus.AwaitingCustomerAcceptance, "Cancel", WorkOrderStatus.Cancelled),
+        new("ST-WO-011", WorkOrderStatus.CorrectiveActionRequired, "Cancel", WorkOrderStatus.Cancelled),
+        new("ST-WO-011", WorkOrderStatus.CorrectivePlanPending, "Cancel", WorkOrderStatus.Cancelled),
+        new("ST-WO-011", WorkOrderStatus.CorrectivePlanApproved, "Cancel", WorkOrderStatus.Cancelled),
     ];
 
     public static bool IsAllowed(WorkOrderStatus from, WorkOrderStatus to) =>

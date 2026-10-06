@@ -62,6 +62,12 @@ public static class WorkOrderAudit
     public const string ClosedAction = "WORK_ORDER_CLOSED";
 
     /// <summary>
+    /// ST-WO-011 (UC-WO-026; `docs/13` §4.25). The baseline names only "Atomic audit/outbox"; self-named per the
+    /// same `&lt;ENTITY&gt;_&lt;PAST_TENSE_VERB&gt;` convention as every other Work-Order-level action code here.
+    /// </summary>
+    public const string WorkOrderCancelledAction = "WORK_ORDER_CANCELLED";
+
+    /// <summary>
     /// Corrective Action's own entity type (`docs/13` §4.21; Ticket 6) — the first action codes in this class
     /// whose entity is not the Work Order/Service Visit/Work Session, since the Corrective Action itself is the
     /// row that changed; the Work Order id (whose own status also changes, ST-WO-008/009) is referenced in
@@ -570,7 +576,32 @@ public static class WorkOrderAudit
             occurredAt,
             context.CorrelationId);
 
-    /// <summary>ST-SV-007 success: SCHEDULED -&gt; CANCELLED. Work Order/SLA continue untouched.</summary>
+    /// <summary>
+    /// ST-WO-011 success (UC-WO-026; BR-09/BR-12; `docs/13` §4.25): the source state -&gt; CANCELLED, with the
+    /// required cancel reason as the audit reason. The actor is the Supervisor. Distinct overload from
+    /// <see cref="Cancelled(CommandContext, ServiceVisit, DateTime)"/> below (the Service Visit's own ST-SV-007
+    /// action) — same verb, different entity and transition, disambiguated by parameter type.
+    /// </summary>
+    public static AuditHistory Cancelled(CommandContext context, WorkOrder workOrder, WorkOrderStatus fromState, DateTime occurredAt) =>
+        new(
+            workOrder.TenantId,
+            WorkOrderEntityType,
+            workOrder.Id,
+            WorkOrderCancelledAction,
+            fromState: WorkOrderStatusCodes.ToCode(fromState),
+            toState: WorkOrderStatusCodes.ToCode(WorkOrderStatus.Cancelled),
+            oldValueJson: null,
+            newValueJson: null,
+            reason: workOrder.CancelReason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-SV-007 success: SCHEDULED -&gt; CANCELLED. Work Order/SLA continue untouched — except when this fires as
+    /// part of a cascading ST-WO-011 Work Order Cancel (`docs/13` §4.25), where the Work Order is also being
+    /// cancelled in the same transaction, recorded by its own separate <see cref="Cancelled(CommandContext, WorkOrder, WorkOrderStatus, DateTime)"/> audit row.
+    /// </summary>
     public static AuditHistory Cancelled(CommandContext context, ServiceVisit visit, DateTime occurredAt) =>
         new(
             visit.TenantId,

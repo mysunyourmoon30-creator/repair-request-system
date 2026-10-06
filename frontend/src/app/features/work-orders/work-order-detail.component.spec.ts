@@ -35,6 +35,7 @@ describe('WorkOrderDetailComponent', () => {
     correctiveActionStatus: null,
     correctiveServiceVisitId: null,
     correctiveActionRowVersion: null,
+    cancelReason: null,
   };
 
   const scheduledVisit = {
@@ -1061,5 +1062,192 @@ describe('WorkOrderDetailComponent', () => {
     fixture.detectChanges();
 
     expect(root.textContent).toContain('The technician must be an active Technician');
+  });
+
+  // ---------------- Cancel Work Order (`docs/13` §4.25; ST-WO-011; UC-WO-026) ----------------
+
+  /** ST-WO-011's eight non-terminal, pre-Accept source statuses — the same list the backend matrix allows. */
+  const cancellableStatuses = [
+    'OPEN',
+    'SCHEDULED',
+    'IN_PROGRESS',
+    'AWAITING_SUPERVISOR_REVIEW',
+    'AWAITING_CUSTOMER_ACCEPTANCE',
+    'CORRECTIVE_ACTION_REQUIRED',
+    'CORRECTIVE_PLAN_PENDING',
+    'CORRECTIVE_PLAN_APPROVED',
+  ];
+
+  const nonSupervisorRoles = ['REQUESTER', 'APPROVER', 'COORDINATOR', 'TECHNICIAN', 'TEAM_LEAD', 'ADMINISTRATOR'];
+
+  function cancelWorkOrderForm(root: HTMLElement): HTMLFormElement | undefined {
+    return Array.from(root.querySelectorAll('form')).find((form) => form.textContent?.includes('Cancel Work Order'));
+  }
+
+  function submitCancel(root: HTMLElement, reason: string): void {
+    const form = cancelWorkOrderForm(root)!;
+    form.querySelector('input')!.value = reason;
+    form.dispatchEvent(new Event('submit'));
+  }
+
+  /** Renders the Work Order for the given role/status and returns whether the Cancel form is present (fresh TestBed each call). */
+  function cancelShownFor(role: string | null, status: string): boolean {
+    if (role !== null) {
+      localStorage.setItem('accessToken', tokenWithPayload({ sub: 'user-1', role }));
+    }
+    const fixture = createComponent('abc-123');
+    loadWorkOrder(fixture, { ...baseWorkOrder, status });
+    const shown = cancelWorkOrderForm(fixture.nativeElement as HTMLElement) !== undefined;
+
+    httpMock.verify();
+    TestBed.resetTestingModule();
+    localStorage.clear();
+    return shown;
+  }
+
+  it('shows the Cancel Work Order form to a Supervisor on every non-terminal, pre-Accept status', () => {
+    const hiddenFor = cancellableStatuses.filter((status) => !cancelShownFor('SUPERVISOR', status));
+
+    expect(hiddenFor).toEqual([]);
+  });
+
+  it('hides the Cancel Work Order form for every role other than Supervisor', () => {
+    const shownFor: string[] = [];
+    for (const role of nonSupervisorRoles) {
+      for (const status of cancellableStatuses) {
+        if (cancelShownFor(role, status)) {
+          shownFor.push(`${role}/${status}`);
+        }
+      }
+    }
+
+    expect(shownFor).toEqual([]);
+  });
+
+  it('hides the Cancel Work Order form when nobody is signed in', () => {
+    expect(cancelShownFor(null, 'OPEN')).toBe(false);
+  });
+
+  it('hides the Cancel Work Order form for a Supervisor once the Work Order is COMPLETED, CLOSED or already CANCELLED', () => {
+    const shownFor = ['COMPLETED', 'CLOSED', 'CANCELLED'].filter((status) => cancelShownFor('SUPERVISOR', status));
+
+    expect(shownFor).toEqual([]);
+  });
+
+  it('requires a reason in the Cancel Work Order form', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, baseWorkOrder);
+
+    const input = cancelWorkOrderForm(fixture.nativeElement as HTMLElement)!.querySelector('input')!;
+
+    expect(input.required).toBe(true);
+  });
+
+  it('cancels with the entered reason and the quoted rowVersion, then shows CANCELLED with the reason and no cancel form', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, baseWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    submitCancel(root, 'Customer no longer needs this.');
+
+    const request = httpMock.expectOne(`${baseUrl}/abc-123/cancel`);
+    expect(request.request.method).toBe('POST');
+    expect(request.request.headers.get('If-Match')).toBe('"v1"');
+    expect(request.request.body).toEqual({ reason: 'Customer no longer needs this.' });
+    request.flush({ ...baseWorkOrder, status: 'CANCELLED', rowVersion: 'v2', cancelReason: 'Customer no longer needs this.' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('CANCELLED');
+    expect(root.textContent).toContain('Cancel Reason');
+    expect(root.textContent).toContain('Customer no longer needs this.');
+    expect(cancelWorkOrderForm(root)).toBeUndefined();
+  });
+
+  it('does not show a Cancel Reason while the Work Order has not been cancelled', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, baseWorkOrder);
+
+    expect((fixture.nativeElement as HTMLElement).textContent).not.toContain('Cancel Reason');
+  });
+
+  it('shows the 422 field error and keeps the Cancel form when the server rejects the reason', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, baseWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    submitCancel(root, '   ');
+
+    httpMock
+      .expectOne(`${baseUrl}/abc-123/cancel`)
+      .flush({ errors: { reason: ['A reason of 1 to 1000 characters is required to cancel.'] } }, { status: 422, statusText: 'Unprocessable Entity' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('A reason of 1 to 1000 characters is required to cancel.');
+    expect(cancelWorkOrderForm(root)).toBeDefined();
+    expect(root.textContent).not.toContain('CANCELLED');
+  });
+
+  it('shows a message and reloads the current Work Order when Cancel returns 409 STATE_CONFLICT (e.g. a Service Visit is in progress)', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, { ...baseWorkOrder, status: 'IN_PROGRESS' });
+    const root = fixture.nativeElement as HTMLElement;
+
+    submitCancel(root, 'Attempted mid-work.');
+
+    httpMock
+      .expectOne(`${baseUrl}/abc-123/cancel`)
+      .flush({ code: 'STATE_CONFLICT', detail: 'This Work Order has a Service Visit in progress.' }, { status: 409, statusText: 'Conflict' });
+    httpMock
+      .expectOne((request) => request.method === 'GET' && request.url === `${baseUrl}/abc-123`)
+      .flush({ ...baseWorkOrder, status: 'AWAITING_SUPERVISOR_REVIEW', rowVersion: 'v2' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('changed or is no longer in a valid state');
+    expect(root.textContent).toContain('AWAITING_SUPERVISOR_REVIEW');
+  });
+
+  it('reloads the Work Order into its new state when Cancel returns 409 CONCURRENCY_CONFLICT', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, baseWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    submitCancel(root, 'Stale attempt.');
+
+    httpMock.expectOne(`${baseUrl}/abc-123/cancel`).flush({ code: 'CONCURRENCY_CONFLICT' }, { status: 409, statusText: 'Conflict' });
+    httpMock
+      .expectOne((request) => request.method === 'GET' && request.url === `${baseUrl}/abc-123`)
+      .flush({ ...baseWorkOrder, status: 'CANCELLED', rowVersion: 'v3', cancelReason: 'Cancelled by someone else.' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('CANCELLED');
+    expect(root.textContent).toContain('Cancelled by someone else.');
+    expect(cancelWorkOrderForm(root)).toBeUndefined();
+  });
+
+  it('shows a permission message when Cancel returns 403', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, baseWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    submitCancel(root, 'Not allowed.');
+    httpMock.expectOne(`${baseUrl}/abc-123/cancel`).flush({ code: 'ACCESS_DENIED' }, { status: 403, statusText: 'Forbidden' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('You do not have permission to perform this action.');
+  });
+
+  it('disables the Cancel button while the request is in flight, and ignores a second submit (double-submit)', () => {
+    const fixture = asSupervisor();
+    loadWorkOrder(fixture, baseWorkOrder);
+    const root = fixture.nativeElement as HTMLElement;
+
+    submitCancel(root, 'Only once.');
+    fixture.detectChanges();
+    expect(cancelWorkOrderForm(root)!.querySelector('button')!.disabled).toBe(true);
+
+    cancelWorkOrderForm(root)!.dispatchEvent(new Event('submit'));
+
+    // Exactly one request despite two submits (expectOne fails if there are two).
+    httpMock.expectOne(`${baseUrl}/abc-123/cancel`).flush({ ...baseWorkOrder, status: 'CANCELLED', rowVersion: 'v2', cancelReason: 'Only once.' });
   });
 });

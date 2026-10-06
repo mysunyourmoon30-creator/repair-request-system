@@ -28,6 +28,10 @@ namespace RepairRequest.Application.WorkOrders;
 /// page reloads" purpose <see cref="CostSummaryRowVersion"/> already serves — Schedule Rework's own If-Match
 /// target is the Corrective Action's own RowVersion (not the Work Order's, see `ICorrectiveActionStore`'s own
 /// remarks), and without this field the client would have no way to learn it before the first Schedule Rework call.
+/// <see cref="CancelReason"/> is added by `docs/13` §4.25 (ST-WO-011; UC-WO-026) — WO-010 already existed in the
+/// persisted shape from S2-001 onward; only its projection was missing. Null until CANCELLED. No `cancelledAt`/
+/// `cancelledBy` field is added: neither is a documented WO-001..013 column (unlike `closed_at`/`closed_by`),
+/// so none is invented here — the Work Order's own `Status` already tells the caller it was cancelled.
 /// </summary>
 public sealed record WorkOrderDto(
     Guid WorkOrderId,
@@ -47,7 +51,8 @@ public sealed record WorkOrderDto(
     Guid? CorrectiveActionId,
     CorrectiveActionStatus? CorrectiveActionStatus,
     Guid? CorrectiveServiceVisitId,
-    byte[]? CorrectiveActionRowVersion);
+    byte[]? CorrectiveActionRowVersion,
+    string? CancelReason);
 
 /// <summary>
 /// Service Visit projection (S2-003; RR-DD-001 SV-001..018), embedded in the Work Order detail response — no
@@ -272,6 +277,12 @@ public static class SubmitForAcceptanceFields
 public static class RejectFields
 {
     public const string DecisionReason = "decisionReason";
+}
+
+/// <summary>WO-API-011 Cancel body field (`docs/13` §4.25) — used as a 422 error key.</summary>
+public static class WorkOrderCancelFields
+{
+    public const string Reason = "reason";
 }
 
 /// <summary>Canonical upper-snake Service Visit status codes (RR-DD-001 SV-005; RR-STS-001 section 1).</summary>

@@ -18,6 +18,8 @@
  * correctiveServiceVisitId === null`); the latter is Schedule Rework's own If-Match token (the Corrective Action's
  * own concurrency token, never the Work Order's `rowVersion`, which Schedule Rework does not change) — the same
  * "recover a token across page reloads" role `costSummaryRowVersion` already plays.
+ * `cancelReason` is added by `docs/13` §4.25 (ST-WO-011; UC-WO-026) — null until `status === 'CANCELLED'`. No
+ * `cancelledAt` field exists: it is not a documented backend column (unlike `closedAt`), so none is invented here.
  */
 export interface WorkOrder {
   workOrderId: string;
@@ -38,6 +40,7 @@ export interface WorkOrder {
   correctiveActionStatus: string | null;
   correctiveServiceVisitId: string | null;
   correctiveActionRowVersion: string | null;
+  cancelReason: string | null;
 }
 
 /**

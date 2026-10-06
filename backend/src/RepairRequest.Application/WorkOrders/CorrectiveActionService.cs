@@ -53,6 +53,11 @@ public sealed class CorrectiveActionService
                     : "This Corrective Action's plan has already been submitted.");
         }
 
+        if (!WorkOrderStatusTransitions.IsAllowed(workOrder.Status, WorkOrderStatus.CorrectivePlanPending))
+        {
+            return CommandError.StateConflict("This Work Order is no longer awaiting a corrective plan (it may have been cancelled).");
+        }
+
         var trimmedPlanText = planText?.Trim() ?? string.Empty;
         if (trimmedPlanText.Length == 0 || trimmedPlanText.Length > CorrectiveAction.PlanTextMaxLength)
         {
@@ -105,6 +110,11 @@ public sealed class CorrectiveActionService
                 correctiveAction.Status == CorrectiveActionStatus.Approved
                     ? "This Corrective Action's plan has already been approved."
                     : "Only a Corrective Action with a submitted plan can be approved.");
+        }
+
+        if (!WorkOrderStatusTransitions.IsAllowed(workOrder.Status, WorkOrderStatus.CorrectivePlanApproved))
+        {
+            return CommandError.StateConflict("This Work Order is no longer awaiting corrective plan approval (it may have been cancelled).");
         }
 
         var now = WorkOrderScheduleService.ToUtc(_clock.GetUtcNow())!.Value;
@@ -168,6 +178,11 @@ public sealed class CorrectiveActionService
         if (correctiveAction.CorrectiveServiceVisitId is not null)
         {
             return CommandError.StateConflict("This Corrective Action's rework has already been scheduled.");
+        }
+
+        if (workOrder.Status != WorkOrderStatus.CorrectivePlanApproved)
+        {
+            return CommandError.StateConflict("This Work Order is not awaiting rework (it may have been cancelled).");
         }
 
         if (assignedTeamId is not { } team || team == Guid.Empty)

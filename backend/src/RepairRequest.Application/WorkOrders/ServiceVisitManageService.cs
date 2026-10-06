@@ -35,7 +35,7 @@ public sealed class ServiceVisitManageService
             return CommandError.NotFound;
         }
 
-        var (visit, _, workOrderId, _) = loaded;
+        var (visit, _, workOrderId, _, _) = loaded;
 
         if (!visit.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
         {
@@ -90,7 +90,7 @@ public sealed class ServiceVisitManageService
             return CommandError.NotFound;
         }
 
-        var (visit, tenantId, workOrderId, siteId) = loaded;
+        var (visit, tenantId, workOrderId, siteId, _) = loaded;
 
         if (!visit.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
         {
@@ -141,7 +141,7 @@ public sealed class ServiceVisitManageService
             return CommandError.NotFound;
         }
 
-        var (visit, _, workOrderId, _) = loaded;
+        var (visit, _, workOrderId, _, _) = loaded;
 
         if (!visit.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
         {
@@ -179,7 +179,7 @@ public sealed class ServiceVisitManageService
             return CommandError.NotFound;
         }
 
-        var (visit, _, workOrderId, _) = loaded;
+        var (visit, _, workOrderId, _, _) = loaded;
 
         if (!visit.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
         {
@@ -235,7 +235,7 @@ public sealed class ServiceVisitManageService
             return CommandError.NotFound;
         }
 
-        var (visit, tenantId, workOrderId, siteId) = loaded;
+        var (visit, tenantId, workOrderId, siteId, workOrderStatus) = loaded;
 
         if (!visit.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
         {
@@ -250,6 +250,13 @@ public sealed class ServiceVisitManageService
         if (visit.MissedDecisionCode is not null)
         {
             return CommandError.StateConflict("This Service Visit's Missed decision was already recorded.");
+        }
+
+        // `docs/13` §4.25: Cancel preserves a MISSED Visit as history, but a cancelled Work Order accepts no further
+        // mutation — a follow-up decision here would otherwise create a new SCHEDULED Visit under it.
+        if (workOrderStatus == WorkOrderStatus.Cancelled)
+        {
+            return CommandError.StateConflict("This Work Order has been cancelled, so no follow-up decision can be recorded.");
         }
 
         if (!MissedVisitDecisionCodes.TryParse(decision, out var parsedDecision))

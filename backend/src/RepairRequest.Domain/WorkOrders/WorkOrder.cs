@@ -238,4 +238,26 @@ public sealed class WorkOrder
         ClosedAt = validatedClosedAt;
         Status = WorkOrderStatus.Closed;
     }
+
+    /// <summary>
+    /// ST-WO-011 Cancel (UC-WO-026; BR-09/BR-12; `docs/13` §4.25). Allowed from every non-terminal, pre-Accept
+    /// status the transition matrix lists (OPEN/SCHEDULED/IN_PROGRESS/AWAITING_SUPERVISOR_REVIEW/
+    /// AWAITING_CUSTOMER_ACCEPTANCE/CORRECTIVE_ACTION_REQUIRED/CORRECTIVE_PLAN_PENDING/CORRECTIVE_PLAN_APPROVED);
+    /// denied once COMPLETED, CLOSED or already CANCELLED. Aggregate-local guard only: the caller's Supervisor
+    /// role/scope and the "no Service Visit currently IN_PROGRESS" guard (`docs/13` §4.25 Decision — Cancel must
+    /// deny, unchanged, rather than force-terminate an active Work Session) are the Application service's
+    /// responsibility before this is called. Cascading the cancellation to this Work Order's still-SCHEDULED
+    /// Service Visits, and leaving any in-flight Corrective Action row as unmodified history, are likewise handled
+    /// by the Application service — this method only ever touches the Work Order's own status and reason.
+    /// </summary>
+    public void Cancel(string reason)
+    {
+        if (!WorkOrderStatusTransitions.IsAllowed(Status, WorkOrderStatus.Cancelled))
+        {
+            throw new DomainRuleViolationException("This Work Order cannot be cancelled from its current status.");
+        }
+
+        CancelReason = DomainGuard.RequiredText(reason, ReasonMaxLength, nameof(reason));
+        Status = WorkOrderStatus.Cancelled;
+    }
 }

@@ -30,6 +30,7 @@ public sealed class WorkOrdersController : CommandControllerBase
     private readonly WorkOrderAcceptanceService _acceptance;
     private readonly CostSummaryService _costSummaries;
     private readonly WorkOrderCloseService _close;
+    private readonly WorkOrderCancelService _cancel;
     private readonly PagingOptions _paging;
 
     public WorkOrdersController(
@@ -39,6 +40,7 @@ public sealed class WorkOrdersController : CommandControllerBase
         WorkOrderAcceptanceService acceptance,
         CostSummaryService costSummaries,
         WorkOrderCloseService close,
+        WorkOrderCancelService cancel,
         ICurrentUserAccessor currentUserAccessor,
         IOptions<PagingOptions> paging)
         : base(currentUserAccessor)
@@ -49,6 +51,7 @@ public sealed class WorkOrdersController : CommandControllerBase
         _acceptance = acceptance;
         _costSummaries = costSummaries;
         _close = close;
+        _cancel = cancel;
         _paging = paging.Value;
     }
 
@@ -382,6 +385,35 @@ public sealed class WorkOrdersController : CommandControllerBase
         }
 
         // The caller just passed IDataScope.WorkOrders() inside Close, so the ordinary scoped read-back covers them.
+        var workOrder = await _workOrders.GetAsync(context.User, result.Value, cancellationToken);
+        return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
+    }
+
+    /// <summary>
+    /// WO-API-011 Cancel Work Order (ST-WO-011; UC-WO-026; BR-09/BR-12; `docs/13` §4.25): Supervisor only, within
+    /// the caller's Site scope. If-Match is checked against the Work Order's own RowVersion. <c>reason</c> is
+    /// required. Allowed from every non-terminal, pre-Accept status; denied once the customer has accepted, or the
+    /// Work Order is COMPLETED, CLOSED or already CANCELLED (409 STATE_CONFLICT), or while any Service Visit is
+    /// IN_PROGRESS (409 STATE_CONFLICT — check out the active session first). Success cascades Cancel to every
+    /// still-SCHEDULED Service Visit and returns the Work Order with a fresh ETag.
+    /// </summary>
+    [HttpPost("{workOrderId:guid}/cancel")]
+    [Authorize(Policy = AuthorizationPolicies.WorkOrderCancel)]
+    [ProducesResponseType<WorkOrderResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> Cancel(Guid workOrderId, [FromBody] CancelWorkOrderRequest request, CancellationToken cancellationToken)
+    {
+        if (!TryReadIfMatch(out var rowVersion, out var problem))
+        {
+            return problem;
+        }
+
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _cancel.CancelAsync(context, workOrderId, rowVersion, request.Reason, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, ResourceType);
+        }
+
         var workOrder = await _workOrders.GetAsync(context.User, result.Value, cancellationToken);
         return DetailResult(workOrder, ResourceType, WorkOrderResponses.ToResponse, dto => dto.RowVersion);
     }

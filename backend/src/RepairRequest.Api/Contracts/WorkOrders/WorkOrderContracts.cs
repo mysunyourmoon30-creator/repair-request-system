@@ -28,7 +28,7 @@ public sealed class WorkOrderListRequest
 /// is added by `docs/13` §4.22 (CA-API-003) — a signal field only, gating the Coordinator's "Schedule Rework" action.
 /// <see cref="CorrectiveActionRowVersion"/> is also added by §4.22 — Schedule Rework's own If-Match token (the
 /// Corrective Action's own RowVersion, not the Work Order's), recoverable here the same way <see cref="CostSummaryRowVersion"/>
-/// already is.
+/// already is. <see cref="CancelReason"/> is added by `docs/13` §4.25 (ST-WO-011; UC-WO-026) — null until CANCELLED.
 /// </summary>
 public sealed record WorkOrderResponse(
     Guid WorkOrderId,
@@ -48,7 +48,8 @@ public sealed record WorkOrderResponse(
     Guid? CorrectiveActionId,
     string? CorrectiveActionStatus,
     Guid? CorrectiveServiceVisitId,
-    string? CorrectiveActionRowVersion);
+    string? CorrectiveActionRowVersion,
+    string? CancelReason);
 
 /// <summary>Service Visit response (S2-003; RR-DD-001 SV-001..018). Team/technician are raw ids — no directory to resolve a display name from.</summary>
 public sealed record ServiceVisitResponse(
@@ -160,6 +161,9 @@ public sealed record EligibleAcceptanceContactResponse(Guid UserId, string Displ
 /// <summary>ACC-API-002 Reject body (`docs/13` §4.17; ACC-007 "Required REJECT"). Required.</summary>
 public sealed record RejectWorkOrderRequest(string? DecisionReason);
 
+/// <summary>WO-API-011 Cancel body (`docs/13` §4.25; WO-010 "Required on Cancel"). Required.</summary>
+public sealed record CancelWorkOrderRequest(string? Reason);
+
 /// <summary>CST-API-001 Prepare body (`docs/13` §4.18). `TotalAmount`/`CurrencyCode` required; `Note` optional.</summary>
 public sealed record PrepareCostSummaryRequest(decimal? TotalAmount, string? CurrencyCode, string? Note);
 
@@ -235,7 +239,8 @@ public static class WorkOrderResponses
             dto.CorrectiveActionId,
             dto.CorrectiveActionStatus is null ? null : CorrectiveActionStatusCodes.ToCode(dto.CorrectiveActionStatus.Value),
             dto.CorrectiveServiceVisitId,
-            dto.CorrectiveActionRowVersion is null ? null : Convert.ToBase64String(dto.CorrectiveActionRowVersion));
+            dto.CorrectiveActionRowVersion is null ? null : Convert.ToBase64String(dto.CorrectiveActionRowVersion),
+            dto.CancelReason);
 }
 
 public static class EligibleAcceptanceContactResponses

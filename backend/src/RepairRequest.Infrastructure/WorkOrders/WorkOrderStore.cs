@@ -144,5 +144,6 @@ internal sealed class WorkOrderStore : IWorkOrderStore
                 .Select(action => action.CorrectiveServiceVisitId).FirstOrDefault(),
             _db.CorrectiveActions.Where(action => action.WorkOrderId == workOrder.Id)
                 .OrderByDescending(action => action.CycleNo).ThenByDescending(action => action.Id)
-                .Select(action => (byte[]?)action.RowVersion).FirstOrDefault());
+                .Select(action => (byte[]?)action.RowVersion).FirstOrDefault(),
+            workOrder.CancelReason);
 }
