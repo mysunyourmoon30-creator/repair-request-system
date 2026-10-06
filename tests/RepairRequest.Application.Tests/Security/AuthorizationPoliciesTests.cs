@@ -43,7 +43,8 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.WorkOrderClose, [RoleCodes.Supervisor] },
         { AuthorizationPolicies.CorrectiveActionSubmitPlan, [RoleCodes.TeamLead] },
         { AuthorizationPolicies.CorrectiveActionApprovePlan, [RoleCodes.Supervisor] },
-        { AuthorizationPolicies.CorrectiveActionScheduleRework, [RoleCodes.Coordinator] }
+        { AuthorizationPolicies.CorrectiveActionScheduleRework, [RoleCodes.Coordinator] },
+        { AuthorizationPolicies.WorkOrderCancel, [RoleCodes.Supervisor] }
     };
 
     [Theory]
@@ -56,7 +57,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(30, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(31, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -221,6 +222,14 @@ public class AuthorizationPoliciesTests
         // Coordinator, Requester and Approver are deliberately excluded; site scope and the Close guards are
         // enforced by the service, and there is no Separation of Duties for Close (Q5).
         Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderClose]);
+    }
+
+    [Fact]
+    public void WorkOrderCancel_IsSupervisorOnly()
+    {
+        // ST-WO-011; WO-API-011; UC-WO-026; BR-09/BR-12; `docs/13` §4.25 — three independent baseline sources
+        // (UC-WO-026's Primary Actor, ST-WO-011's Actor, docs/09 WO-API-011's Actor) all agree: Supervisor alone.
+        Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderCancel]);
     }
 
     [Fact]

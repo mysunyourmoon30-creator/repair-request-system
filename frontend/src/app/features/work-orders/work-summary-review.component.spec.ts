@@ -28,6 +28,7 @@ describe('WorkSummaryReviewComponent', () => {
     correctiveActionStatus: null,
     correctiveServiceVisitId: null,
     correctiveActionRowVersion: null,
+    cancelReason: null,
   };
 
   const oneContact = [{ userId: 'req-1', displayName: 'req-1@example.test', email: 'req-1@example.test' }];

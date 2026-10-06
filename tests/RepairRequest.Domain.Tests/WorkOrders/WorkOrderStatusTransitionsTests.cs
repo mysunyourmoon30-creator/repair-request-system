@@ -124,10 +124,37 @@ public class WorkOrderStatusTransitionsTests
                 && transition.To == WorkOrderStatus.InProgress);
     }
 
+    [Theory]
+    [InlineData(WorkOrderStatus.Open)]
+    [InlineData(WorkOrderStatus.Scheduled)]
+    [InlineData(WorkOrderStatus.InProgress)]
+    [InlineData(WorkOrderStatus.AwaitingSupervisorReview)]
+    [InlineData(WorkOrderStatus.AwaitingCustomerAcceptance)]
+    [InlineData(WorkOrderStatus.CorrectiveActionRequired)]
+    [InlineData(WorkOrderStatus.CorrectivePlanPending)]
+    [InlineData(WorkOrderStatus.CorrectivePlanApproved)]
+    public void Cancel_IsAllowed_FromEveryNonTerminalPreAcceptState(WorkOrderStatus from)
+    {
+        // ST-WO-011 (`docs/13` §4.25): RR-STS-001's own "OPEN/SCHEDULED/IN_PROGRESS/AWAITING_*/CORRECTIVE_*" shorthand.
+        Assert.True(WorkOrderStatusTransitions.IsAllowed(from, WorkOrderStatus.Cancelled));
+        Assert.Contains(
+            WorkOrderStatusTransitions.All,
+            transition => transition.TransitionId == "ST-WO-011" && transition.From == from && transition.To == WorkOrderStatus.Cancelled);
+    }
+
+    [Theory]
+    [InlineData(WorkOrderStatus.Completed)]
+    [InlineData(WorkOrderStatus.Closed)]
+    [InlineData(WorkOrderStatus.Cancelled)]
+    public void Cancel_IsNotAllowed_OnceAcceptedOrTerminal(WorkOrderStatus from)
+    {
+        Assert.False(WorkOrderStatusTransitions.IsAllowed(from, WorkOrderStatus.Cancelled));
+    }
+
     [Fact]
     public void Matrix_ContainsExactlyTheImplementedTransitions()
     {
-        Assert.Equal(10, WorkOrderStatusTransitions.All.Count);
+        Assert.Equal(18, WorkOrderStatusTransitions.All.Count);
     }
 
     [Theory]
@@ -160,7 +187,7 @@ public class WorkOrderStatusTransitionsTests
     [Theory]
     [InlineData(WorkOrderStatus.Scheduled, WorkOrderStatus.Open)]
     [InlineData(WorkOrderStatus.InProgress, WorkOrderStatus.Scheduled)]
-    [InlineData(WorkOrderStatus.Open, WorkOrderStatus.Cancelled)]
+    [InlineData(WorkOrderStatus.Completed, WorkOrderStatus.Cancelled)]
     [InlineData(WorkOrderStatus.Open, WorkOrderStatus.Open)]
     [InlineData(WorkOrderStatus.Open, WorkOrderStatus.InProgress)]
     public void TransitionOutsideMatrix_IsNotAllowed(WorkOrderStatus from, WorkOrderStatus to)

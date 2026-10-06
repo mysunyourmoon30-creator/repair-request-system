@@ -73,6 +73,9 @@ public static class ApplicationServiceCollectionExtensions
         // Corrective Action Submit Plan (Team Lead) / Approve Plan (Supervisor); `docs/13` §4.21.
         services.AddScoped<CorrectiveActionService>();
 
+        // Work Order Cancel (ST-WO-011; WO-API-011; UC-WO-026; Supervisor only); `docs/13` §4.25.
+        services.AddScoped<WorkOrderCancelService>();
+
         return services;
     }
 }

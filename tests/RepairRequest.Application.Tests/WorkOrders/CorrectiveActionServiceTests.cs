@@ -180,6 +180,53 @@ public class CorrectiveActionServiceTests
         Assert.Equal("First plan.", correctiveAction.PlanText);
     }
 
+    // ---------------- A cancelled Work Order accepts no further Corrective Action mutation (`docs/13` §4.25) ----------------
+
+    [Fact]
+    public async Task SubmitPlan_WhenTheWorkOrderWasCancelled_IsAStateConflict_NotADomainException_AndWritesNothing()
+    {
+        var (workOrder, correctiveAction) = Ready();
+        workOrder.Cancel("No longer needed.");
+
+        var result = await _service.SubmitPlanAsync(TeamLeadContext(), correctiveAction.Id, workOrder.RowVersion, "Plan.", _planFileAssetId, CancellationToken.None);
+
+        Assert.Equal(CommandFailure.StateConflict, result.Error!.Failure);
+        AssertNothingWritten();
+        Assert.Equal(CorrectiveActionStatus.Draft, correctiveAction.Status);
+        Assert.Equal(WorkOrderStatus.Cancelled, workOrder.Status);
+    }
+
+    [Fact]
+    public async Task ApprovePlan_WhenTheWorkOrderWasCancelled_IsAStateConflict_NotADomainException_AndWritesNothing()
+    {
+        var (workOrder, correctiveAction) = Ready();
+        correctiveAction.SubmitPlan(_teamLeadId, "Plan.", _planFileAssetId);
+        workOrder.SubmitCorrectivePlan();
+        workOrder.Cancel("No longer needed.");
+
+        var result = await _service.ApprovePlanAsync(SupervisorContext(), correctiveAction.Id, workOrder.RowVersion, CancellationToken.None);
+
+        Assert.Equal(CommandFailure.StateConflict, result.Error!.Failure);
+        AssertNothingWritten();
+        Assert.Equal(CorrectiveActionStatus.PendingPlanApproval, correctiveAction.Status);
+        Assert.Equal(WorkOrderStatus.Cancelled, workOrder.Status);
+    }
+
+    [Fact]
+    public async Task ScheduleRework_WhenTheWorkOrderWasCancelled_IsAStateConflict_AndCreatesNoVisit()
+    {
+        var (workOrder, correctiveAction) = ApprovedReady();
+        workOrder.Cancel("No longer needed.");
+
+        var result = await ScheduleRework(correctiveAction.Id, correctiveAction.RowVersion);
+
+        Assert.Equal(CommandFailure.StateConflict, result.Error!.Failure);
+        AssertNothingWritten();
+        Assert.Empty(_store.AddedVisits);
+        Assert.Null(correctiveAction.CorrectiveServiceVisitId);
+        Assert.Equal(CorrectiveActionStatus.Approved, correctiveAction.Status);
+    }
+
     // ---------------- Submit Plan: validation ----------------
 
     [Theory]

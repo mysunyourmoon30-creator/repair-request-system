@@ -15,6 +15,8 @@ import { CostSummary, WorkOrderService } from './work-order.service';
  * button (ACC-API-001) is shown only when the signed-in user is REQUESTER and their own id matches
  * `workOrder.acceptanceContactId`, while the Work Order awaits Customer Acceptance — pure UX convenience; the
  * backend re-derives and re-checks the caller's identity on every request regardless (never trusts the button).
+ * Cancel Work Order (`docs/13` §4.25) is shown to a Supervisor while the status is non-terminal/pre-Accept; the
+ * backend always re-checks role, state and the "no active Service Visit" guard regardless.
  */
 @Component({
   selector: 'app-work-order-detail',
@@ -59,10 +61,24 @@ import { CostSummary, WorkOrderService } from './work-order.service';
           <dt>Rework Visit</dt>
           <dd>{{ workOrder.correctiveServiceVisitId }}</dd>
         }
+        @if (workOrder.cancelReason !== null) {
+          <dt>Cancel Reason</dt>
+          <dd>{{ workOrder.cancelReason }}</dd>
+        }
       </dl>
 
       @if (canClose(workOrder)) {
         <button type="button" [disabled]="submitting()" (click)="onClose(workOrder)">Close Work Order</button>
+      }
+
+      @if (canCancel(workOrder)) {
+        <details>
+          <summary>Cancel Work Order</summary>
+          <form (submit)="onCancel($event, workOrder, cancelWoReason)">
+            <label>Reason <input #cancelWoReason type="text" required /></label>
+            <button type="submit" [disabled]="submitting()">Cancel Work Order</button>
+          </form>
+        </details>
       }
 
       @if (canSubmitCorrectivePlan(workOrder)) {
@@ -345,6 +361,53 @@ export class WorkOrderDetailComponent {
       error: (response: HttpErrorResponse) => {
         this.submitting.set(false);
         this.actionError.set(this.describeClose(response));
+
+        if (response.status === 409) {
+          this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });
+        }
+      },
+    });
+  }
+
+  /** ST-WO-011's own non-terminal, pre-Accept source statuses (`docs/13` §4.25) — mirrors the backend's transition matrix exactly. */
+  private static readonly CANCELLABLE_STATUSES = new Set([
+    'OPEN',
+    'SCHEDULED',
+    'IN_PROGRESS',
+    'AWAITING_SUPERVISOR_REVIEW',
+    'AWAITING_CUSTOMER_ACCEPTANCE',
+    'CORRECTIVE_ACTION_REQUIRED',
+    'CORRECTIVE_PLAN_PENDING',
+    'CORRECTIVE_PLAN_APPROVED',
+  ]);
+
+  /** UX only — `docs/13` §4.25. The backend always re-checks role, state and the "no active Service Visit" guard regardless. */
+  protected canCancel(workOrder: WorkOrder): boolean {
+    return WorkOrderDetailComponent.CANCELLABLE_STATUSES.has(workOrder.status) && getCurrentUserRoles().includes('SUPERVISOR');
+  }
+
+  /**
+   * WO-API-011 Cancel (`docs/13` §4.25). A 409 (already terminal, or a Service Visit still in progress) reloads
+   * the current Work Order, since the held ETag can no longer match once either has changed — the same pattern
+   * `onClose`/`onReject` already use.
+   */
+  protected onCancel(event: Event, workOrder: WorkOrder, reason: HTMLInputElement): void {
+    event.preventDefault();
+    if (this.submitting()) {
+      return;
+    }
+
+    this.submitting.set(true);
+    this.actionError.set(null);
+
+    this.workOrders.cancel(workOrder.workOrderId, this.quoted(workOrder.rowVersion), { reason: reason.value }).subscribe({
+      next: (updated) => {
+        this.workOrder.set(updated);
+        this.submitting.set(false);
+      },
+      error: (response: HttpErrorResponse) => {
+        this.submitting.set(false);
+        this.actionError.set(this.describe(response));
 
         if (response.status === 409) {
           this.workOrders.get(workOrder.workOrderId).subscribe({ next: (current) => this.workOrder.set(current), error: () => undefined });

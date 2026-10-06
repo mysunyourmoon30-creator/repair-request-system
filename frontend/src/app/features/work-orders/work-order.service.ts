@@ -192,6 +192,14 @@ export class WorkOrderService {
   }
 
   /**
+   * WO-API-011 Cancel Work Order (ST-WO-011; UC-WO-026; Supervisor only; `docs/13` §4.25). `reason` is required.
+   * `ifMatch` is the Work Order's own `rowVersion` (Cancel changes its status).
+   */
+  cancel(workOrderId: string, ifMatch: string, body: ReasonOnlyRequest): Observable<WorkOrder> {
+    return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/cancel`, body, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /**
    * CA-API-001 Submit Plan (ST-CA-002; Team Lead only; `docs/13` §4.21). `ifMatch` is the linked Work Order's own
    * `rowVersion` (from `workOrder.rowVersion` on first submit, or the previous response's `workOrderRowVersion`).
    */

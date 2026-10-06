@@ -181,6 +181,15 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string CorrectiveActionScheduleRework = "CorrectiveAction.ScheduleRework";
 
+    /// <summary>
+    /// Cancel a Work Order before Customer Accept (ST-WO-011; WO-API-011; BR-09/BR-12; `docs/13` §4.25).
+    /// Supervisor only, per UC-WO-026's own Primary Actor, ST-WO-011's Actor and `docs/09` WO-API-011's Actor
+    /// column — three independent baseline sources agreeing. Role gate only; site scope (<see
+    /// cref="IDataScope.WorkOrders"/>), the non-terminal/pre-Accept state guard and the "no Service Visit
+    /// currently IN_PROGRESS" guard are enforced by the Application service.
+    /// </summary>
+    public const string WorkOrderCancel = "WorkOrder.Cancel";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -228,7 +237,8 @@ public static class AuthorizationPolicies
             [WorkOrderClose] = [RoleCodes.Supervisor],
             [CorrectiveActionSubmitPlan] = [RoleCodes.TeamLead],
             [CorrectiveActionApprovePlan] = [RoleCodes.Supervisor],
-            [CorrectiveActionScheduleRework] = [RoleCodes.Coordinator]
+            [CorrectiveActionScheduleRework] = [RoleCodes.Coordinator],
+            [WorkOrderCancel] = [RoleCodes.Supervisor]
         };
 }
 

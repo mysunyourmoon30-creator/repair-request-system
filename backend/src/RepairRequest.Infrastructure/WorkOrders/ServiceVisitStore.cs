@@ -63,7 +63,7 @@ internal sealed class ServiceVisitStore : IServiceVisitStore
             from visit in _db.ServiceVisits
             join workOrder in scopedWorkOrders on visit.WorkOrderId equals workOrder.Id
             where visit.Id == serviceVisitId
-            select new { Visit = visit, WorkOrderId = workOrder.Id, workOrder.TenantId, workOrder.RepairRequestId })
+            select new { Visit = visit, WorkOrderId = workOrder.Id, workOrder.TenantId, workOrder.RepairRequestId, WorkOrderStatus = workOrder.Status })
             .SingleOrDefaultAsync(cancellationToken);
 
         if (row is null)
@@ -76,7 +76,7 @@ internal sealed class ServiceVisitStore : IServiceVisitStore
             .Select(request => request.SiteId)
             .SingleOrDefaultAsync(cancellationToken);
 
-        return new ServiceVisitForManage(row.Visit, row.TenantId, row.WorkOrderId, siteId);
+        return new ServiceVisitForManage(row.Visit, row.TenantId, row.WorkOrderId, siteId, row.WorkOrderStatus);
     }
 
     public Task<bool> IsTechnicianEligibleAsync(Guid tenantId, Guid technicianId, Guid siteId, CancellationToken cancellationToken) =>

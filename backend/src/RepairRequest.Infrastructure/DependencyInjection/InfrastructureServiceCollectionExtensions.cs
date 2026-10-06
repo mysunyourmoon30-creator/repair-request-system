@@ -98,6 +98,9 @@ public static class InfrastructureServiceCollectionExtensions
         // Work Order Close persistence port (ST-WO-006; WO-API-010); `docs/13` §4.20.
         services.AddScoped<IWorkOrderCloseStore, WorkOrderCloseStore>();
 
+        // Work Order Cancel persistence port (ST-WO-011; WO-API-011); `docs/13` §4.25.
+        services.AddScoped<IWorkOrderCancelStore, WorkOrderCancelStore>();
+
         // Corrective Action Submit Plan / Approve Plan persistence port; `docs/13` §4.21.
         services.AddScoped<ICorrectiveActionStore, CorrectiveActionStore>();
 

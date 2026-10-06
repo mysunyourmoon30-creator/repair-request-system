@@ -5,8 +5,11 @@ using RepairRequest.Domain.WorkOrders;
 
 namespace RepairRequest.Application.WorkOrders;
 
-/// <summary>A Service Visit loaded for a visit-scoped action, with its tenant and its Work Order's Repair Request's Site.</summary>
-public sealed record ServiceVisitForManage(ServiceVisit Visit, Guid TenantId, Guid WorkOrderId, Guid? SiteId);
+/// <summary>
+/// A Service Visit loaded for a visit-scoped action, with its tenant, its Work Order's Repair Request's Site and its
+/// Work Order's current status (`docs/13` §4.25: Decide Missed is denied once the Work Order is CANCELLED).
+/// </summary>
+public sealed record ServiceVisitForManage(ServiceVisit Visit, Guid TenantId, Guid WorkOrderId, Guid? SiteId, WorkOrderStatus WorkOrderStatus);
 
 /// <summary>
 /// Persistence port for the Service Visit actions (S2-003; ST-SV-004..009): Reschedule, Reassign, Cancel, Mark
