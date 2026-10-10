@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 import { getCurrentUserId, getCurrentUserRoles } from '../../core/auth/current-user-role';
 import { MISSED_VISIT_DECISIONS, ServiceVisit, WorkOrder } from './work-order.models';
+import { WorkOrderTimelineComponent } from './work-order-timeline.component';
 import { CostSummary, WorkOrderService } from './work-order.service';
 
 /**
@@ -17,11 +18,13 @@ import { CostSummary, WorkOrderService } from './work-order.service';
  * backend re-derives and re-checks the caller's identity on every request regardless (never trusts the button).
  * Cancel Work Order (`docs/13` §4.25) is shown to a Supervisor while the status is non-terminal/pre-Accept; the
  * backend always re-checks role, state and the "no active Service Visit" guard regardless.
+ * The Timeline (`docs/15`, AUD-API-001) is a separate component rendered below the Service Visits and reloaded whenever the
+ * Work Order's `rowVersion` changes.
  */
 @Component({
   selector: 'app-work-order-detail',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, WorkOrderTimelineComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <p><a routerLink="/work-orders">&larr; Back to Work Orders</a></p>
@@ -237,6 +240,8 @@ import { CostSummary, WorkOrderService } from './work-order.service';
           </article>
         }
       }
+
+      <app-work-order-timeline [workOrderId]="workOrder.workOrderId" [refreshKey]="workOrder.rowVersion" />
 
       @if (actionError()) {
         <p role="alert">{{ actionError() }}</p>

@@ -957,3 +957,10 @@ Pre-implementation decisions for S2-001 "Work Order List", resolving the open it
 | DEC-S2-001-05 | Work Order creation ("Convert", `ST-RR-008`/`UC-WO-001`), Schedule and Reassign are explicitly out of scope for S2-001. The `work_order` table is therefore empty in production until a future Convert ticket is implemented. Automated tests for S2-001 seed `RepairRequest`/`WorkOrder` rows directly through EF Core, bypassing the not-yet-built Convert command — the same direct-seeding approach already used for Customer test fixtures (`CustomerEndpointsTests`). | `docs/14` §1; Portfolio Project Owner scope directive, 17 September 2026 |
 
 **Section 11 conclusion:** These decisions resolve `docs/14`'s four open items for S2-001 scope only; they do not implement Convert, Schedule, Service Visit or Reassign, and do not resolve `DEC-PS1-001`'s open Customer:Tenant cardinality question. No `docs/01`–`docs/11` baseline file is modified by this section.
+
+
+---
+
+## 12. UC-WO-002 / AUD-API-001 Work Order timeline — pointer to `docs/15`
+
+The Portfolio Project Owner decisions **D1–D12** for the Work Order timeline (UC-WO-002; AUD-API-001; FR-09) — endpoint scope (`WORK_ORDER` only), composition, readers (the `WorkOrder.Read` roles), payload allowlist and redaction, actor kinds, keyset cursor, read-audit, time display, correlation id, the performance profile (k6 evidence, not a CI gate) and the no-schema-change data-model decision — are recorded in `docs/15_UC-WO-002_Work_Order_Timeline_Audit_Decision_Sheet_v1.0.md` (RR-DEC-UC-WO-002 v1.1; spike results in its §11, implementation evidence in its §12, performance acceptance and audit in its §13). They are approved decisions and technical additions layered on the baseline, **not baseline requirements**: the baseline fixes only the AUD-API-001 path, method and the actor "Authorized". The contract as implemented is in `docs/13` §4.26. This pointer changes no business semantics and no earlier decision.

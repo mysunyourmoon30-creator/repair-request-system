@@ -85,4 +85,44 @@ describe('WorkOrderService', () => {
     service.decideMissed('visit-1', '"vv1"', { decision: 'NO_FOLLOW_UP', reason: 'done', newSchedule: null }).subscribe();
     httpMock.expectOne(`${visitsBaseUrl}/visit-1/missed-decision`).flush({});
   });
+
+  // ---------------- AUD-API-001 Work Order timeline (`docs/15`) ----------------
+
+  const timelineUrl = (id: string) => `${environment.apiBaseUrl}/v1/entities/WORK_ORDER/${id}/timeline`;
+
+  it('requests the first timeline page with no cursor and no pageSize by default', () => {
+    service.getTimeline('wo-1').subscribe();
+
+    const req = httpMock.expectOne((request) => request.url === timelineUrl('wo-1'));
+    expect(req.request.method).toBe('GET');
+    expect(req.request.params.keys()).toEqual([]);
+    req.flush({ items: [], nextCursor: null, hasMore: false });
+  });
+
+  it('passes the opaque cursor and the page size through unchanged', () => {
+    service.getTimeline('wo-1', 'opaque-cursor_-Az09', 50).subscribe();
+
+    const req = httpMock.expectOne((request) => request.url === timelineUrl('wo-1'));
+    expect(req.request.params.get('cursor')).toBe('opaque-cursor_-Az09');
+    expect(req.request.params.get('pageSize')).toBe('50');
+    req.flush({ items: [], nextCursor: null, hasMore: false });
+  });
+
+  it('omits an empty or null cursor', () => {
+    service.getTimeline('wo-1', null).subscribe();
+    httpMock.expectOne((request) => request.url === timelineUrl('wo-1') && !request.params.has('cursor')).flush({ items: [], nextCursor: null, hasMore: false });
+
+    service.getTimeline('wo-1', '').subscribe();
+    httpMock.expectOne((request) => request.url === timelineUrl('wo-1') && !request.params.has('cursor')).flush({ items: [], nextCursor: null, hasMore: false });
+  });
+
+  it('is read-only: the timeline is only ever requested with GET and sends no body or If-Match', () => {
+    service.getTimeline('wo-1', 'c').subscribe();
+
+    const req = httpMock.expectOne((request) => request.url === timelineUrl('wo-1'));
+    expect(req.request.method).toBe('GET');
+    expect(req.request.body).toBeNull();
+    expect(req.request.headers.has('If-Match')).toBe(false);
+    req.flush({ items: [], nextCursor: null, hasMore: false });
+  });
 });

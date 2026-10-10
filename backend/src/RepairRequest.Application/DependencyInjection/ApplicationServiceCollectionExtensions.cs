@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using RepairRequest.Application.Approvals;
 using RepairRequest.Application.Attachments;
+using RepairRequest.Application.Audit;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.WorkOrders;
@@ -75,6 +76,9 @@ public static class ApplicationServiceCollectionExtensions
 
         // Work Order Cancel (ST-WO-011; WO-API-011; UC-WO-026; Supervisor only); `docs/13` §4.25.
         services.AddScoped<WorkOrderCancelService>();
+
+        // Work Order timeline (UC-WO-002; AUD-API-001); `docs/15`.
+        services.AddScoped<AuditTimelineService>();
 
         return services;
     }

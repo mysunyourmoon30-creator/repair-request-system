@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using RepairRequest.Application.Approvals;
 using RepairRequest.Application.Attachments;
+using RepairRequest.Application.Audit;
 using RepairRequest.Application.Authentication;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
@@ -12,6 +13,7 @@ using RepairRequest.Application.Security;
 using RepairRequest.Application.WorkOrders;
 using RepairRequest.Infrastructure.Approvals;
 using RepairRequest.Infrastructure.Attachments;
+using RepairRequest.Infrastructure.Audit;
 using RepairRequest.Infrastructure.Authentication;
 using RepairRequest.Infrastructure.Authorization;
 using RepairRequest.Infrastructure.Files;
@@ -100,6 +102,10 @@ public static class InfrastructureServiceCollectionExtensions
 
         // Work Order Cancel persistence port (ST-WO-011; WO-API-011); `docs/13` §4.25.
         services.AddScoped<IWorkOrderCancelStore, WorkOrderCancelStore>();
+
+        // Work Order timeline (UC-WO-002; AUD-API-001) read port; `docs/15`.
+        services.AddScoped<IAuditTimelineStore, AuditTimelineStore>();
+        services.AddSingleton<ITimelineCursorProtector, TimelineCursorProtector>();
 
         // Corrective Action Submit Plan / Approve Plan persistence port; `docs/13` §4.21.
         services.AddScoped<ICorrectiveActionStore, CorrectiveActionStore>();
