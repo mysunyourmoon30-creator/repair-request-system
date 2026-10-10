@@ -1,14 +1,27 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { Component, input } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ActivatedRoute, convertToParamMap, provideRouter } from '@angular/router';
 import { environment } from '../../../environments/environment';
 import { WorkOrder } from './work-order.models';
 import { WorkOrderDetailComponent } from './work-order-detail.component';
+import { WorkOrderTimelineComponent } from './work-order-timeline.component';
 
 function tokenWithPayload(payload: Record<string, unknown>): string {
   const base64url = (value: string) => btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   return `${base64url('{"alg":"HS256"}')}.${base64url(JSON.stringify(payload))}.signature`;
+}
+
+/**
+ * The real Timeline issues its own GET on every detail load and every rowVersion change; the detail specs below exercise the
+ * detail page's own commands, so they render this inert stand-in (the real component is covered by
+ * `work-order-timeline.component.spec.ts` and `work-order-detail-timeline.spec.ts`).
+ */
+@Component({ selector: 'app-work-order-timeline', standalone: true, template: '' })
+class StubTimelineComponent {
+  readonly workOrderId = input<string>();
+  readonly refreshKey = input<string | null>(null);
 }
 
 describe('WorkOrderDetailComponent', () => {
@@ -70,6 +83,10 @@ describe('WorkOrderDetailComponent', () => {
           useValue: { snapshot: { paramMap: convertToParamMap(id ? { id } : {}) } },
         },
       ],
+    });
+    TestBed.overrideComponent(WorkOrderDetailComponent, {
+      remove: { imports: [WorkOrderTimelineComponent] },
+      add: { imports: [StubTimelineComponent] },
     });
     httpMock = TestBed.inject(HttpTestingController);
     return TestBed.createComponent(WorkOrderDetailComponent);

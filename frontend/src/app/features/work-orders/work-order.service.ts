@@ -3,6 +3,7 @@ import { Injectable, inject } from '@angular/core';
 import { Observable } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { PagedResponse, WorkOrder } from './work-order.models';
+import { AuditTimelinePage } from './work-order-timeline.models';
 
 export interface ScheduleWorkOrderRequest {
   ownerTeamId: string;
@@ -189,6 +190,24 @@ export class WorkOrderService {
    */
   close(workOrderId: string, ifMatch: string): Observable<WorkOrder> {
     return this.http.post<WorkOrder>(`${this.baseUrl}/${workOrderId}/close`, null, { headers: { 'If-Match': ifMatch } });
+  }
+
+  /**
+   * AUD-API-001 Work Order timeline (UC-WO-002; `docs/15`): newest first, keyset-paged. Omit `cursor` for the first page;
+   * pass the previous page's `nextCursor` (an opaque value, never built or parsed by the client) for the next one.
+   * Read-only; role and Site scope are enforced by the backend (403 / one identical 404).
+   */
+  getTimeline(workOrderId: string, cursor?: string | null, pageSize?: number): Observable<AuditTimelinePage> {
+    let params = new HttpParams();
+    if (pageSize !== undefined) {
+      params = params.set('pageSize', pageSize);
+    }
+
+    if (cursor) {
+      params = params.set('cursor', cursor);
+    }
+
+    return this.http.get<AuditTimelinePage>(`${environment.apiBaseUrl}/v1/entities/WORK_ORDER/${workOrderId}/timeline`, { params });
   }
 
   /**

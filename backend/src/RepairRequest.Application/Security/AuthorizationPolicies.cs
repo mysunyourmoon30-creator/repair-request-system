@@ -190,6 +190,14 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string WorkOrderCancel = "WorkOrder.Cancel";
 
+    /// <summary>
+    /// Read a Work Order's timeline (UC-WO-002; AUD-API-001; `docs/15` D3). The same roles as <see cref="WorkOrderRead"/> —
+    /// REQUESTER (own Work Orders only), APPROVER, COORDINATOR, TEAM_LEAD, SUPERVISOR; TECHNICIAN and ADMINISTRATOR are denied.
+    /// Role gate only: tenant, Site and REQUESTER ownership scope (<see cref="IDataScope.WorkOrders"/>) are enforced by the
+    /// Application service, and the baseline gives AUD-API-001 only the actor "Authorized".
+    /// </summary>
+    public const string AuditTimelineRead = "Audit.TimelineRead";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -238,7 +246,15 @@ public static class AuthorizationPolicies
             [CorrectiveActionSubmitPlan] = [RoleCodes.TeamLead],
             [CorrectiveActionApprovePlan] = [RoleCodes.Supervisor],
             [CorrectiveActionScheduleRework] = [RoleCodes.Coordinator],
-            [WorkOrderCancel] = [RoleCodes.Supervisor]
+            [WorkOrderCancel] = [RoleCodes.Supervisor],
+            [AuditTimelineRead] =
+            [
+                RoleCodes.Requester,
+                RoleCodes.Approver,
+                RoleCodes.Coordinator,
+                RoleCodes.TeamLead,
+                RoleCodes.Supervisor
+            ]
         };
 }
 

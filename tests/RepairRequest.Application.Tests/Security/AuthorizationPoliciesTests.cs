@@ -44,7 +44,8 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.CorrectiveActionSubmitPlan, [RoleCodes.TeamLead] },
         { AuthorizationPolicies.CorrectiveActionApprovePlan, [RoleCodes.Supervisor] },
         { AuthorizationPolicies.CorrectiveActionScheduleRework, [RoleCodes.Coordinator] },
-        { AuthorizationPolicies.WorkOrderCancel, [RoleCodes.Supervisor] }
+        { AuthorizationPolicies.WorkOrderCancel, [RoleCodes.Supervisor] },
+        { AuthorizationPolicies.AuditTimelineRead, [RoleCodes.Requester, RoleCodes.Approver, RoleCodes.Coordinator, RoleCodes.TeamLead, RoleCodes.Supervisor] }
     };
 
     [Theory]
@@ -57,7 +58,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(31, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(32, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -230,6 +231,17 @@ public class AuthorizationPoliciesTests
         // ST-WO-011; WO-API-011; UC-WO-026; BR-09/BR-12; `docs/13` §4.25 — three independent baseline sources
         // (UC-WO-026's Primary Actor, ST-WO-011's Actor, docs/09 WO-API-011's Actor) all agree: Supervisor alone.
         Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderCancel]);
+    }
+
+    [Fact]
+    public void AuditTimelineRead_HasTheSameRolesAsWorkOrderRead_AndExcludesTechnicianAndAdministrator()
+    {
+        // UC-WO-002; AUD-API-001; `docs/15` D3: the timeline is readable by exactly the Work Order read roles.
+        Assert.Equal(
+            AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderRead],
+            AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.AuditTimelineRead]);
+        Assert.DoesNotContain(RoleCodes.Technician, AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.AuditTimelineRead]);
+        Assert.DoesNotContain(RoleCodes.Administrator, AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.AuditTimelineRead]);
     }
 
     [Fact]
