@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using RepairRequest.Application.Approvals;
 using RepairRequest.Application.Common;
+using RepairRequest.Application.Sla;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
@@ -17,8 +18,9 @@ namespace RepairRequest.Application.RepairRequests;
 /// duplicate key: duplicate warning (422 with count only) or Request No + transition + audit (409 on concurrency or lock
 /// timeout). The duplicate query never runs for an invalid request, and concurrent Submits of different matching Drafts
 /// cannot both pass it without a continuation reason.
-/// Successful Submit records <c>submitted_at</c> as the SLA start marker only; no notification or SLA calculation happens
-/// here. Right after the Submit commit, System routing (ST-RR-003, S1-007R) runs in its own transaction: the response
+/// A successful first Submit also starts the SLA record (`docs/16` D5-D7; <c>sla_record</c>, started at <c>submitted_at</c>,
+/// SLA-004/v1) and its SLA_STARTED audit row in the same transaction; a Resubmit never starts one, and no notification or
+/// breach evaluation happens here. Right after the Submit commit, System routing (ST-RR-003, S1-007R) runs in its own transaction: the response
 /// reflects the final state, UNDER_REVIEW when an approver was assigned or SUBMITTED otherwise
 /// (DEC-PRE-S1-007R-01). A routing failure or error never rolls back or fails the committed Submit.
 /// </summary>
@@ -30,6 +32,7 @@ public sealed class RepairRequestSubmitService
     private readonly IRepairRequestDraftStore _drafts;
     private readonly IRepairRequestSubmitStore _submits;
     private readonly ISubmittedRequestRouter _router;
+    private readonly ISlaRecordStore _sla;
     private readonly TimeProvider _clock;
     private readonly ILogger<RepairRequestSubmitService> _logger;
 
@@ -37,12 +40,14 @@ public sealed class RepairRequestSubmitService
         IRepairRequestDraftStore drafts,
         IRepairRequestSubmitStore submits,
         ISubmittedRequestRouter router,
+        ISlaRecordStore sla,
         TimeProvider clock,
         ILogger<RepairRequestSubmitService> logger)
     {
         _drafts = drafts;
         _submits = submits;
         _router = router;
+        _sla = sla;
         _clock = clock;
         _logger = logger;
     }
@@ -125,6 +130,10 @@ public sealed class RepairRequestSubmitService
                 }
 
                 request.Submit(RequestNumber.Format(now.Year, sequence!.Value), context.User.UserId, now, appliedReason);
+
+                // First Submit only: the SLA record and its audit are staged in the same unit of work as the transition,
+                // so the store's single save persists them together or not at all.
+                SlaLifecycle.Start(_sla, context, request.TenantId, request.Id, request.SubmittedAt!.Value);
                 return RepairRequestAudit.Submitted(context, request, duplicateCount, now);
             },
             cancellationToken);

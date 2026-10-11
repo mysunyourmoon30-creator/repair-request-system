@@ -10,7 +10,7 @@ Documentation only. This sheet records Portfolio Project Owner decisions **D1–
 |---|---|
 | Document ID | RR-DEC-V1-S5 |
 | Version | 1.0 |
-| Status | Owner decisions D1–D8 and OD1–OD7 recorded (11 October 2026); documentation only; not yet committed. No owner decision remains open in this sheet (§10). |
+| Status | Owner decisions D1–D8 and OD1–OD7 recorded (11 October 2026); documentation only; committed and merged to `main` through PR #23 (merge `38e45fca…`). No owner decision remains open in this sheet (§10). Sprint 5 progress status (§6) is maintained by the ticket changes that deliver each ticket; the Ticket 3 status was updated by the SLA Record Foundation change. |
 | Revision Date | 11 October 2026 |
 | Revision history | v1.0 — Sprint 5 Ticket 2 draft (D1–D8) and owner-review revision (OD1–OD7 closed; Ticket 4 renamed to include the Service Report; completion terminology split into "V1 scope-complete" and "production-ready"; concurrency wording generalised; `docs/15` status correction recorded), both 11 October 2026. |
 | Baseline commit | `9eb05a7e5fbc41ffa569b931a18ca4b33dbbd91b` (`main`, merge of PR #22) |
@@ -21,7 +21,7 @@ Documentation only. This sheet records Portfolio Project Owner decisions **D1–
 
 **Revision rule (same as `docs/12`, `docs/14`, `docs/15`).** This document does not change any locked business semantics and modifies no baseline PDF (`docs/00`–`docs/11`, RR-ARCH-001). Statements the baseline makes are cited by document and page (or section where the page is not meaningful); page numbers are the printed "Page x / y" footers of the extracted PDF text, which can differ from the physical page by the leading revision page (the same caveat as `docs/15`). Statements fixed by the owner on top of the baseline are marked **OWNER DECISION**. Anything this sheet proposes but the owner has not approved is marked **OWNER-PROPOSED** (only the Sprint 5 size estimates in §6 carry that label). **"Sprint 5", "V1" and "Service Report" are owner delivery terms, not baseline terms:** the baseline PDFs contain no Sprint 1–5 definition (the only "Sprint" mentions are "Sprint 0 foundation" in `docs/00` p.2 and RR-ARCH-001 §23, and "Sprint planning after technical baseline approval" in `docs/10` p.14) and no "Service Report"; "V1" occurs only inside document version labels such as "v1.6" (confirmed by search of the extracted text of `docs/00`–`docs/11` and RR-ARCH-001; `docs/13` §4.21 Decision (e) records the same finding).
 
-**Scope note.** Sprint 5 contains exactly **four** tickets (§6). Ticket 1 is DONE; this sheet is Ticket 2 (in review). Tickets 3 and 4 are not started, and no evidence or SLA implementation exists.
+**Scope note.** Sprint 5 contains exactly **four** tickets (§6). Ticket 1 is DONE; this sheet is Ticket 2 (DONE, PR #23). Ticket 3 (SLA Record Foundation) is delivered by the change that contains this wording; Ticket 4 is NOT STARTED and no evidence implementation exists. `main` before the Ticket 3 change is **2/4**; once the Ticket 3 change is merged Sprint 5 is **3/4**. (Status updated for Ticket 3; the decisions above are unchanged.)
 
 ---
 
@@ -163,11 +163,11 @@ Ticket names are owner-approved labels, not baseline IDs. Sizes are **OWNER-PROP
 | # | Ticket | Status | Size | Depends on |
 |---|---|---|---|---|
 | 1 | UC-WO-002 / AUD-API-001 — Work Order Timeline & Audit | **DONE** (PR #22, merge `9eb05a7e…`) | — | — |
-| 2 | V1 Scope + Service Report Decision + Docs Reconciliation (this sheet; `docs/12`, `docs/13`, `docs/15`) | **In review** (docs only) | S | 1 |
-| 3 | SLA Record Foundation | Not started | M | 2 |
-| 4 | Work Evidence + CLEAN Evidence Guard + Service Report | Not started | L | 2 |
+| 2 | V1 Scope + Service Report Decision + Docs Reconciliation (this sheet; `docs/12`, `docs/13`, `docs/15`) | **DONE** (PR #23, merge `38e45fca…`) | S | 1 |
+| 3 | SLA Record Foundation | **Delivered by the change containing this documentation** (`docs/13` §4.27); DONE once that change is merged to `main` | M | 2 |
+| 4 | Work Evidence + CLEAN Evidence Guard + Service Report | **NOT STARTED** | L | 2 |
 
-**Completed 1 / 4.** No fifth ticket is created.
+**Sprint 5 progress.** `main` before the Ticket 3 change is **2 / 4** (Tickets 1 and 2 DONE). Ticket 3 is delivered by the change that contains this documentation; once that change is merged, Sprint 5 is **3 / 4**. Ticket 4 is NOT STARTED. No fifth ticket is created.
 
 **Ticket 3 scope (D5–D7, D8, OD6).** A `sla_record` is created for each **new** Repair Request Submit with `startedAt`, `originalDueAt = startedAt + 24 h`, `riskAt = dueAt − 4 h` (UTC) and `sla_policy_version = 'SLA-004/v1'` (OD6); the SLA stops (once, immutably, with the reason REQUEST_REJECTED / REQUEST_CANCELLED / WO_CLOSED / WO_CANCELLED) when the first of Reject Repair Request, Cancel Repair Request, Close Work Order or Cancel Work Order occurs; a read endpoint (`SLA-API-001`, `docs/09` p.4) returns the record or `NOT_TRACKED_LEGACY`. Excluded: override, worker, breach evaluation, notification, backfill. Anything the owner decisions do not state (§10.2) is not adopted.
 

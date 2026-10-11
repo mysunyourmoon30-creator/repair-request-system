@@ -5,6 +5,7 @@ using RepairRequest.Application.Tests.MasterData;
 using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
+using RepairRequest.Application.Tests.Sla;
 
 namespace RepairRequest.Application.Tests.RepairRequests;
 
@@ -20,6 +21,7 @@ public class RepairRequestResubmitServiceTests
     private static readonly DateTime FirstSubmittedAt = new(2026, 9, 15, 8, 0, 0, DateTimeKind.Utc);
     private static readonly DateTime Start = new(2026, 9, 20, 8, 0, 0, DateTimeKind.Utc);
 
+    private readonly FakeSlaRecordStore _sla = new();
     private readonly FakeRepairRequestDraftStore _drafts = new();
     private readonly FakeRepairRequestSubmitStore _submits = new();
     private readonly FakeSubmittedRequestRouter _router = new();
@@ -28,7 +30,7 @@ public class RepairRequestResubmitServiceTests
 
     public RepairRequestResubmitServiceTests()
     {
-        _service = new RepairRequestSubmitService(_drafts, _submits, _router, new FixedClock(Now), NullLogger<RepairRequestSubmitService>.Instance);
+        _service = new RepairRequestSubmitService(_drafts, _submits, _router, _sla, new FixedClock(Now), NullLogger<RepairRequestSubmitService>.Instance);
         _drafts.Categories["ELECTRICAL"] = MasterDataStatus.Active;
         _drafts.Priorities["HIGH"] = MasterDataStatus.Active;
     }
@@ -150,5 +152,18 @@ public class RepairRequestResubmitServiceTests
         Assert.Empty(_submits.Audits);
         Assert.Empty(_submits.Counters);
         Assert.Empty(_router.RoutedRequestIds);
+    }
+
+    [Fact]
+    public async Task Resubmit_NeverStartsOrRestartsTheSla_BecauseTheOriginalSlaContinues()
+    {
+        var (owner, request) = ReturnedDraft();
+
+        var result = await SubmitAsync(owner, request);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(_sla.Started);
+        Assert.Empty(_sla.Stops);
+        Assert.Equal(RepairRequestAudit.ResubmittedAction, Assert.Single(_submits.Audits).ActionCode);
     }
 }

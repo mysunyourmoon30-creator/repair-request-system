@@ -734,6 +734,9 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("AK_repair_request_tenant_id_repair_request_id");
+
                     b.HasIndex("SiteId", "EquipmentId");
 
                     b.HasIndex("TenantId", "CreatedBy");
@@ -869,6 +872,75 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                     b.ToTable("request_priority", null, t =>
                         {
                             t.HasCheckConstraint("CK_request_priority_status", "[status] IN ('ACTIVE', 'INACTIVE')");
+                        });
+                });
+
+            modelBuilder.Entity("RepairRequest.Domain.Sla.SlaRecord", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("sla_record_id");
+
+                    b.Property<DateTime>("OriginalDueAt")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("original_due_at");
+
+                    b.Property<Guid>("RepairRequestId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("repair_request_id");
+
+                    b.Property<DateTime>("RiskAt")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("risk_at");
+
+                    b.Property<string>("SlaPolicyVersion")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(30)")
+                        .HasColumnName("sla_policy_version");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("started_at");
+
+                    b.Property<string>("StopReason")
+                        .HasMaxLength(30)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(30)")
+                        .HasColumnName("stop_reason");
+
+                    b.Property<DateTime?>("StoppedAt")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("stopped_at");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("RepairRequestId")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_sla_record_repair_request_id");
+
+                    b.HasIndex("TenantId", "RepairRequestId");
+
+                    b.ToTable("sla_record", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_sla_record_due_after_start", "[original_due_at] = DATEADD(hour, 24, [started_at])");
+
+                            t.HasCheckConstraint("CK_sla_record_risk_before_due", "[risk_at] = DATEADD(hour, -4, [original_due_at])");
+
+                            t.HasCheckConstraint("CK_sla_record_stop_pair", "([stopped_at] IS NULL AND [stop_reason] IS NULL) OR ([stopped_at] IS NOT NULL AND [stop_reason] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_sla_record_stop_reason", "[stop_reason] IS NULL OR [stop_reason] IN ('REQUEST_REJECTED', 'REQUEST_CANCELLED', 'WO_CLOSED', 'WO_CANCELLED')");
+
+                            t.HasCheckConstraint("CK_sla_record_stopped_after_start", "[stopped_at] IS NULL OR [stopped_at] >= [started_at]");
                         });
                 });
 
@@ -1970,6 +2042,17 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_request_attachment_repair_request");
+                });
+
+            modelBuilder.Entity("RepairRequest.Domain.Sla.SlaRecord", b =>
+                {
+                    b.HasOne("RepairRequest.Domain.RepairRequests.RepairRequest", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "RepairRequestId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_sla_record_repair_request");
                 });
 
             modelBuilder.Entity("RepairRequest.Domain.WorkOrders.CorrectiveAction", b =>

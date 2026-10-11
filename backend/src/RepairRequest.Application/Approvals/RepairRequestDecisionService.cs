@@ -1,8 +1,10 @@
 using RepairRequest.Application.Common;
 using RepairRequest.Application.RepairRequests;
+using RepairRequest.Application.Sla;
 using RepairRequest.Domain.Approvals;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequest.Domain.Security;
+using RepairRequest.Domain.Sla;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
 namespace RepairRequest.Application.Approvals;
@@ -21,17 +23,19 @@ namespace RepairRequest.Application.Approvals;
 /// </list>
 /// Success decides the approval step and moves the request to APPROVED, REJECTED (with reject_reason) or back to DRAFT
 /// (Return: the reason is the step's decision_reason and the step is kept as history), and writes one audit record with
-/// the approver as actor. Nothing is written on any failure. Decision notifications, the SLA stop on Reject and Work Order
-/// conversion are out of scope.
+/// the approver as actor. Reject also stops the SLA record (REQUEST_REJECTED) in the same transaction; Approve and Return do
+/// not. Nothing is written on any failure. Decision notifications and Work Order conversion are out of scope.
 /// </summary>
 public sealed class RepairRequestDecisionService
 {
     private readonly IRepairRequestDecisionStore _store;
+    private readonly ISlaRecordStore _sla;
     private readonly TimeProvider _clock;
 
-    public RepairRequestDecisionService(IRepairRequestDecisionStore store, TimeProvider clock)
+    public RepairRequestDecisionService(IRepairRequestDecisionStore store, ISlaRecordStore sla, TimeProvider clock)
     {
         _store = store;
+        _sla = sla;
         _clock = clock;
     }
 
@@ -145,6 +149,8 @@ public sealed class RepairRequestDecisionService
                 approval.Reject(decisionReason!, now);
                 request.Reject(decisionReason!);
                 _store.AddAudit(RepairRequestAudit.Rejected(context, request, approval, now));
+                await SlaLifecycle.StopAsync(
+                    _sla, _store.AddAudit, context, request.TenantId, request.Id, SlaStopReason.RequestRejected, now, cancellationToken);
                 break;
             default:
                 approval.ReturnForCorrection(decisionReason!, now);

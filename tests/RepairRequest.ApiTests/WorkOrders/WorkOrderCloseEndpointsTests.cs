@@ -14,6 +14,7 @@ using RepairRequest.Domain.WorkOrders;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence;
 using RepairRequest.Infrastructure.RepairRequests;
+using RepairRequest.Domain.Sla;
 
 namespace RepairRequest.ApiTests.WorkOrders;
 
@@ -29,7 +30,7 @@ public sealed class WorkOrderCloseApiFactory : AuthApiFactory
 /// only, within Site scope; the Work Order's own RowVersion is the If-Match token; Close needs COMPLETED, a
 /// current Work Summary that was reviewed (WO-008 set by ST-WO-004), the customer's ACCEPT on the HIGHEST
 /// acceptance round, and a reviewed Cost Summary. Any miss is 409 STATE_CONFLICT and writes nothing. Scope
-/// boundary per `docs/13` §4.20: no SLA stop (Q1), no extra Separation of Duties / Visit / Work Session /
+/// boundary per `docs/13` §4.20: the originating request's SLA record is stopped with WO_CLOSED in the same transaction (Q1, `docs/16` D6); no extra Separation of Duties / Visit / Work Session /
 /// Corrective Action guard (Q5), no Cancel, no Reopen, no notification.
 /// </summary>
 public sealed class WorkOrderCloseEndpointsTests : IClassFixture<WorkOrderCloseApiFactory>
@@ -758,5 +759,112 @@ public sealed class WorkOrderCloseEndpointsTests : IClassFixture<WorkOrderCloseA
         Assert.Equal(code, body.GetProperty("code").GetString());
         Assert.True(body.TryGetProperty("correlationId", out _));
         return body;
+    }
+
+    // ---------------- SLA stop (EV-SLA-005; docs/16 D6) ----------------
+
+    private const string SlaRecords = "/api/v1/sla-records";
+
+    private async Task<Guid> RequestIdOfAsync(Guid workOrderId) =>
+        (await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(item => item.Id == workOrderId))).RepairRequestId;
+
+    private async Task<List<JsonElement>> TimelineAsync(Caller caller, Guid workOrderId)
+    {
+        var items = new List<JsonElement>();
+        string? cursor = null;
+        do
+        {
+            var url = $"/api/v1/entities/WORK_ORDER/{workOrderId}/timeline" + (cursor is null ? "" : $"?cursor={Uri.EscapeDataString(cursor)}");
+            var response = await SendAsync(HttpMethod.Get, url, caller, null, null);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var page = await JsonAsync(response);
+            items.AddRange(page.GetProperty("items").EnumerateArray().Select(item => item.Clone()));
+            cursor = page.GetProperty("hasMore").GetBoolean() ? page.GetProperty("nextCursor").GetString() : null;
+        }
+        while (cursor is not null);
+
+        return items;
+    }
+
+    [Fact]
+    public async Task Close_StopsTheOriginatingRequestsSla_WithWoClosed_AtClosedAt_AndTheTimelineGainsOnlyTheCloseRow()
+    {
+        var w = await ReadyToCloseAsync();
+        var requestId = await RequestIdOfAsync(w.WorkOrderId);
+
+        var activeResponse = await SendAsync(HttpMethod.Get, $"{SlaRecords}/{requestId}", w.Owner, null, null);
+        Assert.Equal(HttpStatusCode.OK, activeResponse.StatusCode);
+        var active = await JsonAsync(activeResponse);
+        Assert.Equal("ACTIVE", active.GetProperty("trackingStatus").GetString());
+        Assert.Equal(JsonValueKind.Null, active.GetProperty("stoppedAt").ValueKind);
+        var timelineBefore = (await TimelineAsync(w.Supervisor, w.WorkOrderId)).Select(item => item.GetProperty("auditId").GetGuid()).ToHashSet();
+
+        var closed = await CloseAsync(w.Supervisor, w.WorkOrderId, await WorkOrderETagAsync(w.WorkOrderId, w.Supervisor));
+        Assert.Equal(HttpStatusCode.OK, closed.StatusCode);
+
+        var workOrder = await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(item => item.Id == w.WorkOrderId));
+        var record = await WithDbAsync(db => db.SlaRecords.AsNoTracking().SingleAsync(item => item.RepairRequestId == requestId));
+        Assert.Equal(SlaStopReason.WoClosed, record.StopReason);
+        Assert.Equal(workOrder.ClosedAt, record.StoppedAt);
+
+        var stoppedRead = await JsonAsync(await SendAsync(HttpMethod.Get, $"{SlaRecords}/{requestId}", w.Owner, null, null));
+        Assert.Equal("STOPPED", stoppedRead.GetProperty("trackingStatus").GetString());
+        Assert.Equal("WO_CLOSED", stoppedRead.GetProperty("stoppedReason").GetString());
+        Assert.Equal(workOrder.ClosedAt, stoppedRead.GetProperty("stoppedAt").GetDateTime().ToUniversalTime());
+        Assert.Equal(active.GetProperty("startedAt").GetString(), stoppedRead.GetProperty("startedAt").GetString());
+        Assert.Equal(active.GetProperty("dueAt").GetString(), stoppedRead.GetProperty("dueAt").GetString());
+        Assert.Equal(active.GetProperty("riskAt").GetString(), stoppedRead.GetProperty("riskAt").GetString());
+
+        // One SLA_STOPPED audit, written by System, sharing the Close command's correlation id.
+        var closeAudit = await WithDbAsync(db => db.AuditHistory.AsNoTracking().SingleAsync(a => a.EntityId == w.WorkOrderId && a.ActionCode == "WORK_ORDER_CLOSED"));
+        var stoppedAudit = await WithDbAsync(db => db.AuditHistory.AsNoTracking().SingleAsync(a => a.EntityId == record.Id && a.ActionCode == "SLA_STOPPED"));
+        Assert.Equal("SLA_RECORD", stoppedAudit.EntityType);
+        Assert.Equal(RepairRequest.Application.Common.SystemActors.SlaTracking, stoppedAudit.ActorId);
+        Assert.Equal(closeAudit.CorrelationId, stoppedAudit.CorrelationId);
+        Assert.Equal(closeAudit.OccurredAt, stoppedAudit.OccurredAt);
+        Assert.Contains("\"stoppedReason\":\"WO_CLOSED\"", stoppedAudit.NewValueJson);
+
+        // The Work Order timeline is unchanged by SLA: exactly the Close row is new, and no SLA row appears.
+        var timelineAfter = await TimelineAsync(w.Supervisor, w.WorkOrderId);
+        var added = timelineAfter.Where(item => !timelineBefore.Contains(item.GetProperty("auditId").GetGuid())).ToList();
+        Assert.Equal("WORK_ORDER_CLOSED", Assert.Single(added).GetProperty("actionCode").GetString());
+        Assert.DoesNotContain(timelineAfter, item => item.GetProperty("entityType").GetString() == "SLA_RECORD");
+        Assert.DoesNotContain(timelineAfter, item => item.GetProperty("actionCode").GetString()!.StartsWith("SLA_", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public async Task Close_ForALegacyRequestWithoutARecord_StillCloses_ReadsAsNotTrackedLegacy_AndBackfillsNothing()
+    {
+        var w = await ReadyToCloseAsync();
+        var requestId = await RequestIdOfAsync(w.WorkOrderId);
+        await WithDbAsync(db => db.Database.ExecuteSqlInterpolatedAsync($"DELETE FROM [sla_record] WHERE [repair_request_id] = {requestId}"));
+
+        var closed = await CloseAsync(w.Supervisor, w.WorkOrderId, await WorkOrderETagAsync(w.WorkOrderId, w.Supervisor));
+
+        Assert.Equal(HttpStatusCode.OK, closed.StatusCode);
+        Assert.Equal(WorkOrderStatus.Closed, (await WithDbAsync(db => db.WorkOrders.AsNoTracking().SingleAsync(item => item.Id == w.WorkOrderId))).Status);
+        Assert.Equal(0, await WithDbAsync(db => db.SlaRecords.CountAsync(item => item.RepairRequestId == requestId)));
+        Assert.Equal(
+            0,
+            await WithDbAsync(db => db.AuditHistory.CountAsync(a => a.TenantId == w.TenantId && a.EntityType == "SLA_RECORD" && a.ActionCode == "SLA_STOPPED")));
+
+        var read = await JsonAsync(await SendAsync(HttpMethod.Get, $"{SlaRecords}/{requestId}", w.Owner, null, null));
+        Assert.Equal("NOT_TRACKED_LEGACY", read.GetProperty("trackingStatus").GetString());
+    }
+
+    [Fact]
+    public async Task Close_ThatFails_LeavesTheSlaActive_AndWritesNoSlaAudit()
+    {
+        var w = await ReadyToCloseAsync();
+        var requestId = await RequestIdOfAsync(w.WorkOrderId);
+
+        await AssertProblemAsync(await CloseAsync(w.Supervisor, w.WorkOrderId, StaleETag), HttpStatusCode.Conflict, "CONCURRENCY_CONFLICT");
+        await AssertProblemAsync(await CloseAsync(w.Technician, w.WorkOrderId, await WorkOrderETagAsync(w.WorkOrderId, w.Supervisor)), HttpStatusCode.Forbidden, "ACCESS_DENIED");
+
+        var record = await WithDbAsync(db => db.SlaRecords.AsNoTracking().SingleAsync(item => item.RepairRequestId == requestId));
+        Assert.Null(record.StoppedAt);
+        Assert.Null(record.StopReason);
+        Assert.Equal(0, await WithDbAsync(db => db.AuditHistory.CountAsync(a => a.EntityId == record.Id && a.ActionCode == "SLA_STOPPED")));
+        await AssertStillCompletedAsync(w.WorkOrderId);
     }
 }

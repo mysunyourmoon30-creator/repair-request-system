@@ -177,8 +177,9 @@ public sealed class RepairRequest
     /// ST-RR-002 Submit (DRAFT -> SUBMITTED) by the owning Requester. Aggregate-local guards only: current state DRAFT,
     /// Request No not yet assigned (immutable once generated), Submit-required fields present, owner as actor and UTC
     /// time. Master, lookup, contact, CLEAN-photo and duplicate rules need the database and are enforced by the
-    /// Application layer before this runs. <see cref="SubmittedAt"/> is the SLA start marker; no SLA due, risk or breach
-    /// value is calculated (DEC-PRE-S1-007-12).
+    /// Application layer before this runs. <see cref="SubmittedAt"/> is the SLA start marker; this aggregate calculates no
+    /// SLA due, risk or breach value — the Application layer starts the <c>SlaRecord</c> from it in the same transaction
+    /// (DEC-PRE-S1-007-12; `docs/16` D5-D7).
     /// </summary>
     public void Submit(string requestNo, Guid submittedBy, DateTime submittedAt, string? duplicateContinuationReason)
     {

@@ -1,5 +1,7 @@
 using RepairRequest.Application.Common;
+using RepairRequest.Application.Sla;
 using RepairRequest.Domain.RepairRequests;
+using RepairRequest.Domain.Sla;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
 
 namespace RepairRequest.Application.RepairRequests;
@@ -16,16 +18,19 @@ namespace RepairRequest.Application.RepairRequests;
 /// </list>
 /// Success moves the request to CANCELLED with cancel_reason and writes one audit record with the Requester as actor.
 /// Approval rows are left unchanged (DEC-PRE-S1-009-01): a pending step becomes inert because Approve/Reject require
-/// UNDER_REVIEW. Nothing is written on any failure. The SLA stop (EV-SLA-005) and NTF-CANCEL are out of scope.
+/// UNDER_REVIEW. Nothing is written on any failure. The SLA record, when one exists, is stopped (REQUEST_CANCELLED, EV-SLA-005) in the same
+/// transaction; a never-submitted Draft or a legacy request has none and the stop is a no-op. NTF-CANCEL is out of scope.
 /// </summary>
 public sealed class RepairRequestCancelService
 {
     private readonly IRepairRequestCancelStore _store;
+    private readonly ISlaRecordStore _sla;
     private readonly TimeProvider _clock;
 
-    public RepairRequestCancelService(IRepairRequestCancelStore store, TimeProvider clock)
+    public RepairRequestCancelService(IRepairRequestCancelStore store, ISlaRecordStore sla, TimeProvider clock)
     {
         _store = store;
+        _sla = sla;
         _clock = clock;
     }
 
@@ -75,6 +80,8 @@ public sealed class RepairRequestCancelService
         var now = UtcNow();
         request.Cancel(trimmed);
         _store.AddAudit(RepairRequestAudit.Cancelled(context, request, fromState, now));
+        await SlaLifecycle.StopAsync(
+            _sla, _store.AddAudit, context, request.TenantId, request.Id, SlaStopReason.RequestCancelled, now, cancellationToken);
 
         var outcome = await _store.SaveChangesAsync(request, expectedRowVersion, cancellationToken);
 

@@ -8,6 +8,10 @@ using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequest.Domain.Security;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
+using RepairRequest.Application.Tests.Sla;
+using System.Text.Json;
+using RepairRequest.Application.Sla;
+using RepairRequest.Domain.Sla;
 
 namespace RepairRequest.Application.Tests.Approvals;
 
@@ -20,6 +24,7 @@ public class RepairRequestDecisionServiceTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 16, 10, 0, 0, 123, TimeSpan.Zero);
 
+    private readonly FakeSlaRecordStore _sla = new();
     private readonly FakeRepairRequestDecisionStore _store = new();
     private readonly RepairRequestDecisionService _service;
     private readonly Guid _tenantId = Guid.NewGuid();
@@ -28,7 +33,7 @@ public class RepairRequestDecisionServiceTests
 
     public RepairRequestDecisionServiceTests()
     {
-        _service = new RepairRequestDecisionService(_store, new FixedClock(Now));
+        _service = new RepairRequestDecisionService(_store, _sla, new FixedClock(Now));
     }
 
     private CommandContext Caller(Guid userId, params string[] roles) => new(new CurrentUser(userId, _tenantId, roles), Guid.NewGuid());
@@ -296,6 +301,110 @@ public class RepairRequestDecisionServiceTests
 
         var result = await DecideAsync(Approver(), request, approve: false);
 
+        Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error?.Failure);
+        Assert.Empty(_store.Audits);
+        Assert.Equal(0, _store.Commits);
+    }
+
+    // ---------------- SLA stop (EV-SLA-005; docs/16 D6) ----------------
+
+    [Fact]
+    public async Task Reject_StopsTheSlaRecordOnce_WithRequestRejected_AtTheCommandTime_AndAuditsSlaStoppedAsSystem()
+    {
+        var (request, _) = _store.SeedUnderReview(_tenantId, _creator, _approver);
+        var slaRecordId = Guid.NewGuid();
+        _sla.StopResult = slaRecordId;
+        var caller = Approver();
+
+        var result = await DecideAsync(caller, request, approve: false);
+
+        Assert.True(result.Succeeded);
+        var stop = Assert.Single(_sla.Stops);
+        Assert.Equal(request.TenantId, stop.TenantId);
+        Assert.Equal(request.Id, stop.RepairRequestId);
+        Assert.Equal(SlaStopReason.RequestRejected, stop.Reason);
+        Assert.Equal(Now.UtcDateTime, stop.StoppedAt);
+
+        Assert.Equal(2, _store.Audits.Count);
+        var lifecycle = _store.Audits[0];
+        var sla = _store.Audits[1];
+        Assert.Equal(RepairRequestAudit.RejectedAction, lifecycle.ActionCode);
+        Assert.Equal(lifecycle.OccurredAt, stop.StoppedAt);
+        Assert.Equal(SlaAudit.StoppedAction, sla.ActionCode);
+        Assert.Equal(SlaAudit.EntityType, sla.EntityType);
+        Assert.Equal(slaRecordId, sla.EntityId);
+        Assert.Equal(request.TenantId, sla.TenantId);
+        Assert.Equal(SystemActors.SlaTracking, sla.ActorId);
+        Assert.Equal(caller.CorrelationId, sla.CorrelationId);
+        Assert.Equal(stop.StoppedAt, sla.OccurredAt);
+        Assert.Null(sla.FromState);
+        Assert.Null(sla.ToState);
+
+        var values = JsonDocument.Parse(sla.NewValueJson!).RootElement;
+        Assert.Equal(request.Id, values.GetProperty("repairRequestId").GetGuid());
+        Assert.Equal("REQUEST_REJECTED", values.GetProperty("stoppedReason").GetString());
+        Assert.Equal(stop.StoppedAt, values.GetProperty("stoppedAt").GetDateTime().ToUniversalTime());
+        Assert.Equal(3, values.EnumerateObject().Count());
+    }
+
+    [Fact]
+    public async Task Reject_WhenTheSlaStopAffectsNoRow_IsASuccessfulNoOp_WithoutSlaAudit()
+    {
+        var (request, _) = _store.SeedUnderReview(_tenantId, _creator, _approver);
+        _sla.StopResult = null;
+
+        var result = await DecideAsync(Approver(), request, approve: false);
+
+        Assert.True(result.Succeeded);
+        Assert.Single(_sla.Stops);
+        Assert.Equal(RepairRequestAudit.RejectedAction, Assert.Single(_store.Audits).ActionCode);
+    }
+
+    [Fact]
+    public async Task Approve_NeverStopsTheSla()
+    {
+        var (request, _) = _store.SeedUnderReview(_tenantId, _creator, _approver);
+        _sla.StopResult = Guid.NewGuid();
+
+        Assert.True((await DecideAsync(Approver(), request, approve: true)).Succeeded);
+
+        Assert.Empty(_sla.Stops);
+        Assert.Empty(_sla.Started);
+        Assert.Equal(RepairRequestAudit.ApprovedAction, Assert.Single(_store.Audits).ActionCode);
+    }
+
+    [Fact]
+    public async Task Reject_WhenAnyGuardFails_NeverTouchesTheSla()
+    {
+        _sla.StopResult = Guid.NewGuid();
+
+        // 403 role, 404 scope, 403 self-decision, 409 stale, 403 not assigned, 422 reason, 409 state.
+        var (request, _) = _store.SeedUnderReview(_tenantId, _creator, _approver);
+        Assert.Equal(CommandFailure.AccessDenied, (await DecideAsync(Caller(_approver, RoleCodes.Requester), request, approve: false)).Error?.Failure);
+        Assert.Equal(CommandFailure.NotFound, (await _service.RejectAsync(Approver(), Guid.NewGuid(), FakeRepairRequestDecisionStore.InitialRowVersion, "r", CancellationToken.None)).Error?.Failure);
+        Assert.Equal(CommandFailure.AccessDenied, (await DecideAsync(Caller(_creator, RoleCodes.Approver), request, approve: false)).Error?.Failure);
+        Assert.Equal(CommandFailure.ConcurrencyConflict, (await DecideAsync(Approver(), request, approve: false, rowVersion: [9, 9, 9, 9, 9, 9, 9, 9])).Error?.Failure);
+        Assert.Equal(CommandFailure.AccessDenied, (await DecideAsync(Caller(Guid.NewGuid(), RoleCodes.Approver), request, approve: false)).Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, (await DecideAsync(Approver(), request, approve: false, reason: " ")).Error?.Failure);
+
+        var (notUnderReview, _) = _store.SeedUnderReview(_tenantId, _creator, _approver);
+        FakeRepairRequestDecisionStore.Set(notUnderReview, nameof(RepairRequestAggregate.Status), RepairRequestStatus.Approved);
+        Assert.Equal(CommandFailure.StateConflict, (await DecideAsync(Approver(), notUnderReview, approve: false)).Error?.Failure);
+
+        Assert.Empty(_sla.Stops);
+        Assert.Empty(_store.Audits);
+    }
+
+    [Fact]
+    public async Task Reject_WhenTheSaveConflicts_CommitsNeitherTheTransitionNorTheSlaAudit()
+    {
+        var (request, _) = _store.SeedUnderReview(_tenantId, _creator, _approver);
+        _sla.StopResult = Guid.NewGuid();
+        _store.SaveOutcome = RepairRequestSaveOutcome.ConcurrencyConflict;
+
+        var result = await DecideAsync(Approver(), request, approve: false);
+
+        // The real store disposes the transaction without a commit, which also rolls back the conditional update (integration-tested).
         Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error?.Failure);
         Assert.Empty(_store.Audits);
         Assert.Equal(0, _store.Commits);

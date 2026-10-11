@@ -862,9 +862,9 @@ No blocker in this register is a reason to halt Sprint 1.
 | Approval inbox list endpoint for approvers (UI-020) | DEFERRED — S1-008 or list ticket | DEC-PRE-S1-007R-10 |
 | Approval inbox index `IX_repair_request_approval_inbox` (assigned_approver_id, status, routed_at; RR-DBD-001) | DEFERRED — created by the approval inbox ticket together with its query; no S1-007R query uses it (Portfolio Project Owner, S1-007R pre-commit review) | DEC-PRE-S1-007R-06 persistence note |
 | S1-008 Approve / Reject (ST-RR-004/005) | No longer deferred — IMPLEMENTED in S1-008 (a45bc38); assigned approver only, self-decision forbidden, UNDER_REVIEW only | DEC-PRE-S1-008-01; DEC-PRE-S1-008-03 |
-| Decision side effects: EV-SLA-005 SLA stop on Reject; NTF decision notifications (Coordinator on Approve, Requester on Reject) | DEFERRED — SLA calculation and notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-008-03 |
+| Decision side effects: EV-SLA-005 SLA stop on Reject; NTF decision notifications (Coordinator on Approve, Requester on Reject) | SLA stop on Reject: **RESOLVED in Sprint 5 Ticket 3** (`docs/13` §4.27; REQUEST_REJECTED, same transaction). NTF decision notifications: DEFERRED — notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-008-03; `docs/16` D6 |
 | S1-009 Cancel (ST-RR-007) | IMPLEMENTED in S1-009 (commit 305079f9b8bc2e9373330a9fa5a6a61994a64545) — owning Requester only; DRAFT/SUBMITTED/UNDER_REVIEW/APPROVED → CANCELLED; approval rows unchanged | DEC-PRE-S1-009-01 |
-| Cancel side effects: EV-SLA-005 SLA stop (stop_reason REQUEST_CANCELLED); NTF-CANCEL | DEFERRED — `sla_record` / SLA scope and notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-009-01 |
+| Cancel side effects: EV-SLA-005 SLA stop (stop_reason REQUEST_CANCELLED); NTF-CANCEL | SLA stop: **RESOLVED in Sprint 5 Ticket 3** (`docs/13` §4.27). NTF-CANCEL: DEFERRED — notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-009-01; `docs/16` D6 |
 | S1-010 Return for Correction (ST-RR-006) and Resubmit | IMPLEMENTED in S1-010 (commit 5064c6b05ae22dd443498f9734368eaec61b8437) — assigned approver, UNDER_REVIEW only, reason required; returned step kept as history; resubmit keeps Request No and submitted_at and routes the next approval cycle; never merged with REJECTED | DEC-PRE-S1-008-02; DEC-PRE-S1-010-01..04 |
 | Return side effects: NTF-RETURNED notification to the Requester | DEFERRED — notification/outbox scope | DEC-PRE-S1-007-12; DEC-PRE-S1-010-03 |
 | Approval inbox (UI-020) with approval cycles | DEFERRED — the inbox query must use the current approval cycle and the Repair Request status | DEC-PRE-S1-009-01; DEC-PRE-S1-010-01 |
@@ -876,7 +876,8 @@ No blocker in this register is a reason to halt Sprint 1.
 | Upload rate limiting | DEFERRED | Section 4 item 10 (CORS/rate-limit INFORMATIONAL) |
 | Sprint 2 team / assignment scope (Work Order, Visit, Session policies) | DEFERRED — Sprint 2 | `AuthorizationPolicies` note; RR-REQ-001 §13 |
 | Transactional-record deactivation guard | OPEN / DEFERRED | Section 4 item 13; DEC-S1-004-D4 |
-| SLA due-time calculation, risk threshold, breach evaluation, working-hours/calendar calculation and escalation (incl. `sla_record` creation, EV-SLA-001..005 calculations, NTF-SLA-RISK / NTF-SLA-BREACH, SLA Override) | DEFERRED — SLA Policy/Monitoring scope | DEC-PRE-S1-007-12 |
+| SLA foundation — `sla_record` creation at the first Submit, due time (start + 24 h) and risk time (due − 4 h), the four stop events with `stopped_at` / `stop_reason`, `sla_policy_version = SLA-004/v1`, `NOT_TRACKED_LEGACY` for pre-existing data (no backfill) and the read `SLA-API-001` | **RESOLVED in Sprint 5 Ticket 3** — owner decisions `docs/16` D5–D7; implementation and contract in `docs/13` §4.27 | `docs/16` D5–D7, OD6; DEC-PRE-S1-007-12 (the S1-007 scope itself is unchanged) |
+| SLA breach evaluation, risk/breach monitoring worker, NTF-SLA-RISK / NTF-SLA-BREACH, escalation, SLA Override (`SLA-API-002`), SLA dashboard/report, working-hours/calendar/holiday/Site-time-zone calculation | DEFERRED — remains out of scope (`docs/16` D8) | DEC-PRE-S1-007-12; `docs/16` D8 |
 
 ### 8.1 Follow-up Requirements
 

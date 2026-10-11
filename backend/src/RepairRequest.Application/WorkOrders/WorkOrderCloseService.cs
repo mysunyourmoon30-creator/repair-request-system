@@ -1,4 +1,6 @@
 using RepairRequest.Application.Common;
+using RepairRequest.Application.Sla;
+using RepairRequest.Domain.Sla;
 using RepairRequest.Domain.WorkOrders;
 
 namespace RepairRequest.Application.WorkOrders;
@@ -10,17 +12,20 @@ namespace RepairRequest.Application.WorkOrders;
 /// STATE_CONFLICT, each with its own message): COMPLETED; a current Work Summary; that Work Summary reviewed;
 /// the customer's ACCEPT on the current submission; a reviewed Cost Summary. Nothing is written on any failure.
 /// Success moves the Work Order to CLOSED (server-derived <c>closed_by</c>/<c>closed_at</c>) and writes one
-/// WORK_ORDER_CLOSED audit row in the same save. Q1: no SLA stop (no <c>sla_record</c> exists); Q5: no extra
+/// WORK_ORDER_CLOSED audit row in the same save. Q1: the originating Repair Request's SLA record, when one exists, is stopped (WO_CLOSED) in the same
+/// transaction, and a legacy request without one is a no-op; Q5: no extra
 /// Separation-of-Duties / Visit / Work Session / Corrective Action guard.
 /// </summary>
 public sealed class WorkOrderCloseService
 {
     private readonly IWorkOrderCloseStore _store;
+    private readonly ISlaRecordStore _sla;
     private readonly TimeProvider _clock;
 
-    public WorkOrderCloseService(IWorkOrderCloseStore store, TimeProvider clock)
+    public WorkOrderCloseService(IWorkOrderCloseStore store, ISlaRecordStore sla, TimeProvider clock)
     {
         _store = store;
+        _sla = sla;
         _clock = clock;
     }
 
@@ -83,6 +88,8 @@ public sealed class WorkOrderCloseService
         var now = WorkOrderScheduleService.ToUtc(_clock.GetUtcNow())!.Value;
         workOrder.Close(context.User.UserId, now);
         _store.AddAudit(WorkOrderAudit.Closed(context, workOrder, evidence.CostSummaryId.Value, now));
+        await SlaLifecycle.StopAsync(
+            _sla, _store.AddAudit, context, workOrder.TenantId, workOrder.RepairRequestId, SlaStopReason.WoClosed, now, cancellationToken);
 
         var outcome = await _store.SaveChangesAsync(workOrder, expectedRowVersion, cancellationToken);
         return outcome == WorkOrderSaveOutcome.Saved ? CommandResult<Guid>.Success(workOrder.Id) : CommandError.ConcurrencyConflict;
