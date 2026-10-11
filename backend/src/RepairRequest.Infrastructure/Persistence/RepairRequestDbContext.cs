@@ -5,6 +5,7 @@ using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.Files;
 using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
+using RepairRequest.Domain.Sla;
 using RepairRequest.Domain.WorkOrders;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence.Conversions;
@@ -75,6 +76,8 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
     public DbSet<CorrectiveAction> CorrectiveActions => Set<CorrectiveAction>();
 
     public DbSet<CostSummary> CostSummaries => Set<CostSummary>();
+
+    public DbSet<SlaRecord> SlaRecords => Set<SlaRecord>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -7,6 +7,7 @@ using RepairRequest.Domain.Approvals;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequest.Domain.Security;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
+using RepairRequest.Application.Tests.Sla;
 
 namespace RepairRequest.Application.Tests.Approvals;
 
@@ -19,6 +20,7 @@ public class RepairRequestReturnForCorrectionServiceTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 16, 10, 0, 0, 123, TimeSpan.Zero);
 
+    private readonly FakeSlaRecordStore _sla = new();
     private readonly FakeRepairRequestDecisionStore _store = new();
     private readonly RepairRequestDecisionService _service;
     private readonly Guid _tenantId = Guid.NewGuid();
@@ -27,7 +29,7 @@ public class RepairRequestReturnForCorrectionServiceTests
 
     public RepairRequestReturnForCorrectionServiceTests()
     {
-        _service = new RepairRequestDecisionService(_store, new FixedClock(Now));
+        _service = new RepairRequestDecisionService(_store, _sla, new FixedClock(Now));
     }
 
     private CommandContext Caller(Guid userId, params string[] roles) => new(new CurrentUser(userId, _tenantId, roles), Guid.NewGuid());
@@ -235,5 +237,19 @@ public class RepairRequestReturnForCorrectionServiceTests
         Assert.Equal(CommandFailure.ConcurrencyConflict, (await ReturnAsync(Approver(), conflicted)).Error?.Failure);
         Assert.Empty(_store.Audits);
         Assert.Equal(0, _store.Commits);
+    }
+
+    [Fact]
+    public async Task Return_NeverStopsOrRestartsTheSla_BecauseTheSlaContinuesThroughCorrection()
+    {
+        var (request, _) = _store.SeedUnderReview(_tenantId, _creator, _approver);
+        _sla.StopResult = Guid.NewGuid();
+
+        var result = await ReturnAsync(Approver(), request);
+
+        Assert.True(result.Succeeded);
+        Assert.Empty(_sla.Stops);
+        Assert.Empty(_sla.Started);
+        Assert.Equal(RepairRequestAudit.ReturnedForCorrectionAction, Assert.Single(_store.Audits).ActionCode);
     }
 }

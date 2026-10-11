@@ -6,6 +6,9 @@ using RepairRequest.Application.Tests.MasterData;
 using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
+using RepairRequest.Application.Tests.Sla;
+using System.Text.Json;
+using RepairRequest.Application.Sla;
 
 namespace RepairRequest.Application.Tests.RepairRequests;
 
@@ -22,6 +25,7 @@ public class RepairRequestSubmitServiceTests
 
     private readonly FakeRepairRequestDraftStore _drafts = new();
     private readonly FakeRepairRequestSubmitStore _submits = new();
+    private readonly FakeSlaRecordStore _sla = new();
     private readonly FakeSubmittedRequestRouter _router = new();
     private readonly RepairRequestSubmitService _service;
     private readonly Guid _tenantId = Guid.NewGuid();
@@ -34,7 +38,7 @@ public class RepairRequestSubmitServiceTests
     }
 
     private RepairRequestSubmitService CreateService() =>
-        new(_drafts, _submits, _router, new FixedClock(Now), NullLogger<RepairRequestSubmitService>.Instance);
+        new(_drafts, _submits, _router, _sla, new FixedClock(Now), NullLogger<RepairRequestSubmitService>.Instance);
 
     private CommandContext Requester(Guid? userId = null) => FakeRepairRequestDraftStore.RequesterContext(_tenantId, userId);
 
@@ -448,5 +452,67 @@ public class RepairRequestSubmitServiceTests
         Assert.True(result.Succeeded);
         Assert.Null(draft.DuplicateContinuationReason);
         Assert.Null(Assert.Single(_submits.Audits).Reason);
+    }
+
+    // ---------------- SLA start (EV-SLA-001; docs/16 D5-D7) ----------------
+
+    [Fact]
+    public async Task Submit_FirstSubmit_StagesExactlyOneSlaRecord_StartedAtTheSubmittedAt_WithDueAndRisk_AndOneStartAuditAsSystem()
+    {
+        var owner = Requester();
+        var draft = CompleteDraft(owner);
+
+        var result = await SubmitAsync(owner, draft);
+
+        Assert.True(result.Succeeded);
+        var (record, audit) = Assert.Single(_sla.Started);
+        Assert.Equal(draft.TenantId, record.TenantId);
+        Assert.Equal(draft.Id, record.RepairRequestId);
+        Assert.Equal("SLA-004/v1", record.SlaPolicyVersion);
+        Assert.Equal(draft.SubmittedAt, record.StartedAt);
+        Assert.Equal(NowUtc, record.StartedAt);
+        Assert.Equal(NowUtc.AddHours(24), record.OriginalDueAt);
+        Assert.Equal(NowUtc.AddHours(20), record.RiskAt);
+        Assert.Null(record.StoppedAt);
+
+        Assert.Equal(SlaAudit.StartedAction, audit.ActionCode);
+        Assert.Equal(SlaAudit.EntityType, audit.EntityType);
+        Assert.Equal(record.Id, audit.EntityId);
+        Assert.Equal(draft.TenantId, audit.TenantId);
+        Assert.Equal(SystemActors.SlaTracking, audit.ActorId);
+        Assert.Equal(owner.CorrelationId, audit.CorrelationId);
+        Assert.Equal(record.StartedAt, audit.OccurredAt);
+        Assert.Null(audit.FromState);
+        Assert.Null(audit.ToState);
+
+        var values = JsonDocument.Parse(audit.NewValueJson!).RootElement;
+        Assert.Equal(draft.Id, values.GetProperty("repairRequestId").GetGuid());
+        Assert.Equal("SLA-004/v1", values.GetProperty("policyVersion").GetString());
+        Assert.Equal(record.StartedAt, values.GetProperty("startedAt").GetDateTime().ToUniversalTime());
+        Assert.Equal(record.OriginalDueAt, values.GetProperty("dueAt").GetDateTime().ToUniversalTime());
+        Assert.Equal(record.RiskAt, values.GetProperty("riskAt").GetDateTime().ToUniversalTime());
+        Assert.Equal(5, values.EnumerateObject().Count());
+
+        // The SLA step never stops anything on Submit.
+        Assert.Empty(_sla.Stops);
+    }
+
+    [Fact]
+    public async Task Submit_WhenAnyValidationOrWarningFails_StartsNoSla()
+    {
+        var owner = Requester();
+        var missingPhoto = CompleteDraft(owner, cleanPhoto: false);
+        Assert.Equal(CommandFailure.ValidationFailed, (await SubmitAsync(owner, missingPhoto)).Error?.Failure);
+
+        var duplicate = CompleteDraft(owner);
+        _submits.DuplicateCount = 1;
+        Assert.Equal(CommandFailure.ValidationFailed, (await SubmitAsync(owner, duplicate)).Error?.Failure);
+        _submits.DuplicateCount = 0;
+
+        Assert.Equal(CommandFailure.NotFound, (await SubmitAsync(Requester(Guid.NewGuid()), duplicate)).Error?.Failure);
+        Assert.Equal(CommandFailure.ConcurrencyConflict, (await SubmitAsync(owner, duplicate, rowVersion: [9, 9, 9, 9, 9, 9, 9, 9])).Error?.Failure);
+
+        Assert.Empty(_sla.Started);
+        Assert.Empty(_sla.Stops);
     }
 }

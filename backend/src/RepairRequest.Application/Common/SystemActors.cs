@@ -14,4 +14,10 @@ public static class SystemActors
     /// initiated the command that triggered routing is recorded separately in the audit value document.
     /// </summary>
     public static readonly Guid ApprovalRouting = new("5c4a9b1e-0000-4000-8000-000000000002");
+
+    /// <summary>
+    /// Actor of SLA start and stop audit records (`docs/16` D5–D7; baseline EV-SLA-001/005 "Actor System"). The user whose
+    /// command triggered the SLA change is preserved by the triggering lifecycle audit row and the shared correlation id.
+    /// </summary>
+    public static readonly Guid SlaTracking = new("5c4a9b1e-0000-4000-8000-000000000003");
 }

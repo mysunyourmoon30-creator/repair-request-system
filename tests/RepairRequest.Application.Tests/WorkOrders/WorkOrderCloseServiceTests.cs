@@ -5,6 +5,9 @@ using RepairRequest.Application.WorkOrders;
 using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.Security;
 using RepairRequest.Domain.WorkOrders;
+using RepairRequest.Application.Tests.Sla;
+using RepairRequest.Application.Sla;
+using RepairRequest.Domain.Sla;
 
 namespace RepairRequest.Application.Tests.WorkOrders;
 
@@ -20,6 +23,7 @@ public class WorkOrderCloseServiceTests
     private static readonly DateTimeOffset Now = new(2026, 9, 28, 10, 30, 0, TimeSpan.Zero);
     private static readonly Guid ContactId = Guid.NewGuid();
 
+    private readonly FakeSlaRecordStore _sla = new();
     private readonly FakeWorkOrderCloseStore _store = new();
     private readonly WorkOrderCloseService _service;
     private readonly CommandContext _context = new(new CurrentUser(Guid.NewGuid(), Guid.NewGuid(), [RoleCodes.Supervisor]), Guid.NewGuid());
@@ -27,7 +31,7 @@ public class WorkOrderCloseServiceTests
 
     public WorkOrderCloseServiceTests()
     {
-        _service = new WorkOrderCloseService(_store, new CloseFixedClock(Now));
+        _service = new WorkOrderCloseService(_store, _sla, new CloseFixedClock(Now));
     }
 
     private static WorkOrder At(WorkOrderStatus status)
@@ -313,6 +317,88 @@ public class WorkOrderCloseServiceTests
         await CloseAsync(workOrder);
 
         Assert.Equal(1, _store.TransactionCount);
+    }
+
+    // ---------------- SLA stop (EV-SLA-005; docs/16 D6) ----------------
+
+    [Fact]
+    public async Task Close_StopsTheOriginatingRequestsSlaOnce_WithWoClosed_AndAuditsSlaStoppedAsSystem()
+    {
+        var workOrder = Ready();
+        var slaRecordId = Guid.NewGuid();
+        _sla.StopResult = slaRecordId;
+
+        var result = await CloseAsync(workOrder);
+
+        Assert.True(result.Succeeded);
+        var stop = Assert.Single(_sla.Stops);
+        Assert.Equal(workOrder.TenantId, stop.TenantId);
+        Assert.Equal(workOrder.RepairRequestId, stop.RepairRequestId);
+        Assert.Equal(SlaStopReason.WoClosed, stop.Reason);
+        Assert.Equal(Now.UtcDateTime, stop.StoppedAt);
+
+        Assert.Equal(2, _store.Audits.Count);
+        Assert.Equal("WORK_ORDER_CLOSED", _store.Audits[0].ActionCode);
+        Assert.Equal(_store.Audits[0].OccurredAt, stop.StoppedAt);
+        var sla = _store.Audits[1];
+        Assert.Equal(SlaAudit.StoppedAction, sla.ActionCode);
+        Assert.Equal(SlaAudit.EntityType, sla.EntityType);
+        Assert.Equal(slaRecordId, sla.EntityId);
+        Assert.Equal(SystemActors.SlaTracking, sla.ActorId);
+        Assert.Equal(_context.CorrelationId, sla.CorrelationId);
+        var values = JsonDocument.Parse(sla.NewValueJson!).RootElement;
+        Assert.Equal(workOrder.RepairRequestId, values.GetProperty("repairRequestId").GetGuid());
+        Assert.Equal("WO_CLOSED", values.GetProperty("stoppedReason").GetString());
+        Assert.Equal(1, _store.SaveCalls);
+    }
+
+    [Fact]
+    public async Task Close_ForALegacyRequestWithoutAnSlaRecord_IsASuccessfulNoOp_WithoutSlaAudit()
+    {
+        var workOrder = Ready();
+        _sla.StopResult = null;
+
+        var result = await CloseAsync(workOrder);
+
+        Assert.True(result.Succeeded);
+        Assert.Equal(WorkOrderStatus.Closed, workOrder.Status);
+        Assert.Single(_sla.Stops);
+        Assert.Equal("WORK_ORDER_CLOSED", Assert.Single(_store.Audits).ActionCode);
+    }
+
+    [Fact]
+    public async Task Close_WhenAnyGuardFails_NeverTouchesTheSla()
+    {
+        _sla.StopResult = Guid.NewGuid();
+
+        var notCompleted = At(WorkOrderStatus.InProgress);
+        _store.WorkOrder = notCompleted;
+        Assert.Equal(CommandFailure.StateConflict, (await CloseAsync(notCompleted)).Error?.Failure);
+
+        var ready = Ready();
+        Assert.Equal(CommandFailure.ConcurrencyConflict, (await CloseAsync(ready, rowVersion: [9, 9, 9, 9, 9, 9, 9, 9])).Error?.Failure);
+
+        _store.Evidence = new WorkOrderCloseEvidence(HasWorkSummary: true, AcceptanceDecision.Accept, null, null);
+        Assert.Equal(CommandFailure.StateConflict, (await CloseAsync(ready)).Error?.Failure);
+
+        _store.WorkOrder = null;
+        Assert.Equal(CommandFailure.NotFound, (await CloseAsync(ready)).Error?.Failure);
+
+        Assert.Empty(_sla.Stops);
+        AssertNothingWritten();
+    }
+
+    [Fact]
+    public async Task Close_WhenTheSaveConflicts_IsAConcurrencyConflict()
+    {
+        var workOrder = Ready();
+        _sla.StopResult = Guid.NewGuid();
+        _store.SaveOutcome = WorkOrderSaveOutcome.ConcurrencyConflict;
+
+        var result = await CloseAsync(workOrder);
+
+        // The real store disposes the transaction without a commit, which also rolls back the conditional update (integration-tested).
+        Assert.Equal(CommandFailure.ConcurrencyConflict, result.Error?.Failure);
     }
 }
 

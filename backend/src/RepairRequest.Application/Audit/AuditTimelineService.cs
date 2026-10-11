@@ -94,7 +94,8 @@ public sealed class AuditTimelineService
         return AuditTimelineResult.Ok(new AuditTimelinePageDto(items, nextCursor, hasMore));
     }
 
-    private static bool IsSystemActor(Guid actorId) => actorId == SystemActors.MalwareScanner || actorId == SystemActors.ApprovalRouting;
+    private static bool IsSystemActor(Guid actorId) =>
+        actorId == SystemActors.MalwareScanner || actorId == SystemActors.ApprovalRouting || actorId == SystemActors.SlaTracking;
 
     /// <summary>D5: SYSTEM for a system-actor constant, USER for an existing user of the same tenant, otherwise UNKNOWN.</summary>
     private static AuditActorKind ClassifyActor(Guid actorId, IReadOnlySet<Guid> knownUsers) =>

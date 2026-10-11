@@ -5,6 +5,7 @@ using RepairRequest.Application.Attachments;
 using RepairRequest.Application.Audit;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
+using RepairRequest.Application.Sla;
 using RepairRequest.Application.WorkOrders;
 
 namespace RepairRequest.Application.DependencyInjection;
@@ -79,6 +80,9 @@ public static class ApplicationServiceCollectionExtensions
 
         // Work Order timeline (UC-WO-002; AUD-API-001); `docs/15`.
         services.AddScoped<AuditTimelineService>();
+
+        // SLA record read (SLA-API-001; `docs/16` D5-D7). Start and stop run inside the lifecycle commands above.
+        services.AddScoped<SlaRecordReadService>();
 
         return services;
     }

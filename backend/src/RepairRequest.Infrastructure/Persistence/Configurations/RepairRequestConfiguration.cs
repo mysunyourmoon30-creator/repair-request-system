@@ -37,6 +37,11 @@ internal sealed class RepairRequestConfiguration : IEntityTypeConfiguration<Repa
 
         builder.HasKey(request => request.Id);
 
+        // Principal key for the tenant-consistent composite foreign key from sla_record (a Repair Request's SLA record must
+        // carry the same tenant as the request it references).
+        builder.HasAlternateKey(request => new { request.TenantId, request.Id })
+            .HasName("AK_repair_request_tenant_id_repair_request_id");
+
         builder.Property(request => request.Id).HasColumnName("repair_request_id");
         builder.Property(request => request.TenantId).HasColumnName("tenant_id");
 

@@ -6,6 +6,9 @@ using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequest.Domain.Security;
 using RepairRequestAggregate = RepairRequest.Domain.RepairRequests.RepairRequest;
+using RepairRequest.Application.Tests.Sla;
+using RepairRequest.Application.Sla;
+using RepairRequest.Domain.Sla;
 
 namespace RepairRequest.Application.Tests.RepairRequests;
 
@@ -18,6 +21,7 @@ public class RepairRequestCancelServiceTests
 {
     private static readonly DateTimeOffset Now = new(2026, 9, 16, 11, 0, 0, 456, TimeSpan.Zero);
 
+    private readonly FakeSlaRecordStore _sla = new();
     private readonly FakeRepairRequestCancelStore _store = new();
     private readonly RepairRequestCancelService _service;
     private readonly Guid _tenantId = Guid.NewGuid();
@@ -25,7 +29,7 @@ public class RepairRequestCancelServiceTests
 
     public RepairRequestCancelServiceTests()
     {
-        _service = new RepairRequestCancelService(_store, new FixedClock(Now));
+        _service = new RepairRequestCancelService(_store, _sla, new FixedClock(Now));
     }
 
     private CommandContext Owner() => new(new CurrentUser(_owner, _tenantId, [RoleCodes.Requester]), Guid.NewGuid());
@@ -164,6 +168,69 @@ public class RepairRequestCancelServiceTests
         Assert.Equal(CommandFailure.ConcurrencyConflict, (await CancelAsync(Owner(), request)).Error?.Failure);
         Assert.Empty(_store.Audits);
         Assert.Equal(0, _store.Commits);
+    }
+
+    // ---------------- SLA stop (EV-SLA-005; docs/16 D6) ----------------
+
+    [Theory]
+    [InlineData(RepairRequestStatus.Draft)]
+    [InlineData(RepairRequestStatus.Submitted)]
+    [InlineData(RepairRequestStatus.UnderReview)]
+    [InlineData(RepairRequestStatus.Approved)]
+    public async Task Cancel_StopsTheSlaRecordOnce_WithRequestCancelled_AndAuditsSlaStoppedAsSystem(RepairRequestStatus status)
+    {
+        var request = _store.Seed(_tenantId, _owner, status);
+        var slaRecordId = Guid.NewGuid();
+        _sla.StopResult = slaRecordId;
+        var caller = Owner();
+
+        var result = await CancelAsync(caller, request);
+
+        Assert.True(result.Succeeded);
+        var stop = Assert.Single(_sla.Stops);
+        Assert.Equal(request.TenantId, stop.TenantId);
+        Assert.Equal(request.Id, stop.RepairRequestId);
+        Assert.Equal(SlaStopReason.RequestCancelled, stop.Reason);
+
+        Assert.Equal(2, _store.Audits.Count);
+        Assert.Equal(RepairRequestAudit.CancelledAction, _store.Audits[0].ActionCode);
+        Assert.Equal(_store.Audits[0].OccurredAt, stop.StoppedAt);
+        var sla = _store.Audits[1];
+        Assert.Equal(SlaAudit.StoppedAction, sla.ActionCode);
+        Assert.Equal(SlaAudit.EntityType, sla.EntityType);
+        Assert.Equal(slaRecordId, sla.EntityId);
+        Assert.Equal(SystemActors.SlaTracking, sla.ActorId);
+        Assert.Equal(caller.CorrelationId, sla.CorrelationId);
+        Assert.Contains("\"stoppedReason\":\"REQUEST_CANCELLED\"", sla.NewValueJson);
+    }
+
+    [Fact]
+    public async Task Cancel_OfADraftWithoutAnSlaRecord_IsASuccessfulNoOp_WithoutSlaAudit()
+    {
+        var request = _store.Seed(_tenantId, _owner, RepairRequestStatus.Draft);
+        _sla.StopResult = null;
+
+        Assert.True((await CancelAsync(Owner(), request)).Succeeded);
+
+        Assert.Single(_sla.Stops);
+        Assert.Equal(RepairRequestAudit.CancelledAction, Assert.Single(_store.Audits).ActionCode);
+    }
+
+    [Fact]
+    public async Task Cancel_WhenAnyGuardFails_NeverTouchesTheSla()
+    {
+        _sla.StopResult = Guid.NewGuid();
+        var request = _store.Seed(_tenantId, _owner, RepairRequestStatus.Submitted);
+        var terminal = _store.Seed(_tenantId, _owner, RepairRequestStatus.Rejected);
+        var stranger = new CommandContext(new CurrentUser(Guid.NewGuid(), _tenantId, [RoleCodes.Requester]), Guid.NewGuid());
+
+        Assert.Equal(CommandFailure.NotFound, (await CancelAsync(stranger, request)).Error?.Failure);
+        Assert.Equal(CommandFailure.ConcurrencyConflict, (await CancelAsync(Owner(), request, rowVersion: [9, 9, 9, 9, 9, 9, 9, 9])).Error?.Failure);
+        Assert.Equal(CommandFailure.StateConflict, (await CancelAsync(Owner(), terminal)).Error?.Failure);
+        Assert.Equal(CommandFailure.ValidationFailed, (await CancelAsync(Owner(), request, reason: " ")).Error?.Failure);
+
+        Assert.Empty(_sla.Stops);
+        Assert.Empty(_store.Audits);
     }
 }
 

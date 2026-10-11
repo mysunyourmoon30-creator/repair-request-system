@@ -10,6 +10,7 @@ using RepairRequest.Application.Authentication;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
+using RepairRequest.Application.Sla;
 using RepairRequest.Application.WorkOrders;
 using RepairRequest.Infrastructure.Approvals;
 using RepairRequest.Infrastructure.Attachments;
@@ -21,6 +22,7 @@ using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.MasterData;
 using RepairRequest.Infrastructure.RepairRequests;
 using RepairRequest.Infrastructure.Persistence;
+using RepairRequest.Infrastructure.Sla;
 using RepairRequest.Infrastructure.WorkOrders;
 
 namespace RepairRequest.Infrastructure.DependencyInjection;
@@ -106,6 +108,9 @@ public static class InfrastructureServiceCollectionExtensions
         // Work Order timeline (UC-WO-002; AUD-API-001) read port; `docs/15`.
         services.AddScoped<IAuditTimelineStore, AuditTimelineStore>();
         services.AddSingleton<ITimelineCursorProtector, TimelineCursorProtector>();
+
+        // SLA record start / stop / read port (`docs/16` D5-D7; SLA-API-001); shares the lifecycle commands' DbContext and transaction.
+        services.AddScoped<ISlaRecordStore, SlaRecordStore>();
 
         // Corrective Action Submit Plan / Approve Plan persistence port; `docs/13` §4.21.
         services.AddScoped<ICorrectiveActionStore, CorrectiveActionStore>();

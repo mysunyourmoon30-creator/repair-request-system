@@ -1,4 +1,6 @@
 using RepairRequest.Application.Common;
+using RepairRequest.Application.Sla;
+using RepairRequest.Domain.Sla;
 using RepairRequest.Domain.WorkOrders;
 
 namespace RepairRequest.Application.WorkOrders;
@@ -15,17 +17,20 @@ namespace RepairRequest.Application.WorkOrders;
 /// SERVICE_VISIT_CANCELLED row per cascaded Visit — all in the same save. COMPLETED/MISSED/CANCELLED Visits are
 /// left untouched (history preserved, per UC-WO-026's own Main Flow). A Corrective Action row in flight
 /// (DRAFT/PENDING_PLAN_APPROVAL/APPROVED) is likewise left untouched — `docs/13` §4.25 Decision: no new state,
-/// no retroactive edit; it becomes inert history once the Work Order is terminal. No SLA stop (no `sla_record`
-/// subsystem exists yet) and no NTF-CANCEL outbox event — both explicit, out-of-scope gaps, not implemented here.
+/// no retroactive edit; it becomes inert history once the Work Order is terminal. The originating Repair Request's SLA
+/// record, when one exists, is stopped (WO_CANCELLED) in the same transaction (a legacy request without one is a no-op).
+/// There is no NTF-CANCEL outbox event — an explicit, out-of-scope gap, not implemented here.
 /// </summary>
 public sealed class WorkOrderCancelService
 {
     private readonly IWorkOrderCancelStore _store;
+    private readonly ISlaRecordStore _sla;
     private readonly TimeProvider _clock;
 
-    public WorkOrderCancelService(IWorkOrderCancelStore store, TimeProvider clock)
+    public WorkOrderCancelService(IWorkOrderCancelStore store, ISlaRecordStore sla, TimeProvider clock)
     {
         _store = store;
+        _sla = sla;
         _clock = clock;
     }
 
@@ -74,6 +79,8 @@ public sealed class WorkOrderCancelService
         var now = WorkOrderScheduleService.ToUtc(_clock.GetUtcNow())!.Value;
         workOrder.Cancel(trimmed);
         _store.AddAudit(WorkOrderAudit.Cancelled(context, workOrder, fromState, now));
+        await SlaLifecycle.StopAsync(
+            _sla, _store.AddAudit, context, workOrder.TenantId, workOrder.RepairRequestId, SlaStopReason.WoCancelled, now, cancellationToken);
 
         foreach (var visit in visits.Where(visit => visit.Status == ServiceVisitStatus.Scheduled))
         {
