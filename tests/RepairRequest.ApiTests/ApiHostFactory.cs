@@ -36,7 +36,10 @@ public class ApiHostFactory : WebApplicationFactory<Program>
     }
 }
 
-/// <summary>API host backed by a disposable, migrated LocalDB database for authentication flows.</summary>
+/// <summary>
+/// API host backed by a disposable, migrated LocalDB database for authentication flows. Creating (delete, create, migrate) and dropping the
+/// database run inside <see cref="LocalDbLifecycleGate"/>, so concurrently starting test classes never create or drop databases at the same time.
+/// </summary>
 public class AuthApiFactory : ApiHostFactory, IAsyncLifetime
 {
     public const string ValidPassword = "Correct-Horse-42!";
@@ -45,15 +48,21 @@ public class AuthApiFactory : ApiHostFactory, IAsyncLifetime
     {
         await using var scope = Services.CreateAsyncScope();
         var context = scope.ServiceProvider.GetRequiredService<RepairRequestDbContext>();
-        await context.Database.EnsureDeletedAsync();
-        await context.Database.MigrateAsync();
+        await using (await LocalDbLifecycleGate.EnterAsync(ConnectionString))
+        {
+            await context.Database.EnsureDeletedAsync();
+            await context.Database.MigrateAsync();
+        }
     }
 
     async Task IAsyncLifetime.DisposeAsync()
     {
         await using (var scope = Services.CreateAsyncScope())
         {
-            await scope.ServiceProvider.GetRequiredService<RepairRequestDbContext>().Database.EnsureDeletedAsync();
+            await using (await LocalDbLifecycleGate.EnterAsync(ConnectionString))
+            {
+                await scope.ServiceProvider.GetRequiredService<RepairRequestDbContext>().Database.EnsureDeletedAsync();
+            }
         }
 
         await DisposeAsync();
