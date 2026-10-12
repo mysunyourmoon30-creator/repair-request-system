@@ -45,7 +45,10 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.CorrectiveActionApprovePlan, [RoleCodes.Supervisor] },
         { AuthorizationPolicies.CorrectiveActionScheduleRework, [RoleCodes.Coordinator] },
         { AuthorizationPolicies.WorkOrderCancel, [RoleCodes.Supervisor] },
-        { AuthorizationPolicies.AuditTimelineRead, [RoleCodes.Requester, RoleCodes.Approver, RoleCodes.Coordinator, RoleCodes.TeamLead, RoleCodes.Supervisor] }
+        { AuthorizationPolicies.AuditTimelineRead, [RoleCodes.Requester, RoleCodes.Approver, RoleCodes.Coordinator, RoleCodes.TeamLead, RoleCodes.Supervisor] },
+        { AuthorizationPolicies.WorkEvidenceUpload, [RoleCodes.Technician] },
+        { AuthorizationPolicies.WorkEvidenceRead, [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor, RoleCodes.Requester] },
+        { AuthorizationPolicies.ServiceReportRead, [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor, RoleCodes.Requester] }
     };
 
     [Theory]
@@ -58,7 +61,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(32, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(35, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -279,5 +282,30 @@ public class AuthorizationPoliciesTests
         Assert.All(
             AuthorizationPolicies.AllowedRoles.Values.SelectMany(roles => roles),
             role => Assert.Contains(role, RoleCodes.All));
+    }
+
+    [Theory]
+    [InlineData(AuthorizationPolicies.WorkEvidenceUpload)]
+    [InlineData(AuthorizationPolicies.WorkEvidenceRead)]
+    [InlineData(AuthorizationPolicies.ServiceReportRead)]
+    public void WorkEvidenceAndServiceReportPolicies_NeverGrantAdministratorCoordinatorOrApprover(string policyName)
+    {
+        // `docs/16` OD5: the Service Report and its evidence are not granted to Coordinator, Approver or Administrator by role.
+        var roles = AuthorizationPolicies.AllowedRoles[policyName];
+        Assert.DoesNotContain(RoleCodes.Administrator, roles);
+        Assert.DoesNotContain(RoleCodes.Coordinator, roles);
+        Assert.DoesNotContain(RoleCodes.Approver, roles);
+    }
+
+    [Fact]
+    public void WorkOrderRead_IsUnchangedByTheServiceReport_CoordinatorKeepsItsExistingAccess()
+    {
+        Assert.Equal(
+            new[] { RoleCodes.Requester, RoleCodes.Approver, RoleCodes.Coordinator, RoleCodes.TeamLead, RoleCodes.Supervisor }.Order(),
+            AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderRead].Order());
+        Assert.Equal(
+            new[] { RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor }.Order(),
+            AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkOrderReadWorkSummary].Order());
+        Assert.Equal(new[] { RoleCodes.TeamLead, RoleCodes.Supervisor }.Order(), AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.CostSummaryRead].Order());
     }
 }

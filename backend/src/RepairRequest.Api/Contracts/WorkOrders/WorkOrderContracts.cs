@@ -149,8 +149,12 @@ public sealed record WorkSessionResponse(
     string RowVersion,
     string WorkOrderRowVersion);
 
-/// <summary>WSM-API-001 Submit Work Summary body (`docs/13` §4.15 Decision 3). Both fields are required.</summary>
-public sealed record SubmitWorkSummaryRequest(string? SummaryText, string? RepairOutcomeCode);
+/// <summary>
+/// WSM-API-001 Submit Work Summary body (`docs/13` §4.15 Decision 3, §4.28). All three fields are required for Submit and Resubmit.
+/// <c>EvidenceIds</c> are 1 to 10 distinct Work Order evidence upload ids chosen by the Technician: untrusted references only. Tenant,
+/// Work Order, Visit, file, scan status, slot number and uploader are never read from the request; the server derives them.
+/// </summary>
+public sealed record SubmitWorkSummaryRequest(string? SummaryText, string? RepairOutcomeCode, IReadOnlyList<Guid>? EvidenceIds);
 
 /// <summary>WSM-API-002 Submit for Acceptance body (`docs/13` §4.16 Decision 2). Required — the caller must explicitly confirm the contact, even when only one candidate exists.</summary>
 public sealed record SubmitForAcceptanceRequest(Guid? AcceptanceContactId);

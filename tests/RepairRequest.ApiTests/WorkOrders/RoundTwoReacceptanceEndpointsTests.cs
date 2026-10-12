@@ -264,7 +264,7 @@ public sealed class RoundTwoReacceptanceEndpointsTests : IClassFixture<RoundTwoR
         var workOrderETag = $"\"{(await JsonAsync(checkedOut)).GetProperty("workOrderRowVersion").GetString()}\"";
 
         var summarySubmitted = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{workOrderId}/submit-work-summary", technician,
-            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED" }, workOrderETag);
+            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(workOrderId, technician.UserId) }, workOrderETag);
         Assert.Equal(HttpStatusCode.OK, summarySubmitted.StatusCode);
         var reviewEtag = $"\"{(await JsonAsync(summarySubmitted)).GetProperty("rowVersion").GetString()}\"";
 
@@ -322,7 +322,7 @@ public sealed class RoundTwoReacceptanceEndpointsTests : IClassFixture<RoundTwoR
 
         // Submit Work Summary (round 2, the corrective cycle's own Visit).
         var reworkSummarySubmitted = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{workOrderId}/submit-work-summary", technician,
-            new { summaryText = "Replaced the fitting; retested, no leak.", repairOutcomeCode = "REPAIRED" }, reworkWorkOrderETag);
+            new { summaryText = "Replaced the fitting; retested, no leak.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(workOrderId, technician.UserId) }, reworkWorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, reworkSummarySubmitted.StatusCode);
         var reworkReviewEtag = $"\"{(await JsonAsync(reworkSummarySubmitted)).GetProperty("rowVersion").GetString()}\"";
 

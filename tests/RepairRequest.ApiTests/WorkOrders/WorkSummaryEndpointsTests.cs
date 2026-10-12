@@ -60,7 +60,7 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
         var before = DateTime.UtcNow.AddSeconds(-2);
 
         var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician,
-            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED" }, c.WorkOrderETag);
+            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(c.WorkOrderId, c.Technician.UserId) }, c.WorkOrderETag);
         var after = DateTime.UtcNow.AddSeconds(2);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -331,7 +331,8 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
     public async Task Submit_WithAStaleRowVersion_Returns409ConcurrencyConflict()
     {
         var c = await CheckedOutAsync();
-        var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician, new { summaryText = "x", repairOutcomeCode = "REPAIRED" }, c.WorkOrderETag);
+        var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician,
+            new { summaryText = "x", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(c.WorkOrderId, c.Technician.UserId) }, c.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
 
         await AssertProblemAsync(
@@ -345,14 +346,56 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
     {
         var c = await CheckedOutAsync();
 
+        var evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(c.WorkOrderId, c.Technician.UserId);
+
         var responses = await Task.WhenAll(
-            Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician, new { summaryText = "a", repairOutcomeCode = "REPAIRED" }, c.WorkOrderETag)),
-            Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician, new { summaryText = "b", repairOutcomeCode = "REPAIRED" }, c.WorkOrderETag)));
+            Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician, new { summaryText = "a", repairOutcomeCode = "REPAIRED", evidenceIds }, c.WorkOrderETag)),
+            Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician, new { summaryText = "b", repairOutcomeCode = "REPAIRED", evidenceIds }, c.WorkOrderETag)));
 
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.OK);
         Assert.Single(responses, response => response.StatusCode == HttpStatusCode.Conflict);
         Assert.Equal(1, await WithDbAsync(db => db.WorkSummaries.AsNoTracking().CountAsync(s => s.WorkOrderId == c.WorkOrderId)));
         Assert.Equal(1, await WithDbAsync(db => db.AuditHistory.AsNoTracking().CountAsync(a => a.EntityId == c.WorkOrderId && a.ActionCode == "WORK_SUMMARY_SUBMITTED")));
+    }
+
+    // ---------------- Evidence: the ordinary host manufactures nothing ----------------
+
+    [Fact]
+    public async Task Submit_WithoutEvidence_OnTheOrdinaryApiHost_GetsTheRealEvidenceValidation_AndNothingIsInsertedImplicitly()
+    {
+        var c = await CheckedOutAsync();
+        var filesBefore = await WithDbAsync(db => db.FileAssets.AsNoTracking().CountAsync(file => file.TenantId == c.TenantId));
+
+        // A raw Submit with no evidenceIds: the host must not detect it and arrange evidence behind the scenes.
+        var problem = await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician,
+                new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED" }, c.WorkOrderETag),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+        Assert.Equal(["evidenceIds"], problem.GetProperty("errors").EnumerateObject().Select(property => property.Name));
+
+        // The same Submit with ids naming nothing that exists is refused the same way.
+        await AssertProblemAsync(
+            await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician,
+                new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED", evidenceIds = new[] { Guid.NewGuid() } }, c.WorkOrderETag),
+            HttpStatusCode.UnprocessableEntity, "VALIDATION_FAILED");
+
+        await AssertNoSummaryExistsAsync(c.WorkOrderId);
+        Assert.Equal(0, await WithDbAsync(db => db.WorkEvidenceUploads.AsNoTracking().CountAsync(item => item.WorkOrderId == c.WorkOrderId)));
+        Assert.Equal(0, await WithDbAsync(db => db.WorkSummaryEvidence.AsNoTracking().CountAsync(item => item.WorkOrderId == c.WorkOrderId)));
+        Assert.Equal(filesBefore, await WithDbAsync(db => db.FileAssets.AsNoTracking().CountAsync(file => file.TenantId == c.TenantId)));
+
+        // And the host registers no pipeline component or filter that could do it: no startup filter, middleware or service named for evidence.
+        var registered = _factory.Services.GetServices<Microsoft.AspNetCore.Hosting.IStartupFilter>().Select(filter => filter.GetType().FullName).ToList();
+        Assert.DoesNotContain(registered, name => name!.Contains("Evidence", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            typeof(ApiHostFactory).Assembly.GetTypes(),
+            type => typeof(Microsoft.AspNetCore.Hosting.IStartupFilter).IsAssignableFrom(type) && type.Name.Contains("Evidence", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            typeof(ApiHostFactory).GetMembers(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic),
+            member => member.Name.Contains("Evidence", StringComparison.OrdinalIgnoreCase));
+        Assert.DoesNotContain(
+            typeof(AuthApiFactory).GetMembers(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.DeclaredOnly),
+            member => member.Name.Contains("Evidence", StringComparison.OrdinalIgnoreCase));
     }
 
     // ---------------- Validation ----------------
@@ -401,7 +444,8 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
     {
         var c = await CheckedOutAsync();
 
-        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician, new { summaryText = "x", repairOutcomeCode = code }, c.WorkOrderETag);
+        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician,
+            new { summaryText = "x", repairOutcomeCode = code, evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(c.WorkOrderId, c.Technician.UserId) }, c.WorkOrderETag);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var summary = await WithDbAsync(db => db.WorkSummaries.AsNoTracking().SingleAsync(s => s.WorkOrderId == c.WorkOrderId));
@@ -417,7 +461,8 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
     {
         var c = await CheckedOutAsync();
 
-        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician, new { summaryText = "x", repairOutcomeCode = rawInput }, c.WorkOrderETag);
+        var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician,
+            new { summaryText = "x", repairOutcomeCode = rawInput, evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(c.WorkOrderId, c.Technician.UserId) }, c.WorkOrderETag);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var summary = await WithDbAsync(db => db.WorkSummaries.AsNoTracking().SingleAsync(s => s.WorkOrderId == c.WorkOrderId));
@@ -602,7 +647,7 @@ public sealed class WorkSummaryEndpointsTests : IClassFixture<WorkSummaryApiFact
     {
         var c = await CheckedOutAsync();
         var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{c.WorkOrderId}/submit-work-summary", c.Technician,
-            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED" }, c.WorkOrderETag);
+            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(c.WorkOrderId, c.Technician.UserId) }, c.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
         var etag = $"\"{(await JsonAsync(response)).GetProperty("rowVersion").GetString()}\"";
         return new ReviewReady(c, c.WorkOrderId, etag);

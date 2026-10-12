@@ -5,9 +5,14 @@ import { environment } from '../../../environments/environment';
 import { WorkOrder } from './work-order.models';
 import { EligibleAcceptanceContact, WorkSummary } from './work-summary.models';
 
+/**
+ * `evidenceIds` (required for Submit and Resubmit, `docs/13` §4.28) are 1 to 10 distinct ids of the current Visit's CLEAN evidence, in the
+ * order they become slots. They are references only: the server derives tenant, Work Order, Visit, file, scan status and slot itself.
+ */
 export interface SubmitWorkSummaryRequest {
   summaryText: string;
   repairOutcomeCode: string;
+  evidenceIds: string[];
 }
 
 /**

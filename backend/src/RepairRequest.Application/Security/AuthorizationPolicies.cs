@@ -198,6 +198,24 @@ public static class AuthorizationPolicies
     /// </summary>
     public const string AuditTimelineRead = "Audit.TimelineRead";
 
+    /// <summary>
+    /// Upload evidence for the next Work Summary round of a Work Order (WEV-API-001; `docs/16` OD2; `docs/13` §4.28). Technician only.
+    /// Role gate only: the caller must have an own Work Session on the Work Order, which must be IN_PROGRESS with an unsubmitted
+    /// Visit — enforced by the Application service.
+    /// </summary>
+    public const string WorkEvidenceUpload = "WorkEvidence.Upload";
+
+    /// <summary>
+    /// List and download Work Order evidence (WEV-API-002/003) and read the Service Report (SVR-API-001) — `docs/16` §4.1, OD5. The role
+    /// gate admits TECHNICIAN, TEAM_LEAD, SUPERVISOR and REQUESTER (the Acceptance Contact is an existing REQUESTER, `docs/13` §4.16); a
+    /// Requester who is not exactly the designated contact is refused by the audience scope rule, so the role alone grants nothing.
+    /// COORDINATOR, APPROVER and ADMINISTRATOR are not granted by OD5. Deliberately not <see cref="WorkOrderRead"/>, which is unchanged.
+    /// </summary>
+    public const string WorkEvidenceRead = "WorkEvidence.Read";
+
+    /// <summary>The Service Report (SVR-API-001): the same audience rule as <see cref="WorkEvidenceRead"/>, as its own named policy.</summary>
+    public const string ServiceReportRead = "ServiceReport.Read";
+
     public static IReadOnlyDictionary<string, IReadOnlyList<string>> AllowedRoles { get; } =
         new Dictionary<string, IReadOnlyList<string>>
         {
@@ -254,7 +272,10 @@ public static class AuthorizationPolicies
                 RoleCodes.Coordinator,
                 RoleCodes.TeamLead,
                 RoleCodes.Supervisor
-            ]
+            ],
+            [WorkEvidenceUpload] = [RoleCodes.Technician],
+            [WorkEvidenceRead] = [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor, RoleCodes.Requester],
+            [ServiceReportRead] = [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor, RoleCodes.Requester]
         };
 }
 

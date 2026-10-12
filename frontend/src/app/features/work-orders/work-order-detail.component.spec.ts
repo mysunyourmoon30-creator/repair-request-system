@@ -1267,4 +1267,28 @@ describe('WorkOrderDetailComponent', () => {
     // Exactly one request despite two submits (expectOne fails if there are two).
     httpMock.expectOne(`${baseUrl}/abc-123/cancel`).flush({ ...baseWorkOrder, status: 'CANCELLED', rowVersion: 'v2', cancelReason: 'Only once.' });
   });
+
+  it('offers the Service Report as a link to its own route (the backend decides who may open it)', () => {
+    TestBed.configureTestingModule({
+      imports: [WorkOrderDetailComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([]),
+        { provide: ActivatedRoute, useValue: { snapshot: { paramMap: convertToParamMap({ id: 'abc-123' }) } } },
+      ],
+    });
+    TestBed.overrideComponent(WorkOrderDetailComponent, {
+      remove: { imports: [WorkOrderTimelineComponent] },
+      add: { imports: [StubTimelineComponent] },
+    });
+    httpMock = TestBed.inject(HttpTestingController);
+    const fixture = TestBed.createComponent(WorkOrderDetailComponent);
+    fixture.detectChanges();
+    httpMock.expectOne(`${baseUrl}/abc-123`).flush(baseWorkOrder);
+    fixture.detectChanges();
+
+    const link = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('a')).find((anchor) => anchor.textContent?.trim() === 'View Service Report');
+    expect(link?.getAttribute('href')).toBe('/work-orders/abc-123/service-report');
+  });
 });

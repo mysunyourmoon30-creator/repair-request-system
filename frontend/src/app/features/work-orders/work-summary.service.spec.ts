@@ -18,12 +18,12 @@ describe('WorkSummaryService', () => {
   afterEach(() => httpMock.verify());
 
   it('submits with the quoted If-Match header and both fields', () => {
-    service.submit('wo-1', '"v1"', { summaryText: 'Replaced the pump seal.', repairOutcomeCode: 'REPAIRED' }).subscribe();
+    service.submit('wo-1', '"v1"', { summaryText: 'Replaced the pump seal.', repairOutcomeCode: 'REPAIRED', evidenceIds: ['e1', 'e2'] }).subscribe();
 
     const req = httpMock.expectOne(`${baseUrl}/wo-1/submit-work-summary`);
     expect(req.request.method).toBe('POST');
     expect(req.request.headers.get('If-Match')).toBe('"v1"');
-    expect(req.request.body).toEqual({ summaryText: 'Replaced the pump seal.', repairOutcomeCode: 'REPAIRED' });
+    expect(req.request.body).toEqual({ summaryText: 'Replaced the pump seal.', repairOutcomeCode: 'REPAIRED', evidenceIds: ['e1', 'e2'] });
     req.flush({});
   });
 

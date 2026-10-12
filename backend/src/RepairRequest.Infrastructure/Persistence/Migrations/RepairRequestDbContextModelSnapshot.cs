@@ -446,6 +446,9 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("AK_file_asset_tenant_id_file_asset_id");
+
                     b.HasIndex("TenantId", "UploadedBy");
 
                     b.ToTable("file_asset", null, t =>
@@ -944,6 +947,131 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("RepairRequest.Domain.WorkEvidence.WorkEvidenceUpload", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("work_evidence_id");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("created_at");
+
+                    b.Property<string>("EvidenceType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(30)")
+                        .HasColumnName("evidence_type_code");
+
+                    b.Property<Guid>("FileAssetId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("file_asset_id");
+
+                    b.Property<Guid>("ServiceVisitId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("service_visit_id");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<long>("UploadSequence")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasColumnName("upload_seq");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<long>("UploadSequence"));
+
+                    b.Property<Guid>("WorkOrderId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("work_order_id");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "TenantId", "WorkOrderId", "ServiceVisitId", "FileAssetId", "EvidenceType")
+                        .HasName("AK_work_evidence_upload_snapshot");
+
+                    b.HasIndex("FileAssetId")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_work_evidence_upload_file_asset_id");
+
+                    b.HasIndex("TenantId", "FileAssetId");
+
+                    b.HasIndex("TenantId", "WorkOrderId");
+
+                    b.HasIndex("WorkOrderId", "ServiceVisitId", "UploadSequence")
+                        .HasDatabaseName("IX_work_evidence_upload_work_order_visit");
+
+                    b.ToTable("work_evidence_upload", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_work_evidence_upload_evidence_type", "[evidence_type_code] IN ('BEFORE_WORK', 'AFTER_WORK', 'OTHER')");
+                        });
+                });
+
+            modelBuilder.Entity("RepairRequest.Domain.WorkEvidence.WorkSummaryEvidence", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("evidence_id");
+
+                    b.Property<DateTime>("BoundAt")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("bound_at");
+
+                    b.Property<string>("EvidenceType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(30)")
+                        .HasColumnName("evidence_type_code");
+
+                    b.Property<Guid>("FileAssetId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("file_asset_id");
+
+                    b.Property<Guid>("ServiceVisitId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("service_visit_id");
+
+                    b.Property<byte>("SlotNo")
+                        .HasColumnType("tinyint")
+                        .HasColumnName("slot_no");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<Guid>("WorkOrderId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("work_order_id");
+
+                    b.Property<Guid>("WorkSummaryId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("work_summary_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("WorkSummaryId", "SlotNo")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_work_summary_evidence_work_summary_id_slot_no");
+
+                    b.HasIndex("WorkSummaryId", "TenantId", "WorkOrderId", "ServiceVisitId")
+                        .HasDatabaseName("IX_work_summary_evidence_round");
+
+                    b.HasIndex("Id", "TenantId", "WorkOrderId", "ServiceVisitId", "FileAssetId", "EvidenceType")
+                        .HasDatabaseName("IX_work_summary_evidence_upload");
+
+                    b.ToTable("work_summary_evidence", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_work_summary_evidence_evidence_type", "[evidence_type_code] IN ('BEFORE_WORK', 'AFTER_WORK', 'OTHER')");
+
+                            t.HasCheckConstraint("CK_work_summary_evidence_slot_no", "[slot_no] BETWEEN 1 AND 10");
+                        });
+                });
+
             modelBuilder.Entity("RepairRequest.Domain.WorkOrders.CorrectiveAction", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1253,6 +1381,9 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("WorkOrderId", "Id")
+                        .HasName("AK_service_visit_work_order_id_service_visit_id");
+
                     b.HasIndex("SourceMissedVisitId");
 
                     b.HasIndex("WorkOrderId")
@@ -1342,6 +1473,9 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         .HasColumnName("work_order_no");
 
                     b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("AK_work_order_tenant_id_work_order_id");
 
                     b.HasIndex("RepairRequestId")
                         .IsUnique()
@@ -1528,6 +1662,9 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         .HasColumnName("work_order_id");
 
                     b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "TenantId", "WorkOrderId", "ServiceVisitId")
+                        .HasName("AK_work_summary_round");
 
                     b.HasIndex("WorkOrderId");
 
@@ -2053,6 +2190,52 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired()
                         .HasConstraintName("FK_sla_record_repair_request");
+                });
+
+            modelBuilder.Entity("RepairRequest.Domain.WorkEvidence.WorkEvidenceUpload", b =>
+                {
+                    b.HasOne("RepairRequest.Domain.Files.FileAsset", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "FileAssetId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_work_evidence_upload_file_asset");
+
+                    b.HasOne("RepairRequest.Domain.WorkOrders.WorkOrder", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkOrderId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_work_evidence_upload_work_order");
+
+                    b.HasOne("RepairRequest.Domain.WorkOrders.ServiceVisit", null)
+                        .WithMany()
+                        .HasForeignKey("WorkOrderId", "ServiceVisitId")
+                        .HasPrincipalKey("WorkOrderId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_work_evidence_upload_service_visit");
+                });
+
+            modelBuilder.Entity("RepairRequest.Domain.WorkEvidence.WorkSummaryEvidence", b =>
+                {
+                    b.HasOne("RepairRequest.Domain.WorkOrders.WorkSummary", null)
+                        .WithMany()
+                        .HasForeignKey("WorkSummaryId", "TenantId", "WorkOrderId", "ServiceVisitId")
+                        .HasPrincipalKey("Id", "TenantId", "WorkOrderId", "ServiceVisitId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_work_summary_evidence_work_summary");
+
+                    b.HasOne("RepairRequest.Domain.WorkEvidence.WorkEvidenceUpload", null)
+                        .WithMany()
+                        .HasForeignKey("Id", "TenantId", "WorkOrderId", "ServiceVisitId", "FileAssetId", "EvidenceType")
+                        .HasPrincipalKey("Id", "TenantId", "WorkOrderId", "ServiceVisitId", "FileAssetId", "EvidenceType")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_work_summary_evidence_upload");
                 });
 
             modelBuilder.Entity("RepairRequest.Domain.WorkOrders.CorrectiveAction", b =>
