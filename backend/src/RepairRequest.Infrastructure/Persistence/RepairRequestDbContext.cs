@@ -6,6 +6,7 @@ using RepairRequest.Domain.Files;
 using RepairRequest.Domain.MasterData;
 using RepairRequest.Domain.RepairRequests;
 using RepairRequest.Domain.Sla;
+using RepairRequest.Domain.WorkEvidence;
 using RepairRequest.Domain.WorkOrders;
 using RepairRequest.Infrastructure.Identity;
 using RepairRequest.Infrastructure.Persistence.Conversions;
@@ -78,6 +79,10 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
     public DbSet<CostSummary> CostSummaries => Set<CostSummary>();
 
     public DbSet<SlaRecord> SlaRecords => Set<SlaRecord>();
+
+    public DbSet<WorkEvidenceUpload> WorkEvidenceUploads => Set<WorkEvidenceUpload>();
+
+    public DbSet<WorkSummaryEvidence> WorkSummaryEvidence => Set<WorkSummaryEvidence>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

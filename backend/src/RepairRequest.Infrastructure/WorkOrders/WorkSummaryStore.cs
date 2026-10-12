@@ -95,6 +95,9 @@ internal sealed class WorkSummaryStore : IWorkSummaryStore
     public Task<WorkOrder?> LoadForAcceptanceSubmitAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
         _scope.WorkOrders(user).SingleOrDefaultAsync(workOrder => workOrder.Id == workOrderId, cancellationToken);
 
+    public Task ReloadAsync(WorkOrder workOrder, CancellationToken cancellationToken) =>
+        _db.Entry(workOrder).ReloadAsync(cancellationToken);
+
     public void Add(WorkSummary summary) => _db.WorkSummaries.Add(summary);
 
     public void AddAudit(AuditHistory audit) => _db.AuditHistory.Add(audit);

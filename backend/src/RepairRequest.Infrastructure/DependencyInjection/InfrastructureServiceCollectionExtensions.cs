@@ -11,6 +11,7 @@ using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Security;
 using RepairRequest.Application.Sla;
+using RepairRequest.Application.WorkEvidence;
 using RepairRequest.Application.WorkOrders;
 using RepairRequest.Infrastructure.Approvals;
 using RepairRequest.Infrastructure.Attachments;
@@ -23,6 +24,7 @@ using RepairRequest.Infrastructure.MasterData;
 using RepairRequest.Infrastructure.RepairRequests;
 using RepairRequest.Infrastructure.Persistence;
 using RepairRequest.Infrastructure.Sla;
+using RepairRequest.Infrastructure.WorkEvidence;
 using RepairRequest.Infrastructure.WorkOrders;
 
 namespace RepairRequest.Infrastructure.DependencyInjection;
@@ -111,6 +113,10 @@ public static class InfrastructureServiceCollectionExtensions
 
         // SLA record start / stop / read port (`docs/16` D5-D7; SLA-API-001); shares the lifecycle commands' DbContext and transaction.
         services.AddScoped<ISlaRecordStore, SlaRecordStore>();
+
+        // Work Order evidence persistence and the Service Report read model (`docs/13` §4.28).
+        services.AddScoped<IWorkEvidenceStore, WorkEvidenceStore>();
+        services.AddScoped<IServiceReportStore, ServiceReportStore>();
 
         // Corrective Action Submit Plan / Approve Plan persistence port; `docs/13` §4.21.
         services.AddScoped<ICorrectiveActionStore, CorrectiveActionStore>();

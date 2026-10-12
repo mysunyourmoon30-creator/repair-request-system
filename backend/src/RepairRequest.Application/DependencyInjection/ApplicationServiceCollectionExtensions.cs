@@ -6,6 +6,7 @@ using RepairRequest.Application.Audit;
 using RepairRequest.Application.MasterData;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.Sla;
+using RepairRequest.Application.WorkEvidence;
 using RepairRequest.Application.WorkOrders;
 
 namespace RepairRequest.Application.DependencyInjection;
@@ -83,6 +84,10 @@ public static class ApplicationServiceCollectionExtensions
 
         // SLA record read (SLA-API-001; `docs/16` D5-D7). Start and stop run inside the lifecycle commands above.
         services.AddScoped<SlaRecordReadService>();
+
+        // Work Order evidence upload/list/download (WEV-API-001..003) and the Service Report read model (SVR-API-001); `docs/13` §4.28.
+        services.AddScoped<WorkEvidenceService>();
+        services.AddScoped<ServiceReportService>();
 
         return services;
     }

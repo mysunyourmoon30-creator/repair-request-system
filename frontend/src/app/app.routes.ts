@@ -15,6 +15,11 @@ export const routes: Routes = [
       import('./features/work-orders/work-order-detail.component').then((m) => m.WorkOrderDetailComponent),
   },
   {
+    path: 'work-orders/:id/service-report',
+    loadComponent: () =>
+      import('./features/work-orders/service-report.component').then((m) => m.ServiceReportComponent),
+  },
+  {
     path: 'my-visits',
     canActivate: [technicianOnlyGuard],
     loadComponent: () => import('./features/technician/my-visits.component').then((m) => m.MyVisitsComponent),

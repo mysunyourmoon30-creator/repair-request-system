@@ -69,7 +69,7 @@ public sealed class ReworkCompletionEndpointsTests : IClassFixture<ReworkComplet
         var before = DateTime.UtcNow.AddSeconds(-2);
 
         var response = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{r.WorkOrderId}/submit-work-summary", r.Technician,
-            new { summaryText = "Replaced the fitting; retested, no leak.", repairOutcomeCode = "REPAIRED" }, r.WorkOrderETag);
+            new { summaryText = "Replaced the fitting; retested, no leak.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(r.WorkOrderId, r.Technician.UserId) }, r.WorkOrderETag);
         var after = DateTime.UtcNow.AddSeconds(2);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -98,7 +98,7 @@ public sealed class ReworkCompletionEndpointsTests : IClassFixture<ReworkComplet
         // per-Visit, not per-Work-Order.
         var r = await ReworkReadyAsync();
         var submitted = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{r.WorkOrderId}/submit-work-summary", r.Technician,
-            new { summaryText = "Replaced the fitting; retested, no leak.", repairOutcomeCode = "REPAIRED" }, r.WorkOrderETag);
+            new { summaryText = "Replaced the fitting; retested, no leak.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(r.WorkOrderId, r.Technician.UserId) }, r.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, submitted.StatusCode);
 
         var response = await SendAsync(HttpMethod.Get, $"{WorkOrders}/{r.WorkOrderId}/work-summary", r.Technician, null, null);
@@ -142,7 +142,7 @@ public sealed class ReworkCompletionEndpointsTests : IClassFixture<ReworkComplet
     {
         var r = await ReworkReadyAsync();
         var first = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{r.WorkOrderId}/submit-work-summary", r.Technician,
-            new { summaryText = "First rework summary.", repairOutcomeCode = "REPAIRED" }, r.WorkOrderETag);
+            new { summaryText = "First rework summary.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(r.WorkOrderId, r.Technician.UserId) }, r.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, first.StatusCode);
         var freshEtag = $"\"{(await JsonAsync(first)).GetProperty("rowVersion").GetString()}\"";
 
@@ -158,7 +158,7 @@ public sealed class ReworkCompletionEndpointsTests : IClassFixture<ReworkComplet
     public async Task TwoConcurrentSubmitWorkSummary_OnTheCorrectiveCycle_ExactlyOneSucceeds()
     {
         var r = await ReworkReadyAsync();
-        var body = new { summaryText = "Replaced the fitting.", repairOutcomeCode = "REPAIRED" };
+        var body = new { summaryText = "Replaced the fitting.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(r.WorkOrderId, r.Technician.UserId) };
 
         var responses = await Task.WhenAll(
             Task.Run(() => SendAsync(HttpMethod.Post, $"{WorkOrders}/{r.WorkOrderId}/submit-work-summary", r.Technician, body, r.WorkOrderETag)),
@@ -176,7 +176,7 @@ public sealed class ReworkCompletionEndpointsTests : IClassFixture<ReworkComplet
     {
         var r = await ReworkReadyAsync();
         var summarized = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{r.WorkOrderId}/submit-work-summary", r.Technician,
-            new { summaryText = "Replaced the fitting.", repairOutcomeCode = "REPAIRED" }, r.WorkOrderETag);
+            new { summaryText = "Replaced the fitting.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(r.WorkOrderId, r.Technician.UserId) }, r.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, summarized.StatusCode);
         var reviewEtag = $"\"{(await JsonAsync(summarized)).GetProperty("rowVersion").GetString()}\"";
 
@@ -195,7 +195,7 @@ public sealed class ReworkCompletionEndpointsTests : IClassFixture<ReworkComplet
     {
         var r = await ReworkReadyAsync();
         var summarized = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{r.WorkOrderId}/submit-work-summary", r.Technician,
-            new { summaryText = "Replaced the fitting.", repairOutcomeCode = "REPAIRED" }, r.WorkOrderETag);
+            new { summaryText = "Replaced the fitting.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(r.WorkOrderId, r.Technician.UserId) }, r.WorkOrderETag);
         Assert.Equal(HttpStatusCode.OK, summarized.StatusCode);
         var reviewEtag = $"\"{(await JsonAsync(summarized)).GetProperty("rowVersion").GetString()}\"";
         var differentContact = await CallerAsync(r.TenantId, [r.Site], RoleCodes.Requester);
@@ -305,7 +305,7 @@ public sealed class ReworkCompletionEndpointsTests : IClassFixture<ReworkComplet
         var workOrderETag = $"\"{(await JsonAsync(checkedOut)).GetProperty("workOrderRowVersion").GetString()}\"";
 
         var summarySubmitted = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{workOrderId}/submit-work-summary", technician,
-            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED" }, workOrderETag);
+            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(workOrderId, technician.UserId) }, workOrderETag);
         Assert.Equal(HttpStatusCode.OK, summarySubmitted.StatusCode);
         var reviewEtag = $"\"{(await JsonAsync(summarySubmitted)).GetProperty("rowVersion").GetString()}\"";
 

@@ -560,7 +560,7 @@ public sealed class AuditTimelineEndpointsTests : IClassFixture<AuditTimelineApi
         var workOrderETag = $"\"{(await JsonAsync(checkedOut)).GetProperty("workOrderRowVersion").GetString()}\"";
 
         var summary = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/submit-work-summary", w.Technician,
-            new { summaryText = SummarySentinel, repairOutcomeCode = "REPAIRED" }, workOrderETag);
+            new { summaryText = SummarySentinel, repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(w.WorkOrderId, w.Technician.UserId) }, workOrderETag);
         Assert.Equal(HttpStatusCode.OK, summary.StatusCode);
         var accept = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/submit-for-acceptance", w.TeamLead,
             new { acceptanceContactId = w.Owner.UserId }, summary.Headers.ETag!.Tag);
@@ -608,7 +608,7 @@ public sealed class AuditTimelineEndpointsTests : IClassFixture<AuditTimelineApi
         var checkedOut = await SendAsync(HttpMethod.Post, $"{Sessions}/{sessionId}/check-out", w.Technician, null, $"\"{current.GetProperty("rowVersion").GetString()}\"");
         Assert.Equal(HttpStatusCode.OK, checkedOut.StatusCode);
         var summary = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/submit-work-summary", w.Technician,
-            new { summaryText = SummarySentinel, repairOutcomeCode = "REPAIRED" }, $"\"{(await JsonAsync(checkedOut)).GetProperty("workOrderRowVersion").GetString()}\"");
+            new { summaryText = SummarySentinel, repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(w.WorkOrderId, w.Technician.UserId) }, $"\"{(await JsonAsync(checkedOut)).GetProperty("workOrderRowVersion").GetString()}\"");
         Assert.Equal(HttpStatusCode.OK, summary.StatusCode);
         var submitted = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/submit-for-acceptance", w.TeamLead,
             new { acceptanceContactId = w.Owner.UserId }, summary.Headers.ETag!.Tag);

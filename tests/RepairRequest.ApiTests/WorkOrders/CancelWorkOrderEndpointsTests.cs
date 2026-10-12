@@ -642,7 +642,7 @@ public sealed class CancelWorkOrderEndpointsTests : IClassFixture<CancelWorkOrde
         var workOrderETag = $"\"{(await JsonAsync(checkedOut)).GetProperty("workOrderRowVersion").GetString()}\"";
 
         var summarySubmitted = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{w.WorkOrderId}/submit-work-summary", w.Technician,
-            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED" }, workOrderETag);
+            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(w.WorkOrderId, w.Technician.UserId) }, workOrderETag);
         Assert.Equal(HttpStatusCode.OK, summarySubmitted.StatusCode);
         var reviewEtag = $"\"{(await JsonAsync(summarySubmitted)).GetProperty("rowVersion").GetString()}\"";
 

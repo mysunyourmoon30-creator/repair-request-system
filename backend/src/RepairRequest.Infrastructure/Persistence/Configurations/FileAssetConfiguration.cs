@@ -21,6 +21,10 @@ internal sealed class FileAssetConfiguration : IEntityTypeConfiguration<FileAsse
 
         builder.HasKey(file => file.Id);
 
+        // Principal key for the tenant-consistent composite foreign key from work_evidence_upload.
+        builder.HasAlternateKey(file => new { file.TenantId, file.Id })
+            .HasName("AK_file_asset_tenant_id_file_asset_id");
+
         builder.Property(file => file.Id).HasColumnName("file_asset_id");
         builder.Property(file => file.TenantId).HasColumnName("tenant_id");
 

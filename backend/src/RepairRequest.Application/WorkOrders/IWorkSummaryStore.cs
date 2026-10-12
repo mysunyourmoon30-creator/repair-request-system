@@ -39,6 +39,12 @@ public interface IWorkSummaryStore
     /// </summary>
     Task<WorkOrder?> LoadForAcceptanceSubmitAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// Re-reads the tracked Work Order from the database. Called once the per-Work-Order evidence lock is held, so a Submit that waited
+    /// behind a competing Submit sees the committed row version and status instead of the stale copy it loaded before the lock.
+    /// </summary>
+    Task ReloadAsync(WorkOrder workOrder, CancellationToken cancellationToken);
+
     void Add(WorkSummary summary);
 
     void AddAudit(AuditHistory audit);

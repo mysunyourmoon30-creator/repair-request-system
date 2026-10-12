@@ -1,5 +1,6 @@
 using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
+using RepairRequest.Application.WorkEvidence;
 using RepairRequest.Domain.WorkOrders;
 
 namespace RepairRequest.Application.WorkOrders;
@@ -17,15 +18,24 @@ namespace RepairRequest.Application.WorkOrders;
 /// whether that `IN_PROGRESS` was reached via `ST-WO-002` or `ST-WO-010`. The one behavioral addition is in
 /// Submit for Acceptance: once an Acceptance Contact has already been designated by an earlier round, a later
 /// round's contact must be the same one (`UC-WO-024`'s own literal text, §4.24 Decision).
+/// Submit also runs the CLEAN evidence guard (`docs/16` D3, OD1; `docs/13` §4.28) inside the same transaction: after the state checks it
+/// takes the per-Work-Order evidence lock and resolves the request's <c>evidenceIds</c> (1 to 10 distinct upload ids, untrusted references)
+/// against the authenticated tenant, this Work Order and the exact current Visit. Every id must be CLEAN and not yet bound; an invalid set
+/// is a 422 on the <c>evidenceIds</c> field (together with any other field error) that does not say why, and an already bound item is a
+/// 409. Exactly the selected uploads are frozen, in request order, as the immutable <c>work_summary_evidence</c> snapshot of this
+/// submission round in the same save as the Work Summary and its audit rows; an unselected CLEAN upload is never bound. A failed or
+/// conflicting Submit binds nothing. Check-out is untouched.
 /// </summary>
 public sealed class WorkSummaryService
 {
     private readonly IWorkSummaryStore _store;
+    private readonly IWorkEvidenceStore _evidence;
     private readonly TimeProvider _clock;
 
-    public WorkSummaryService(IWorkSummaryStore store, TimeProvider clock)
+    public WorkSummaryService(IWorkSummaryStore store, IWorkEvidenceStore evidence, TimeProvider clock)
     {
         _store = store;
+        _evidence = evidence;
         _clock = clock;
     }
 
@@ -37,11 +47,25 @@ public sealed class WorkSummaryService
         _store.ListEligibleAcceptanceContactsAsync(user, workOrderId, cancellationToken);
 
     public Task<CommandResult<Guid>> SubmitAsync(
-        CommandContext context, Guid workOrderId, byte[] expectedRowVersion, string? summaryText, string? repairOutcomeCode, CancellationToken cancellationToken) =>
-        _store.RunInTransactionAsync(() => SubmitLockedAsync(context, workOrderId, expectedRowVersion, summaryText, repairOutcomeCode, cancellationToken), cancellationToken);
+        CommandContext context,
+        Guid workOrderId,
+        byte[] expectedRowVersion,
+        string? summaryText,
+        string? repairOutcomeCode,
+        IReadOnlyList<Guid>? evidenceIds,
+        CancellationToken cancellationToken) =>
+        _store.RunInTransactionAsync(
+            () => SubmitLockedAsync(context, workOrderId, expectedRowVersion, summaryText, repairOutcomeCode, evidenceIds, cancellationToken),
+            cancellationToken);
 
     private async Task<CommandResult<Guid>> SubmitLockedAsync(
-        CommandContext context, Guid workOrderId, byte[] expectedRowVersion, string? summaryText, string? repairOutcomeCode, CancellationToken cancellationToken)
+        CommandContext context,
+        Guid workOrderId,
+        byte[] expectedRowVersion,
+        string? summaryText,
+        string? repairOutcomeCode,
+        IReadOnlyList<Guid>? evidenceIds,
+        CancellationToken cancellationToken)
     {
         var loaded = await _store.LoadForSubmitAsync(context.User, workOrderId, cancellationToken);
         if (loaded is null)
@@ -69,6 +93,21 @@ public sealed class WorkSummaryService
                     : "Only an IN_PROGRESS Work Order can have its Work Summary submitted.");
         }
 
+        // Serialized with evidence upload per Work Order: an upload either committed before this point (and is selected below) or waits and
+        // then finds the round closed. A lock that is not granted in time writes nothing and is a concurrency conflict.
+        if (!await _evidence.TryLockWorkOrderAsync(workOrder.Id, cancellationToken))
+        {
+            return CommandError.ConcurrencyConflict;
+        }
+
+        // A competing Submit may have committed while this one waited for the lock: re-read the Work Order and treat a changed row version
+        // as the stale-write conflict it is (409), not as an evidence problem (422).
+        await _store.ReloadAsync(workOrder, cancellationToken);
+        if (!workOrder.RowVersion.AsSpan().SequenceEqual(expectedRowVersion))
+        {
+            return CommandError.ConcurrencyConflict;
+        }
+
         var errors = new Dictionary<string, string[]>();
 
         var trimmedSummary = summaryText?.Trim() ?? string.Empty;
@@ -87,6 +126,18 @@ public sealed class WorkSummaryService
             errors[WorkSummaryFields.RepairOutcomeCode] = [$"repairOutcomeCode must be one of: {string.Join(", ", RepairOutcomeCodes.All)}."];
         }
 
+        // The client's ids are only references: tenant, Work Order, Visit, file, scan status and slot are derived here, never read from the request.
+        var selection = await WorkEvidenceGuard.SelectAsync(_evidence, workOrder.TenantId, workOrder.Id, visit.Id, evidenceIds, cancellationToken);
+        if (selection.AlreadyBound)
+        {
+            return CommandError.StateConflict("A selected evidence item is already bound to a Work Summary.");
+        }
+
+        if (selection.Error is not null)
+        {
+            errors[WorkEvidenceFields.EvidenceIds] = [selection.Error];
+        }
+
         if (errors.Count > 0)
         {
             return CommandError.Validation(errors);
@@ -98,6 +149,13 @@ public sealed class WorkSummaryService
         var now = WorkOrderScheduleService.ToUtc(_clock.GetUtcNow())!.Value;
         _store.Add(summary);
         _store.AddAudit(WorkOrderAudit.WorkSummarySubmitted(context, workOrder, summary, now));
+
+        // The round's immutable evidence snapshot: inserted with the Work Summary, never updated or deleted afterwards.
+        foreach (var binding in WorkEvidenceGuard.Bind(selection.Uploads, summary.Id, now))
+        {
+            _evidence.AddBinding(binding);
+            _store.AddAudit(WorkEvidenceAudit.Bound(context, binding, workOrder.Id, visit.Id, now));
+        }
 
         var outcome = await _store.SaveChangesAsync(workOrder, expectedRowVersion, cancellationToken);
         return outcome == WorkOrderSaveOutcome.Saved ? CommandResult<Guid>.Success(workOrder.Id) : CommandError.ConcurrencyConflict;

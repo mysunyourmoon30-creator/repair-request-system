@@ -41,6 +41,7 @@ import { CostSummary, WorkOrderService } from './work-order.service';
       <p role="alert">Could not load this Work Order: {{ error() }}</p>
     } @else if (workOrder(); as workOrder) {
       <h1>Work Order {{ workOrder.workOrderNo }}</h1>
+      <p><a [routerLink]="['/work-orders', workOrder.workOrderId, 'service-report']">View Service Report</a></p>
       <dl>
         <dt>Status</dt>
         <dd>{{ workOrder.status }}</dd>

@@ -20,6 +20,10 @@ internal sealed class WorkOrderConfiguration : IEntityTypeConfiguration<WorkOrde
 
         builder.HasKey(workOrder => workOrder.Id);
 
+        // Principal key for the tenant-consistent composite foreign key from work_evidence_upload.
+        builder.HasAlternateKey(workOrder => new { workOrder.TenantId, workOrder.Id })
+            .HasName("AK_work_order_tenant_id_work_order_id");
+
         builder.Property(workOrder => workOrder.Id).HasColumnName("work_order_id");
         builder.Property(workOrder => workOrder.TenantId).HasColumnName("tenant_id");
 

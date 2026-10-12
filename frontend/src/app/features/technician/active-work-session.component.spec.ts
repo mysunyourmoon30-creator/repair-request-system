@@ -1,8 +1,10 @@
 import { provideHttpClient } from '@angular/common/http';
 import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { provideRouter } from '@angular/router';
 import { environment } from '../../../environments/environment';
 import { ActiveWorkSessionComponent } from './active-work-session.component';
+import { WorkEvidenceItem } from '../work-orders/work-evidence.models';
 import { WorkSession } from './work-session.models';
 
 describe('ActiveWorkSessionComponent', () => {
@@ -45,7 +47,7 @@ describe('ActiveWorkSessionComponent', () => {
   function load(session: WorkSession | null): { fixture: ComponentFixture<ActiveWorkSessionComponent>; root: HTMLElement } {
     TestBed.configureTestingModule({
       imports: [ActiveWorkSessionComponent],
-      providers: [provideHttpClient(), provideHttpClientTesting()],
+      providers: [provideHttpClient(), provideHttpClientTesting(), provideRouter([])],
     });
     httpMock = TestBed.inject(HttpTestingController);
     const fixture = TestBed.createComponent(ActiveWorkSessionComponent);
@@ -359,14 +361,53 @@ describe('ActiveWorkSessionComponent', () => {
 
   // ---------------- Submit Work Summary ----------------
 
+  const evidenceItem = (id: string, overrides: Partial<WorkEvidenceItem> = {}): WorkEvidenceItem => ({
+    evidenceId: id,
+    serviceVisitId: 'visit-1',
+    evidenceType: 'AFTER_WORK',
+    fileName: `${id}.png`,
+    mimeType: 'image/png',
+    sizeBytes: 2048,
+    scanStatus: 'CLEAN',
+    bound: false,
+    workSummaryId: null,
+    slotNo: null,
+    uploadedAt: '2026-10-01T08:00:00Z',
+    ...overrides,
+  });
+
+  function checkboxes(root: HTMLElement): HTMLInputElement[] {
+    return Array.from(root.querySelectorAll<HTMLInputElement>('app-work-evidence-selection input[type="checkbox"]'));
+  }
+
+  function toggleEvidence(fixture: ComponentFixture<ActiveWorkSessionComponent>, root: HTMLElement, index: number): void {
+    checkboxes(root)[index].click();
+    fixture.detectChanges();
+  }
+
+  /**
+   * Opens the Submit Work Summary dialog (answering the evidence list request the selection list makes), then fills the summary and the
+   * outcome. With the default list the single CLEAN item is selected, so the dialog is ready to submit.
+   */
   function openSummaryDialogAndType(
     fixture: ComponentFixture<ActiveWorkSessionComponent>,
     root: HTMLElement,
     summary: string,
     outcome: string,
+    listed: WorkEvidenceItem[] = [evidenceItem('e1')],
+    selectFirst = true,
   ): void {
+    const wasOpen = root.querySelector('[role="dialog"]') !== null;
     buttonNamed(root, 'Submit Work Summary')!.click();
     fixture.detectChanges();
+    if (!wasOpen) {
+      httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/evidence`).flush({ items: listed });
+      fixture.detectChanges();
+      if (selectFirst && checkboxes(root).some((box) => !box.disabled)) {
+        toggleEvidence(fixture, root, checkboxes(root).findIndex((box) => !box.disabled));
+      }
+    }
+
     const textarea = root.querySelector('textarea')!;
     textarea.value = summary;
     textarea.dispatchEvent(new Event('input'));
@@ -379,8 +420,7 @@ describe('ActiveWorkSessionComponent', () => {
   it('offers the repair outcome as a closed dropdown of exactly the six allowed codes, never free text', () => {
     const { fixture, root } = load(checkedOut);
 
-    buttonNamed(root, 'Submit Work Summary')!.click();
-    fixture.detectChanges();
+    openSummaryDialogAndType(fixture, root, '', '', [], false);
 
     const select = root.querySelector('select')!;
     const optionValues = Array.from(select.querySelectorAll('option'))
@@ -388,8 +428,8 @@ describe('ActiveWorkSessionComponent', () => {
       .filter((value) => value !== '');
     expect(optionValues).toEqual(['REPAIRED', 'TEMPORARY_FIX', 'PARTS_REQUIRED', 'NO_FAULT_FOUND', 'NOT_REPAIRABLE', 'FOLLOW_UP_REQUIRED']);
 
-    // No free-text input exists anywhere in the dialog for the outcome — only the reason/summary textareas.
-    expect(root.querySelector('input')).toBeNull();
+    // No free-text input exists anywhere in the dialog for the outcome — only the summary textarea; the only inputs are evidence checkboxes.
+    expect(Array.from(root.querySelectorAll('input')).every((input) => input.type === 'checkbox')).toBe(true);
   });
 
   it('opens the Submit Work Summary dialog and keeps Confirm disabled until both fields are filled', () => {
@@ -406,6 +446,160 @@ describe('ActiveWorkSessionComponent', () => {
     expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(false);
   });
 
+  // ---------------- evidence selection in the dialog ----------------
+
+  it('lists the current Visit\'s evidence with every status: only CLEAN is selectable, PENDING and FAILED stay visible but disabled', () => {
+    const { fixture, root } = load(checkedOut);
+
+    openSummaryDialogAndType(
+      fixture,
+      root,
+      'Replaced the pump seal.',
+      'REPAIRED',
+      [
+        evidenceItem('clean', { fileName: 'clean.png' }),
+        evidenceItem('pending', { fileName: 'pending.png', scanStatus: 'PENDING' }),
+        evidenceItem('failed', { fileName: 'failed.png', scanStatus: 'FAILED' }),
+        evidenceItem('frozen', { fileName: 'frozen.png', bound: true, slotNo: 1 }),
+        evidenceItem('other-visit', { fileName: 'elsewhere.png', serviceVisitId: 'visit-0' }),
+      ],
+      false,
+    );
+
+    const text = root.textContent ?? '';
+    expect(text).toContain('clean.png');
+    expect(text).toContain('pending.png');
+    expect(text).toContain('PENDING scan — cannot be selected yet');
+    expect(text).toContain('failed.png');
+    expect(text).toContain('FAILED — cannot be selected');
+    // Already frozen evidence and another Visit's evidence are not offered.
+    expect(text).not.toContain('frozen.png');
+    expect(text).not.toContain('elsewhere.png');
+
+    const boxes = checkboxes(root);
+    expect(boxes).toHaveLength(3);
+    expect(boxes.map((box) => box.disabled)).toEqual([false, true, true]);
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+  });
+
+  it('requires 1 to 10 selected CLEAN items before the summary can be sent', () => {
+    const { fixture, root } = load(checkedOut);
+    const twelve = Array.from({ length: 12 }, (_, i) => evidenceItem(`e${i + 1}`));
+    openSummaryDialogAndType(fixture, root, 'Replaced the pump seal.', 'REPAIRED', twelve, false);
+
+    // Nothing is selected for the Technician: no automatic selection.
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+    expect(root.textContent).toContain('0 of 10 selected.');
+
+    toggleEvidence(fixture, root, 0);
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(false);
+
+    for (let index = 1; index < 10; index++) {
+      toggleEvidence(fixture, root, index);
+    }
+    expect(root.textContent).toContain('10 of 10 selected.');
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(false);
+    // The eleventh and twelfth cannot be selected any more; the selected ones can still be unselected.
+    expect(checkboxes(root).map((box) => box.disabled)).toEqual([...Array<boolean>(10).fill(false), true, true]);
+
+    toggleEvidence(fixture, root, 11); // a disabled box: no effect
+    expect(root.textContent).toContain('10 of 10 selected.');
+
+    for (let index = 0; index < 10; index++) {
+      toggleEvidence(fixture, root, index);
+    }
+    expect(root.textContent).toContain('0 of 10 selected.');
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+  });
+
+  it('sends exactly the selected evidenceIds in selection order, never an unselected or non-CLEAN id', () => {
+    const { fixture, root } = load(checkedOut);
+    openSummaryDialogAndType(
+      fixture,
+      root,
+      'Replaced the pump seal.',
+      'REPAIRED',
+      [evidenceItem('a'), evidenceItem('pending', { scanStatus: 'PENDING' }), evidenceItem('b'), evidenceItem('c')],
+      false,
+    );
+
+    toggleEvidence(fixture, root, 3); // c
+    toggleEvidence(fixture, root, 0); // a
+    root.querySelector('form')!.dispatchEvent(new Event('submit'));
+
+    const req = httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/submit-work-summary`);
+    expect(req.request.body).toEqual({ summaryText: 'Replaced the pump seal.', repairOutcomeCode: 'REPAIRED', evidenceIds: ['c', 'a'] });
+    req.flush({});
+    httpMock.expectOne(`${baseUrl}/current`).flush(null, { status: 204, statusText: 'No Content' });
+  });
+
+  it('sends one Submit only while a request is in flight, and ignores a second submit event', () => {
+    const { fixture, root } = load(checkedOut);
+    openSummaryDialogAndType(fixture, root, 'Replaced the pump seal.', 'REPAIRED');
+
+    root.querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+    root.querySelector('form')!.dispatchEvent(new Event('submit'));
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+
+    const req = httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/submit-work-summary`);
+    req.flush({});
+    httpMock.expectOne(`${baseUrl}/current`).flush(null, { status: 204, statusText: 'No Content' });
+  });
+
+  it('refreshes the evidence list on request: a PENDING item that became CLEAN becomes selectable, a vanished selection is dropped', () => {
+    const { fixture, root } = load(checkedOut);
+    openSummaryDialogAndType(
+      fixture,
+      root,
+      'Replaced the pump seal.',
+      'REPAIRED',
+      [evidenceItem('a'), evidenceItem('p', { scanStatus: 'PENDING' })],
+      true,
+    );
+    expect(root.textContent).toContain('1 of 10 selected.');
+
+    buttonNamed(root, 'Refresh status')!.click();
+    fixture.detectChanges();
+    httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/evidence`).flush({ items: [evidenceItem('a'), evidenceItem('p')] });
+    fixture.detectChanges();
+
+    expect(checkboxes(root).map((box) => box.disabled)).toEqual([false, false]);
+    expect(root.textContent).toContain('1 of 10 selected.');
+
+    // The selected item is frozen elsewhere: it is no longer offered and the selection is cleared.
+    buttonNamed(root, 'Refresh status')!.click();
+    fixture.detectChanges();
+    httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/evidence`).flush({ items: [evidenceItem('a', { bound: true }), evidenceItem('p')] });
+    fixture.detectChanges();
+
+    expect(checkboxes(root)).toHaveLength(1);
+    expect(root.textContent).toContain('0 of 10 selected.');
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+  });
+
+  it('says so when the Visit has no evidence yet and keeps Confirm disabled', () => {
+    const { fixture, root } = load(checkedOut);
+
+    openSummaryDialogAndType(fixture, root, 'Replaced the pump seal.', 'REPAIRED', []);
+
+    expect(root.textContent).toContain('No evidence has been uploaded for this visit yet.');
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+  });
+
+  it('shows a plain message when the evidence list cannot be loaded, without selecting anything', () => {
+    const { fixture, root } = load(checkedOut);
+    buttonNamed(root, 'Submit Work Summary')!.click();
+    fixture.detectChanges();
+
+    httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/evidence`).flush('boom', { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+
+    expect(root.textContent).toContain('The evidence list could not be loaded.');
+    expect(root.textContent).not.toContain('Http failure');
+    expect(buttonNamed(root, 'Confirm Submit')!.disabled).toBe(true);
+  });
+
   it('submits with the trimmed summary, the selected outcome code, and the quoted workOrderRowVersion, then reloads the current session', () => {
     const { fixture, root } = load(checkedOut);
     // The outcome comes from a closed dropdown (never free text), so only the summary text needs trimming.
@@ -415,7 +609,7 @@ describe('ActiveWorkSessionComponent', () => {
 
     const req = httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/submit-work-summary`);
     expect(req.request.headers.get('If-Match')).toBe('"wov1"');
-    expect(req.request.body).toEqual({ summaryText: 'Replaced the pump seal.', repairOutcomeCode: 'REPAIRED' });
+    expect(req.request.body).toEqual({ summaryText: 'Replaced the pump seal.', repairOutcomeCode: 'REPAIRED', evidenceIds: ['e1'] });
     req.flush({});
 
     httpMock.expectOne(`${baseUrl}/current`).flush(null, { status: 204, statusText: 'No Content' });
@@ -476,5 +670,49 @@ describe('ActiveWorkSessionComponent', () => {
 
     expect(root.querySelector('[role="dialog"]')).toBeNull();
     expect(buttonNamed(root, 'Submit Work Summary')).toBeDefined();
+  });
+
+  // ---------------- Evidence (WEV-API-001/002) and the CLEAN guard message ----------------
+
+  it('does not load or show evidence until the Technician asks for it, and links to the Service Report', () => {
+    const { root } = load(checkedIn);
+
+    expect(root.querySelector('app-work-evidence-panel')).toBeNull();
+    httpMock.expectNone(`${workOrdersBaseUrl}/wo-1/evidence`);
+    expect(root.querySelector('a')?.textContent?.trim()).toBe('Service Report');
+    expect(root.querySelector('a')?.getAttribute('href')).toBe('/work-orders/wo-1/service-report');
+  });
+
+  it.each([
+    ['CHECKED_IN', checkedIn],
+    ['PAUSED', paused],
+    ['CHECKED_OUT', checkedOut],
+  ])('opens the evidence panel for a %s session and loads its list once', (_name, session) => {
+    const { fixture, root } = load(session);
+
+    buttonNamed(root, 'Evidence')!.click();
+    fixture.detectChanges();
+    httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/evidence`).flush({ items: [] });
+    fixture.detectChanges();
+
+    expect(root.querySelector('app-work-evidence-panel')).not.toBeNull();
+    expect(buttonNamed(root, 'Hide evidence')).toBeDefined();
+    expect(root.textContent).toContain('No evidence has been uploaded yet.');
+  });
+
+  it('explains an invalid evidence selection (422 on the evidenceIds field) instead of blaming the form fields', () => {
+    const { fixture, root } = load(checkedOut);
+    openSummaryDialogAndType(fixture, root, 'Replaced the bearing', 'REPAIRED');
+
+    root.querySelector('form')!.dispatchEvent(new Event('submit'));
+    httpMock.expectOne(`${workOrdersBaseUrl}/wo-1/submit-work-summary`).flush(
+      { code: 'VALIDATION_FAILED', errors: { evidenceIds: ['The selected evidence is not valid for this Work Summary. Select only CLEAN evidence uploaded for the current Visit.'] } },
+      { status: 422, statusText: 'Unprocessable Entity' },
+    );
+    fixture.detectChanges();
+
+    expect(root.querySelector('[role="dialog"]')).not.toBeNull();
+    expect(root.querySelector('[role="alert"]')?.textContent).toContain('The selected evidence is not valid for this Work Summary.');
+    expect(root.textContent).not.toContain('Please fill in both the summary and the repair outcome code.');
   });
 });

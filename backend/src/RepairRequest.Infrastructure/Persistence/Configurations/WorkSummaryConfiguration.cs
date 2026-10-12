@@ -20,6 +20,10 @@ internal sealed class WorkSummaryConfiguration : IEntityTypeConfiguration<WorkSu
 
         builder.HasKey(summary => summary.Id);
 
+        // Principal key of the round identity (tenant, Work Order, Visit, summary) for the composite foreign key from work_summary_evidence.
+        builder.HasAlternateKey(summary => new { summary.Id, summary.TenantId, summary.WorkOrderId, summary.ServiceVisitId })
+            .HasName("AK_work_summary_round");
+
         builder.Property(summary => summary.Id).HasColumnName("work_summary_id");
         builder.Property(summary => summary.TenantId).HasColumnName("tenant_id");
         builder.Property(summary => summary.WorkOrderId).HasColumnName("work_order_id");

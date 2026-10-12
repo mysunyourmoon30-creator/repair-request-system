@@ -120,7 +120,8 @@ public sealed class WorkOrdersController : CommandControllerBase
     /// <summary>
     /// WSM-API-001 Submit Work Summary (ST-WO-003; UC-WO-020; `docs/13` §4.15): the assigned Technician only, for
     /// a Work Order they have a checked-out Work Session on. If-Match is checked against the Work Order's own
-    /// RowVersion (the resource named in this URL). Moves the Work Order to AWAITING_SUPERVISOR_REVIEW.
+    /// RowVersion (the resource named in this URL). The body names the CLEAN evidence to freeze (<c>evidenceIds</c>, `docs/13` §4.28).
+    /// Moves the Work Order to AWAITING_SUPERVISOR_REVIEW.
     /// </summary>
     [HttpPost("{workOrderId:guid}/submit-work-summary")]
     [Authorize(Policy = AuthorizationPolicies.WorkOrderSubmitWorkSummary)]
@@ -133,7 +134,8 @@ public sealed class WorkOrdersController : CommandControllerBase
         }
 
         var context = await CommandContextAsync(cancellationToken);
-        var result = await _workSummaries.SubmitAsync(context, workOrderId, rowVersion, request.SummaryText, request.RepairOutcomeCode, cancellationToken);
+        var result = await _workSummaries.SubmitAsync(
+            context, workOrderId, rowVersion, request.SummaryText, request.RepairOutcomeCode, request.EvidenceIds, cancellationToken);
         if (!result.Succeeded)
         {
             return ProblemFor(result.Error!, ResourceType);

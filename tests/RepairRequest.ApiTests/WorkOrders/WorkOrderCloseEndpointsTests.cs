@@ -354,6 +354,10 @@ public sealed class WorkOrderCloseEndpointsTests : IClassFixture<WorkOrderCloseA
         var w = await ReadyToCloseAsync();
         await WithDbAsync(async db =>
         {
+            // A submitted Work Summary now owns an immutable evidence snapshot (docs/13 §4.28), which the database refuses to orphan:
+            // this negative-path setup removes the snapshot together with the summary it describes.
+            await db.Database.ExecuteSqlInterpolatedAsync(
+                $"DELETE FROM [work_summary_evidence] WHERE [work_summary_id] IN (SELECT [work_summary_id] FROM [work_summary] WHERE [work_order_id] = {w.WorkOrderId})");
             db.WorkSummaries.RemoveRange(db.WorkSummaries.Where(item => item.WorkOrderId == w.WorkOrderId));
             await db.SaveChangesAsync();
         });
@@ -655,7 +659,7 @@ public sealed class WorkOrderCloseEndpointsTests : IClassFixture<WorkOrderCloseA
         var sessionAfterCheckOutETag = $"\"{checkedOutBody.GetProperty("rowVersion").GetString()}\"";
 
         var summarySubmitted = await SendAsync(HttpMethod.Post, $"{WorkOrders}/{workOrderId}/submit-work-summary", technician,
-            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED" }, workOrderETag);
+            new { summaryText = "Replaced the pump seal.", repairOutcomeCode = "REPAIRED", evidenceIds = await _factory.CreateCleanWorkEvidenceForCurrentVisitAsync(workOrderId, technician.UserId) }, workOrderETag);
         Assert.Equal(HttpStatusCode.OK, summarySubmitted.StatusCode);
         var reviewETag = $"\"{(await JsonAsync(summarySubmitted)).GetProperty("rowVersion").GetString()}\"";
 

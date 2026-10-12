@@ -1,8 +1,11 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { RouterLink } from '@angular/router';
 import { REPAIR_OUTCOME_CODES } from '../work-orders/work-summary.models';
 import { WorkSummaryService } from '../work-orders/work-summary.service';
 import { WorkSession } from './work-session.models';
+import { WorkEvidencePanelComponent } from './work-evidence-panel.component';
+import { MAX_SELECTED_EVIDENCE, WorkEvidenceSelectionComponent } from './work-evidence-selection.component';
 import { WorkSessionService } from './work-session.service';
 
 const REASON_MAX_LENGTH = 1000;
@@ -23,10 +26,13 @@ const SUMMARY_TEXT_MAX_LENGTH = 4000;
  * Order — a Technician has no other way to reach that token (`GET /work-orders/{id}` excludes TECHNICIAN).
  * `repairOutcomeCode` is a closed six-value allowlist (`docs/13` §4.15 Decision 5) — offered as a `<select>`
  * from {@link REPAIR_OUTCOME_CODES}, never free text, since the backend rejects anything else with 422.
+ * The dialog also lists the current Visit's evidence (`docs/13` §4.28): the Technician selects 1 to 10 CLEAN items, which are sent as
+ * `evidenceIds`; PENDING and FAILED items stay visible but cannot be selected, and the backend remains authoritative.
  */
 @Component({
   selector: 'app-active-work-session',
   standalone: true,
+  imports: [RouterLink, WorkEvidencePanelComponent, WorkEvidenceSelectionComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (session(); as current) {
@@ -60,6 +66,13 @@ const SUMMARY_TEXT_MAX_LENGTH = 4000;
         }
         @if (current.status === 'CHECKED_OUT') {
           <button type="button" [disabled]="submitting()" (click)="openSummaryDialog()">Submit Work Summary</button>
+        }
+        <button type="button" [attr.aria-expanded]="evidenceOpen()" (click)="evidenceOpen.set(!evidenceOpen())">
+          {{ evidenceOpen() ? 'Hide evidence' : 'Evidence' }}
+        </button>
+        <a [routerLink]="['/work-orders', current.workOrderId, 'service-report']">Service Report</a>
+        @if (evidenceOpen()) {
+          <app-work-evidence-panel [workOrderId]="current.workOrderId" />
         }
       </section>
 
@@ -109,6 +122,11 @@ const SUMMARY_TEXT_MAX_LENGTH = 4000;
                 }
               </select>
             </label>
+            <app-work-evidence-selection
+              [workOrderId]="current.workOrderId"
+              [serviceVisitId]="current.serviceVisitId"
+              (selectionChange)="selectedEvidenceIds.set($event)"
+            />
             @if (summaryDialogError()) {
               <p role="alert">{{ summaryDialogError() }}</p>
             }
@@ -136,6 +154,7 @@ export class ActiveWorkSessionComponent {
   protected readonly repairOutcomeCodes = REPAIR_OUTCOME_CODES;
 
   protected readonly session = signal<WorkSession | null>(null);
+  protected readonly evidenceOpen = signal(false);
   protected readonly loadError = signal<string | null>(null);
   protected readonly actionError = signal<string | null>(null);
 
@@ -150,9 +169,16 @@ export class ActiveWorkSessionComponent {
   protected readonly summaryDialogError = signal<string | null>(null);
   protected readonly summaryText = signal('');
   protected readonly repairOutcomeCode = signal('');
+  /** The CLEAN evidence the Technician selected for this Submit, in selection order; the server re-validates every id. */
+  protected readonly selectedEvidenceIds = signal<string[]>([]);
 
   protected readonly canSubmitSummary = computed(
-    () => this.summaryText().trim().length > 0 && this.repairOutcomeCode().trim().length > 0 && !this.submitting(),
+    () =>
+      this.summaryText().trim().length > 0 &&
+      this.repairOutcomeCode().trim().length > 0 &&
+      this.selectedEvidenceIds().length >= 1 &&
+      this.selectedEvidenceIds().length <= MAX_SELECTED_EVIDENCE &&
+      !this.submitting(),
   );
 
   constructor() {
@@ -266,10 +292,15 @@ export class ActiveWorkSessionComponent {
   }
 
   protected openSummaryDialog(): void {
+    if (this.summaryDialogOpen()) {
+      return;
+    }
+
     this.actionError.set(null);
     this.summaryDialogError.set(null);
     this.summaryText.set('');
     this.repairOutcomeCode.set('');
+    this.selectedEvidenceIds.set([]);
     this.summaryDialogOpen.set(true);
   }
 
@@ -291,6 +322,7 @@ export class ActiveWorkSessionComponent {
       .submit(session.workOrderId, `"${session.workOrderRowVersion}"`, {
         summaryText: this.summaryText().trim(),
         repairOutcomeCode: this.repairOutcomeCode().trim(),
+        evidenceIds: [...new Set(this.selectedEvidenceIds())],
       })
       .subscribe({
         next: () => {
@@ -304,7 +336,11 @@ export class ActiveWorkSessionComponent {
           this.submitting.set(false);
 
           if (response.status === 422) {
-            this.summaryDialogError.set('Please fill in both the summary and the repair outcome code.');
+            // The CLEAN evidence guard (`docs/13` §4.28) reports on the `evidenceIds` field: say so instead of blaming the form fields.
+            const evidenceMessage = (response.error as { errors?: Record<string, string[]> } | null)?.errors?.['evidenceIds']?.[0];
+            this.summaryDialogError.set(
+              evidenceMessage ?? 'Please fill in both the summary and the repair outcome code.',
+            );
             return;
           }
 

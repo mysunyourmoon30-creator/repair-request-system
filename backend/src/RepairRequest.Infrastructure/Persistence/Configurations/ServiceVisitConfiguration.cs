@@ -26,6 +26,10 @@ internal sealed class ServiceVisitConfiguration : IEntityTypeConfiguration<Servi
 
         builder.HasKey(visit => visit.Id);
 
+        // Principal key so work_evidence_upload can prove its Service Visit belongs to its Work Order.
+        builder.HasAlternateKey(visit => new { visit.WorkOrderId, visit.Id })
+            .HasName("AK_service_visit_work_order_id_service_visit_id");
+
         builder.Property(visit => visit.Id).HasColumnName("service_visit_id");
         builder.Property(visit => visit.TenantId).HasColumnName("tenant_id");
         builder.Property(visit => visit.WorkOrderId).HasColumnName("work_order_id");
