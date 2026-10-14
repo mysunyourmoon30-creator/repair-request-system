@@ -1401,6 +1401,125 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         });
                 });
 
+            modelBuilder.Entity("RepairRequest.Domain.WorkOrders.TimeCorrection", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("time_correction_id");
+
+                    b.Property<DateTime?>("DecidedAt")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("decided_at");
+
+                    b.Property<Guid?>("DecidedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("decided_by");
+
+                    b.Property<string>("DecisionReason")
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("decision_reason");
+
+                    b.Property<DateTime>("NewValue")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("new_value");
+
+                    b.Property<DateTime>("OldValue")
+                        .HasPrecision(3)
+                        .HasColumnType("datetime2(3)")
+                        .HasColumnName("old_value");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(1000)
+                        .HasColumnType("nvarchar(1000)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("RequestedBy")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("requested_by");
+
+                    b.Property<byte[]>("RowVersion")
+                        .IsConcurrencyToken()
+                        .IsRequired()
+                        .ValueGeneratedOnAddOrUpdate()
+                        .HasColumnType("rowversion")
+                        .HasColumnName("row_version");
+
+                    b.Property<bool>("SlaRecalculated")
+                        .HasColumnType("bit")
+                        .HasColumnName("sla_recalculated");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(30)")
+                        .HasColumnName("status");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("tenant_id");
+
+                    b.Property<string>("TimestampType")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .IsUnicode(false)
+                        .HasColumnType("varchar(30)")
+                        .HasColumnName("timestamp_type");
+
+                    b.Property<Guid>("WorkSessionId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("work_session_id");
+
+                    b.Property<Guid?>("WorkSessionPauseId")
+                        .HasColumnType("uniqueidentifier")
+                        .HasColumnName("work_session_pause_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "DecidedBy");
+
+                    b.HasIndex("TenantId", "RequestedBy");
+
+                    b.HasIndex("TenantId", "Status")
+                        .HasDatabaseName("IX_time_correction_tenant_id_status");
+
+                    b.HasIndex("WorkSessionId", "TimestampType")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_time_correction_pending_session_type")
+                        .HasFilter("[status] = 'PENDING' AND [work_session_pause_id] IS NULL");
+
+                    b.HasIndex("TenantId", "WorkSessionId", "WorkSessionPauseId");
+
+                    b.HasIndex("WorkSessionId", "TimestampType", "WorkSessionPauseId")
+                        .IsUnique()
+                        .HasDatabaseName("UQ_time_correction_pending_session_type_pause")
+                        .HasFilter("[status] = 'PENDING' AND [work_session_pause_id] IS NOT NULL");
+
+                    b.ToTable("time_correction", null, t =>
+                        {
+                            t.HasCheckConstraint("CK_time_correction_decision_fields", "([status] = 'PENDING' AND [decided_by] IS NULL AND [decided_at] IS NULL AND [decision_reason] IS NULL) OR ([status] <> 'PENDING' AND [decided_by] IS NOT NULL AND [decided_at] IS NOT NULL)");
+
+                            t.HasCheckConstraint("CK_time_correction_decision_reason_required_on_reject", "[status] <> 'REJECTED' OR ([decision_reason] IS NOT NULL AND LEN(LTRIM(RTRIM([decision_reason]))) > 0)");
+
+                            t.HasCheckConstraint("CK_time_correction_no_self_decision", "[decided_by] IS NULL OR [decided_by] <> [requested_by]");
+
+                            t.HasCheckConstraint("CK_time_correction_pause_target", "([timestamp_type] IN ('PAUSE_START', 'RESUME') AND [work_session_pause_id] IS NOT NULL) OR ([timestamp_type] IN ('CHECK_IN', 'CHECK_OUT') AND [work_session_pause_id] IS NULL)");
+
+                            t.HasCheckConstraint("CK_time_correction_reason_not_blank", "LEN(LTRIM(RTRIM([reason]))) > 0");
+
+                            t.HasCheckConstraint("CK_time_correction_sla_not_recalculated", "[sla_recalculated] = 0");
+
+                            t.HasCheckConstraint("CK_time_correction_status", "[status] IN ('PENDING', 'APPROVED', 'REJECTED')");
+
+                            t.HasCheckConstraint("CK_time_correction_timestamp_type", "[timestamp_type] IN ('CHECK_IN', 'PAUSE_START', 'RESUME', 'CHECK_OUT')");
+                        });
+                });
+
             modelBuilder.Entity("RepairRequest.Domain.WorkOrders.WorkOrder", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1555,6 +1674,9 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasAlternateKey("TenantId", "Id")
+                        .HasName("AK_work_session_tenant_id_work_session_id");
+
                     b.HasIndex("ServiceVisitId")
                         .HasDatabaseName("IX_work_session_service_visit_id");
 
@@ -1601,6 +1723,9 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         .HasColumnName("work_session_id");
 
                     b.HasKey("Id");
+
+                    b.HasAlternateKey("TenantId", "WorkSessionId", "Id")
+                        .HasName("AK_work_session_pause_tenant_id_work_session_id_pause_id");
 
                     b.HasIndex("WorkSessionId")
                         .IsUnique()
@@ -2339,6 +2464,39 @@ namespace RepairRequest.Infrastructure.Persistence.Migrations
                         .HasPrincipalKey("TenantId", "Id")
                         .OnDelete(DeleteBehavior.Restrict)
                         .HasConstraintName("FK_service_visit_assigned_technician_user");
+                });
+
+            modelBuilder.Entity("RepairRequest.Domain.WorkOrders.TimeCorrection", b =>
+                {
+                    b.HasOne("RepairRequest.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "DecidedBy")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_time_correction_decided_by_user");
+
+                    b.HasOne("RepairRequest.Infrastructure.Identity.ApplicationUser", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "RequestedBy")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_time_correction_requested_by_user");
+
+                    b.HasOne("RepairRequest.Domain.WorkOrders.WorkSession", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkSessionId")
+                        .HasPrincipalKey("TenantId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("FK_time_correction_work_session");
+
+                    b.HasOne("RepairRequest.Domain.WorkOrders.WorkSessionPause", null)
+                        .WithMany()
+                        .HasForeignKey("TenantId", "WorkSessionId", "WorkSessionPauseId")
+                        .HasPrincipalKey("TenantId", "WorkSessionId", "Id")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .HasConstraintName("FK_time_correction_work_session_pause");
                 });
 
             modelBuilder.Entity("RepairRequest.Domain.WorkOrders.WorkOrder", b =>

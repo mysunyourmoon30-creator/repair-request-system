@@ -6,9 +6,10 @@ namespace RepairRequest.Domain.WorkOrders;
 /// One pause period of a Work Session (S3-002/S3-003; UC-WO-012). RR-DD-001 keeps a single <c>pause_start_at</c> /
 /// <c>resume_at</c> pair on <c>work_session</c> (WS-007/008), which a second pause would overwrite; this table
 /// is a Project Owner-directed addition (S3-002) that keeps every pause as its own row so history is never
-/// replaced. <see cref="PauseReason"/> is likewise not a baseline field (BR-04 does not list Pause). The only
-/// mutator is <see cref="Resume"/> (S3-003), called exclusively by <see cref="WorkSession.Resume"/>: reason and
-/// start time never change.
+/// replaced. <see cref="PauseReason"/> is likewise not a baseline field (BR-04 does not list Pause). The mutators are
+/// <see cref="Resume"/> (S3-003) and the two Time Correction mutators (S6; `docs/17` P1), all called exclusively by
+/// <see cref="WorkSession"/>, which owns the chronology guards: the reason never changes, and the start time changes only
+/// through an approved PAUSE_START correction.
 /// </summary>
 public sealed class WorkSessionPause
 {
@@ -44,6 +45,35 @@ public sealed class WorkSessionPause
 
     /// <summary>Set by <see cref="Resume"/>; null while this pause is the session's open pause.</summary>
     public DateTime? ResumedAt { get; private set; }
+
+    /// <summary>Approved PAUSE_START correction, called only by <see cref="WorkSession.ApplyTimeCorrection"/>, which has already validated the whole session chronology.</summary>
+    internal void CorrectPausedAt(DateTime pausedAt)
+    {
+        var utcPausedAt = DomainGuard.Utc(pausedAt, nameof(pausedAt));
+        if (ResumedAt is { } resumedAt && utcPausedAt > resumedAt)
+        {
+            throw new ArgumentException("A pause cannot start after it ended.", nameof(pausedAt));
+        }
+
+        PausedAt = utcPausedAt;
+    }
+
+    /// <summary>Approved RESUME correction, called only by <see cref="WorkSession.ApplyTimeCorrection"/>; only a closed pause has a resume time to correct.</summary>
+    internal void CorrectResumedAt(DateTime resumedAt)
+    {
+        if (ResumedAt is null)
+        {
+            throw new DomainRuleViolationException("An open pause has no resume time to correct.");
+        }
+
+        var utcResumedAt = DomainGuard.Utc(resumedAt, nameof(resumedAt));
+        if (utcResumedAt < PausedAt)
+        {
+            throw new ArgumentException("A pause cannot end before it started.", nameof(resumedAt));
+        }
+
+        ResumedAt = utcResumedAt;
+    }
 
     /// <summary>
     /// ST-WS-003 success (S3-003), called only by <see cref="WorkSession.Resume"/>, which owns the state guard.

@@ -19,6 +19,10 @@ internal sealed class WorkSessionConfiguration : IEntityTypeConfiguration<WorkSe
 
         builder.HasKey(session => session.Id);
 
+        // Principal key for the tenant-consistent composite foreign key from time_correction (`docs/17`).
+        builder.HasAlternateKey(session => new { session.TenantId, session.Id })
+            .HasName("AK_work_session_tenant_id_work_session_id");
+
         builder.Property(session => session.Id).HasColumnName("work_session_id");
         builder.Property(session => session.TenantId).HasColumnName("tenant_id");
         builder.Property(session => session.ServiceVisitId).HasColumnName("service_visit_id");

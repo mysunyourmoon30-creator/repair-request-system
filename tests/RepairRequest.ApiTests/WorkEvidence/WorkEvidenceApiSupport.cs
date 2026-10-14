@@ -73,9 +73,9 @@ internal sealed record EvidenceApiWorld(
 
 internal sealed class EvidenceApiClient
 {
-    private readonly WorkEvidenceApiFactory _factory;
+    private readonly AuthApiFactory _factory;
 
-    public EvidenceApiClient(WorkEvidenceApiFactory factory)
+    public EvidenceApiClient(AuthApiFactory factory)
     {
         _factory = factory;
     }
@@ -83,7 +83,7 @@ internal sealed class EvidenceApiClient
     public HttpClient CreateClient() =>
         _factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false, HandleCookies = false });
 
-    private async Task<EvidenceCaller> CallerAsync(Guid tenantId, Site[] sites, params string[] roles)
+    public async Task<EvidenceCaller> CallerAsync(Guid tenantId, Site[] sites, params string[] roles)
     {
         var user = await _factory.CreateUserInTenantAsync(tenantId, roles);
         if (sites.Length > 0)

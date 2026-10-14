@@ -73,6 +73,12 @@ public static class AuthorizationPolicies
     /// <summary>Read the caller's own current Work Session (S3-002). Technician only.</summary>
     public const string WorkSessionRead = "WorkSession.Read";
 
+    /// <summary>Request a Time Correction on a Work Session within the caller's scope (ST-TC-001; UC-TIME-001: Technician own session, or Team Lead within their Site scope).</summary>
+    public const string TimeCorrectionRequest = "TimeCorrection.Request";
+
+    /// <summary>List, approve or reject Time Corrections within the caller's Site scope (ST-TC-002/003; UC-TIME-001: Supervisor only).</summary>
+    public const string TimeCorrectionDecide = "TimeCorrection.Decide";
+
     /// <summary>
     /// Submit Work Summary for a checked-out own Work Order (ST-WO-003; UC-WO-020; `docs/13` §4.15 Decision 2:
     /// Technician, not the baseline's "Team Lead").
@@ -250,6 +256,8 @@ public static class AuthorizationPolicies
             [WorkSessionResume] = [RoleCodes.Technician],
             [WorkSessionCheckOut] = [RoleCodes.Technician],
             [WorkSessionRead] = [RoleCodes.Technician],
+            [TimeCorrectionRequest] = [RoleCodes.Technician, RoleCodes.TeamLead],
+            [TimeCorrectionDecide] = [RoleCodes.Supervisor],
             [WorkOrderSubmitWorkSummary] = [RoleCodes.Technician],
             [WorkOrderSubmitForAcceptance] = [RoleCodes.TeamLead, RoleCodes.Supervisor],
             [WorkOrderReadWorkSummary] = [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor],

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RepairRequest.Api.Contracts.WorkOrders;
+using RepairRequest.Api.Http;
 using RepairRequest.Application.Common;
 using RepairRequest.Application.Security;
 using RepairRequest.Application.WorkOrders;
@@ -20,13 +21,46 @@ namespace RepairRequest.Api.Controllers;
 public sealed class WorkSessionsController : CommandControllerBase
 {
     private const string ResourceType = "WorkSession";
+    private const string TimeCorrectionResourceType = "TimeCorrection";
 
     private readonly WorkSessionService _sessions;
+    private readonly TimeCorrectionService _timeCorrections;
 
-    public WorkSessionsController(WorkSessionService sessions, ICurrentUserAccessor currentUserAccessor)
+    public WorkSessionsController(WorkSessionService sessions, TimeCorrectionService timeCorrections, ICurrentUserAccessor currentUserAccessor)
         : base(currentUserAccessor)
     {
         _sessions = sessions;
+        _timeCorrections = timeCorrections;
+    }
+
+    /// <summary>
+    /// TIME-API-001 Request Time Correction (ST-TC-001; UC-TIME-001; `docs/17`): the owning Technician, or a Team Lead within their
+    /// Site scope. No If-Match — a Request only reads the Work Session. The client supplies <c>timestampType</c>, <c>newValue</c>,
+    /// <c>reason</c> and, for PAUSE_START/RESUME, <c>workSessionPauseId</c>; the old value and the PENDING status are server-derived.
+    /// </summary>
+    [HttpPost("{workSessionId:guid}/time-corrections")]
+    [Authorize(Policy = AuthorizationPolicies.TimeCorrectionRequest)]
+    [ProducesResponseType<TimeCorrectionResponse>(StatusCodes.Status201Created)]
+    public async Task<IActionResult> RequestTimeCorrection(
+        Guid workSessionId, [FromBody] RequestTimeCorrectionRequest request, CancellationToken cancellationToken)
+    {
+        var context = await CommandContextAsync(cancellationToken);
+        var result = await _timeCorrections.RequestAsync(
+            context, workSessionId, request.TimestampType, request.WorkSessionPauseId, request.NewValue, request.Reason, cancellationToken);
+        if (!result.Succeeded)
+        {
+            return ProblemFor(result.Error!, TimeCorrectionResourceType);
+        }
+
+        var correction = await _timeCorrections.GetAsync(context.User, result.Value, cancellationToken);
+        if (correction is null)
+        {
+            return ApiProblemResults.ResourceNotFound(HttpContext, TimeCorrectionResourceType);
+        }
+
+        // 201 with the body and the ETag (the token for the decision). No Location: the ticket has no single-item GET route to point at.
+        Response.Headers.ETag = ETagHeader.Format(correction.RowVersion);
+        return StatusCode(StatusCodes.Status201Created, TimeCorrectionResponses.ToResponse(correction));
     }
 
     /// <summary>

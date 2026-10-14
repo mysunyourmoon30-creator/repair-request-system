@@ -42,6 +42,15 @@ public static class WorkOrderAudit
     public const string PausedAtField = "pausedAt";
     public const string ResumedAtField = "resumedAt";
 
+    public const string TimeCorrectionEntityType = "TIME_CORRECTION";
+    public const string TimeCorrectionRequestedAction = "TIME_CORRECTION_REQUESTED";
+    public const string TimeCorrectionApprovedAction = "TIME_CORRECTION_APPROVED";
+    public const string TimeCorrectionRejectedAction = "TIME_CORRECTION_REJECTED";
+    public const string TimestampTypeField = "timestampType";
+    public const string OldValueField = "oldValue";
+    public const string NewValueField = "newValue";
+    public const string VisitCompletedAtSynchronizedField = "visitCompletedAtSynchronized";
+
     public const string WorkSummarySubmittedAction = "WORK_SUMMARY_SUBMITTED";
     public const string SubmittedForAcceptanceAction = "WORK_ORDER_SUBMITTED_FOR_ACCEPTANCE";
     public const string WorkSummaryIdField = "workSummaryId";
@@ -665,4 +674,86 @@ public static class WorkOrderAudit
             occurredAt,
             context.CorrelationId);
     }
+
+    /// <summary>
+    /// The identifiers and values every Time Correction audit row carries (`docs/17` P11/§1A item 13): the Work Session, the exact
+    /// pause when the correction targets one, the timestamp type and the old and new values. The free-text reason is the audit
+    /// row's own reason, never part of this payload.
+    /// </summary>
+    private static Dictionary<string, object?> TimeCorrectionValues(TimeCorrection correction)
+    {
+        var values = new Dictionary<string, object?>
+        {
+            [WorkSessionIdField] = correction.WorkSessionId,
+            [TimestampTypeField] = TimeCorrectionTimestampTypeCodes.ToCode(correction.TimestampType),
+            [OldValueField] = correction.OldValue,
+            [NewValueField] = correction.NewValue
+        };
+
+        if (correction.WorkSessionPauseId is { } pauseId)
+        {
+            values[WorkSessionPauseIdField] = pauseId;
+        }
+
+        return values;
+    }
+
+    /// <summary>ST-TC-001 success: the new Time Correction request, PENDING. The reason is the audit reason (BR-04/BR-05).</summary>
+    public static AuditHistory TimeCorrectionRequested(CommandContext context, TimeCorrection correction, DateTime occurredAt) =>
+        new(
+            correction.TenantId,
+            TimeCorrectionEntityType,
+            correction.Id,
+            TimeCorrectionRequestedAction,
+            fromState: null,
+            toState: TimeCorrectionStatusCodes.ToCode(TimeCorrectionStatus.Pending),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(TimeCorrectionValues(correction)),
+            reason: correction.Reason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+
+    /// <summary>
+    /// ST-TC-002 success: PENDING -&gt; APPROVED. Carries the session id, the pause id where applicable, the type and old/new values,
+    /// and whether the Visit's completion time was synchronized (CHECK_OUT only). Approve has no reason.
+    /// </summary>
+    public static AuditHistory TimeCorrectionApproved(CommandContext context, TimeCorrection correction, bool visitCompletedAtSynchronized, DateTime occurredAt)
+    {
+        var values = TimeCorrectionValues(correction);
+        if (correction.TimestampType == TimeCorrectionTimestampType.CheckOut)
+        {
+            values[VisitCompletedAtSynchronizedField] = visitCompletedAtSynchronized;
+        }
+
+        return new AuditHistory(
+            correction.TenantId,
+            TimeCorrectionEntityType,
+            correction.Id,
+            TimeCorrectionApprovedAction,
+            fromState: TimeCorrectionStatusCodes.ToCode(TimeCorrectionStatus.Pending),
+            toState: TimeCorrectionStatusCodes.ToCode(TimeCorrectionStatus.Approved),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(values),
+            reason: null,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
+    }
+
+    /// <summary>ST-TC-003 success: PENDING -&gt; REJECTED. The decision reason is the audit reason; no time fact changes.</summary>
+    public static AuditHistory TimeCorrectionRejected(CommandContext context, TimeCorrection correction, DateTime occurredAt) =>
+        new(
+            correction.TenantId,
+            TimeCorrectionEntityType,
+            correction.Id,
+            TimeCorrectionRejectedAction,
+            fromState: TimeCorrectionStatusCodes.ToCode(TimeCorrectionStatus.Pending),
+            toState: TimeCorrectionStatusCodes.ToCode(TimeCorrectionStatus.Rejected),
+            oldValueJson: null,
+            newValueJson: JsonSerializer.Serialize(TimeCorrectionValues(correction)),
+            reason: correction.DecisionReason,
+            context.User.UserId,
+            occurredAt,
+            context.CorrelationId);
 }

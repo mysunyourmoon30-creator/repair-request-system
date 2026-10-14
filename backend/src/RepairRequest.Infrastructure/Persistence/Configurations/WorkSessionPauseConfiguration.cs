@@ -17,6 +17,10 @@ internal sealed class WorkSessionPauseConfiguration : IEntityTypeConfiguration<W
 
         builder.HasKey(pause => pause.Id);
 
+        // Principal key so a Time Correction can prove the pause it targets belongs to its own tenant and Work Session (`docs/17` P1).
+        builder.HasAlternateKey(pause => new { pause.TenantId, pause.WorkSessionId, pause.Id })
+            .HasName("AK_work_session_pause_tenant_id_work_session_id_pause_id");
+
         builder.Property(pause => pause.Id).HasColumnName("work_session_pause_id");
         builder.Property(pause => pause.TenantId).HasColumnName("tenant_id");
         builder.Property(pause => pause.WorkSessionId).HasColumnName("work_session_id");

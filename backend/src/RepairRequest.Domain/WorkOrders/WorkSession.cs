@@ -102,6 +102,120 @@ public sealed class WorkSession
         CheckOutAt = utcCheckOutAt;
     }
 
+    /// <summary>
+    /// Whether the timestamp a Time Correction targets exists (`docs/17` P1). CHECK_IN always exists; CHECK_OUT only once the
+    /// session is checked out; PAUSE_START needs a pause row of this session; RESUME needs a *closed* pause row of this session.
+    /// </summary>
+    public bool HasTimestamp(TimeCorrectionTimestampType type, WorkSessionPause? pause) => type switch
+    {
+        TimeCorrectionTimestampType.CheckIn => true,
+        TimeCorrectionTimestampType.CheckOut => CheckOutAt is not null,
+        TimeCorrectionTimestampType.PauseStart => pause is not null && pause.WorkSessionId == Id,
+        TimeCorrectionTimestampType.Resume => pause is not null && pause.WorkSessionId == Id && pause.ResumedAt is not null,
+        _ => throw new ArgumentOutOfRangeException(nameof(type))
+    };
+
+    /// <summary>The current value of the targeted timestamp. Throws if <see cref="HasTimestamp"/> is false — callers check first.</summary>
+    public DateTime CurrentTimestamp(TimeCorrectionTimestampType type, WorkSessionPause? pause)
+    {
+        if (!HasTimestamp(type, pause))
+        {
+            throw new InvalidOperationException("The targeted timestamp does not exist on this Work Session.");
+        }
+
+        return type switch
+        {
+            TimeCorrectionTimestampType.CheckIn => CheckInAt,
+            TimeCorrectionTimestampType.CheckOut => CheckOutAt!.Value,
+            TimeCorrectionTimestampType.PauseStart => pause!.PausedAt,
+            TimeCorrectionTimestampType.Resume => pause!.ResumedAt!.Value,
+            _ => throw new ArgumentOutOfRangeException(nameof(type))
+        };
+    }
+
+    /// <summary>
+    /// Null when replacing the targeted timestamp by <paramref name="newValue"/> keeps the whole session chronological
+    /// (`docs/17` P2, <see cref="WorkSessionChronology"/>: check-in, every pause interval and check-out), otherwise a short
+    /// description of the first violation. <paramref name="pauses"/> are all pause rows of this session.
+    /// </summary>
+    public string? ChronologyViolationAfter(
+        TimeCorrectionTimestampType type, DateTime newValue, WorkSessionPause? pause, IReadOnlyCollection<WorkSessionPause> pauses)
+    {
+        ArgumentNullException.ThrowIfNull(pauses);
+
+        var checkIn = type == TimeCorrectionTimestampType.CheckIn ? newValue : CheckInAt;
+        var checkOut = type == TimeCorrectionTimestampType.CheckOut ? newValue : CheckOutAt;
+        var periods = pauses.Select(item =>
+        {
+            var isTarget = pause is not null && item.Id == pause.Id;
+            return new PausePeriod(
+                item.Id,
+                isTarget && type == TimeCorrectionTimestampType.PauseStart ? newValue : item.PausedAt,
+                isTarget && type == TimeCorrectionTimestampType.Resume ? newValue : item.ResumedAt);
+        }).ToList();
+
+        return WorkSessionChronology.Violation(checkIn, checkOut, periods);
+    }
+
+    /// <summary>
+    /// Applies an approved Time Correction (ST-TC-002; UC-TIME-001 "approved applies timestamp only"; `docs/17` P1/P2). Only the
+    /// targeted fact changes — <see cref="Status"/> never does. CHECK_IN/CHECK_OUT change the session column. PAUSE_START/RESUME
+    /// change the named pause row and then mirror the latest-event columns only where they describe that pause: PAUSE_START
+    /// mirrors <see cref="PauseStartAt"/> when the pause is still open; RESUME mirrors <see cref="ResumeAt"/> when it is the
+    /// latest closed pause. Throws (and changes nothing) when the timestamp does not exist or the corrected session would no
+    /// longer be chronological.
+    /// </summary>
+    public void ApplyTimeCorrection(
+        TimeCorrectionTimestampType type, DateTime newValue, WorkSessionPause? pause, IReadOnlyCollection<WorkSessionPause> pauses)
+    {
+        ArgumentNullException.ThrowIfNull(pauses);
+
+        if (!HasTimestamp(type, pause))
+        {
+            throw new DomainRuleViolationException("The targeted timestamp does not exist on this Work Session.");
+        }
+
+        var utcNewValue = DomainGuard.Utc(newValue, nameof(newValue));
+        var violation = ChronologyViolationAfter(type, utcNewValue, pause, pauses);
+        if (violation is not null)
+        {
+            throw new DomainRuleViolationException(violation);
+        }
+
+        switch (type)
+        {
+            case TimeCorrectionTimestampType.CheckIn:
+                CheckInAt = utcNewValue;
+                break;
+            case TimeCorrectionTimestampType.CheckOut:
+                CheckOutAt = utcNewValue;
+                break;
+            case TimeCorrectionTimestampType.PauseStart:
+                pause!.CorrectPausedAt(utcNewValue);
+                if (pause.ResumedAt is null)
+                {
+                    PauseStartAt = utcNewValue;
+                }
+
+                break;
+            case TimeCorrectionTimestampType.Resume:
+                var latestClosed = pauses
+                    .Where(item => item.ResumedAt is not null)
+                    .OrderByDescending(item => item.PausedAt)
+                    .ThenByDescending(item => item.Id)
+                    .First();
+                pause!.CorrectResumedAt(utcNewValue);
+                if (latestClosed.Id == pause.Id)
+                {
+                    ResumeAt = utcNewValue;
+                }
+
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(type));
+        }
+    }
+
     /// <summary>WS-001. Assigned on insert (sequential GUID).</summary>
     public Guid Id { get; private set; }
 
