@@ -102,7 +102,11 @@ WHERE a.tenant_id = '{s.TenantId}' AND (
   OR (a.entity_type = 'SERVICE_VISIT' AND a.entity_id IN ({Ids(s.VisitIds)}))
   OR (a.entity_type = 'WORK_SESSION' AND a.entity_id IN ({Ids(s.SessionIds)}))
   OR (a.entity_type = 'CORRECTIVE_ACTION' AND a.entity_id IN ({Ids(s.CorrectiveActionIds)}))
-  OR (a.entity_type = 'TIME_CORRECTION' AND a.entity_id IN ({Ids(s.TimeCorrectionIds)}))
+  OR (a.entity_type = 'TIME_CORRECTION' AND a.entity_id IN (
+        SELECT c.time_correction_id FROM time_correction c
+        JOIN work_session ws ON ws.work_session_id = c.work_session_id AND ws.tenant_id = c.tenant_id
+        JOIN service_visit sv ON sv.service_visit_id = ws.service_visit_id AND sv.tenant_id = c.tenant_id
+        WHERE c.tenant_id = '{s.TenantId}' AND sv.work_order_id = '{s.WorkOrderId}'))
   OR (a.entity_type = 'REPAIR_REQUEST' AND a.entity_id = '{s.RepairRequestId}' AND a.action_code = 'REPAIR_REQUEST_CONVERTED'))
 ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         return await db.Database.SqlQueryRaw<OracleRow>(sql).ToListAsync();

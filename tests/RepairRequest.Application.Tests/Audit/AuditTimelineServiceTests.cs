@@ -27,7 +27,7 @@ public class AuditTimelineServiceTests
     {
         _service = new AuditTimelineService(_store, _cursors);
         _user = new CurrentUser(Guid.NewGuid(), _tenantId, [RoleCodes.Supervisor]);
-        _store.Sources = new AuditTimelineSources(_tenantId, _workOrderId, Guid.NewGuid(), [], [], [], []);
+        _store.Sources = new AuditTimelineSources(_tenantId, _workOrderId, Guid.NewGuid(), [], [], []);
     }
 
     private static AuditTimelineRow Row(int minutesAgo, string code = "WORK_ORDER_STARTED", Guid? actor = null, string? json = null) =>

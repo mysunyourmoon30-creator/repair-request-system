@@ -265,7 +265,7 @@ public sealed class AuditTimelineTimeCorrectionTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task EachCorrectionEvent_AppearsOnlyOnItsOwnWorkOrder_AndSourceResolutionIsTenantConsistent()
+    public async Task EachCorrectionEvent_AppearsOnlyOnItsOwnWorkOrder_ThroughTenantConsistentJoins()
     {
         var one = await TimeCorrectionWorlds.CreateAsync(_host);
         var supervisor = one.Base.Supervisor;
@@ -281,16 +281,8 @@ public sealed class AuditTimelineTimeCorrectionTests : IAsyncLifetime
         var inOtherTenant = await _driver.RequestAsync(other.Base.TeamLead, other.SessionId, "CHECK_IN", other.At(-5));
         Assert.True((await _driver.ApproveAsync(other.Base.Supervisor, inOtherTenant.Value)).Succeeded);
 
-        // The resolved sources hold exactly this Work Order's correction ids.
-        await using (var scope = _host.CreateScope())
-        {
-            var store = scope.ServiceProvider.GetRequiredService<IAuditTimelineStore>();
-            var firstSources = await store.ResolveWorkOrderSourcesAsync(supervisor, one.WorkOrderId, CancellationToken.None);
-            var secondSources = await store.ResolveWorkOrderSourcesAsync(supervisor, secondWorkOrderId, CancellationToken.None);
-            Assert.Equal([onFirst.Value], firstSources!.TimeCorrectionIds);
-            Assert.Equal([onSecond.Value], secondSources!.TimeCorrectionIds);
-        }
-
+        // The correction events are reached relationally (correction -> Work Session -> Visit -> Work Order, inside the tenant): each Work Order's
+        // timeline holds exactly its own corrections' events.
         var firstItems = CorrectionItems(await WalkAsync(supervisor, one.WorkOrderId, 100));
         var secondItems = CorrectionItems(await WalkAsync(supervisor, secondWorkOrderId, 100));
         Assert.Equal(2, firstItems.Count);

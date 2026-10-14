@@ -676,43 +676,38 @@ Single laptop with all three roles; SQL Server Express LocalDB (one tempdb data 
 
 ---
 
-## 14. Time Correction events on the timeline — evidence (Sprint 6 timeline ticket, recorded 14 October 2026)
+## 14. Time Correction events on the timeline — design and evidence (Sprint 6 timeline ticket, recorded 14 October 2026)
 
-**Scope.** `docs/17` P11: the three `TIME_CORRECTION` audit actions join the Work Order timeline (D2, §4.1). No schema, index, migration or endpoint change; D6 (keyset order, `items`/`nextCursor`/`hasMore`, no filters, no total count) is unchanged. Production change: the store resolves the corrections of the Work Order (correction → Work Session → Service Visit → Work Order, every hop within the tenant) and adds one more `OPENJSON` id set to the existing index-only main branch; the details projection is entity-type aware (the before/after keys exist only on the three actions of a `TIME_CORRECTION` row).
+**Scope.** `docs/17` P11: the three `TIME_CORRECTION` audit actions join the Work Order timeline (D2, §4.1). No schema, index, migration, query-hint, cache or endpoint change; D6 (keyset order, `items`/`nextCursor`/`hasMore`, no filters, no total count) is unchanged.
 
-**Redaction rule, context-aware.** `oldValue` / `newValue` stay forbidden for every other event type and for unknown actions; they are allowed only inside `details` of a `TIME_CORRECTION` item with one of the three approved actions. The API redaction assertion is now one shared, context-aware helper (`TimelineRedactionAssertions`), used by the legacy-lifecycle redaction test (unchanged strictness for legacy events) and by the Time Correction timeline tests, including mixed pages and forged payloads (a before/after payload on a legacy action, an unknown action on a correction row, a correction action on another entity type).
+**Redaction rule, context-aware.** `oldValue` / `newValue` stay forbidden for every other event type and for unknown actions; they are allowed only inside `details` of a `TIME_CORRECTION` item with one of the three approved actions, and the projection also checks the row's entity type. The API redaction assertion is one shared, context-aware helper (`TimelineRedactionAssertions`), used by the legacy-lifecycle test and the Time Correction tests, including mixed pages and forged payloads.
 
-**Evidence method.** Isolated LocalDB databases built from the real migrations (SQL Server Express LocalDB, compatibility level 150, one client); opt-in runs with `RUN_TIMELINE_EVIDENCE=1` (`AuditTimelineEvidenceTests`, `AuditTimelineTimeCorrectionLookupEvidenceTests`); the production store's captured commands re-executed under `SET STATISTICS IO/XML`; correctness asserted against the extended oracle. An empty correction set is not used as evidence for the new path.
+### 14.1 Query design
 
-### 14.1 Correction lookup (new statement, one per request)
+*Version 1 (commit `7a6f2d0`, replaced).* A separate lookup statement resolved the Work Order's correction ids (correction → Work Session → Visit → Work Order) and the page query probed them as one more `OPENJSON` id set inside the main OR. On the populated evidence set SQL Server sometimes chose a range read of the tenant's `TIME_CORRECTION` audit entries and re-evaluated the id set **per audit row** (up to 750 `OPENJSON` evaluations parsing 322,438 rows: 318 ms), and sometimes per-id seeks (2–9 ms) — for the same code, depending on the data's statistics.
 
-Populated set: 120 corrections on the target Work Order (20 Visits/Sessions × 6, every third rejected), 3,600 corrections of 300 unrelated Work Orders of the same tenant, 180 corrections of another tenant; 3,900 `time_correction`, 652 `work_session` and 652 `service_visit` rows; statistics refreshed with FULLSCAN. The exact id set (120) is asserted.
+*Version 2 (final).* The correction events are a branch of their own in the same `UNION ALL`, reached relationally: `audit_history` (entity type `TIME_CORRECTION`) ⋈ `time_correction` ⋈ `work_session` ⋈ `service_visit` with `tenant_id` checked on all four tables and `service_visit.work_order_id = @workOrderId`; not filtered by the correction's current status (pending, approved and rejected corrections keep their history); the keyset predicate is applied to the branch like to the others; the id lookup statement and `TimeCorrectionIds` are gone. The generated SQL was inspected: three `UNION ALL` branches over `[a]`, `[a0]` (the inner joins) and `[a1]`, then the join back by clustered primary key; `OPENJSON` remains only for the Visit, Work Session and Corrective Action sets. The `visit.tenant_id` predicate is kept deliberately: the foreign keys `work_session → service_visit → work_order` are single-column, so tenant consistency of the Visit is guaranteed only by the query (see 14.3).
 
-| Measure | Value |
-|---|---|
-| Rows returned | 120 |
-| Logical reads | `time_correction` 44, `work_session` 80, `service_visit` 26 |
-| Plan | `service_visit` scan → `IX_work_session_service_visit_id` seek ×20 → `PK_work_session` seek ×20 → `IX_time_correction_tenant_id_work_session_id_work_session_pause_id` seek ×20 |
-| Median (15 warm runs, informational) | 0.40 ms |
-| Comparison: the existing Work Session id lookup (same join shape) | scans `service_visit` and `work_session`; 26 + 14 logical reads; 0.67 ms |
+### 14.2 Before / after on identical data (`AuditTimelineTimeCorrectionMitigationEvidenceTests`, opt-in)
 
-The new lookup uses the existing indexes; it reads the (small) `service_visit` table like the existing lookups do and needs no index.
+Method: one isolated LocalDB database from the real migrations (SQL Server Express LocalDB, compatibility level 150, one client, 500,000 noise audit rows), seeded with real `time_correction` / `work_session` / `service_visit` rows (FK checks of these three tables switched off in this disposable database) and matching audit rows; each scenario has a tenant of its own. In the same run and database, page size 20 (`TOP 21`), the pre-mitigation query (a copy of Version 1, kept only in the evidence class) and the production store were run on the same first and deep (80 %) pages; every page of both variants equals the independent relational oracle (every comparison of every run). Three runs (the Guids differ per run, so statistics and plans differ). Medians are warm single-client milliseconds, informational only.
 
-### 14.2 Page query (the `TC` scenario of the audit fixture)
+| Scenario | Target corrections | Tenant correction audit rows | Unrelated sessions of the tenant | Version 1 server ms (first / deep), 3 runs | Final server ms (first / deep), 3 runs |
+|---|---|---|---|---|---|
+| TC | 120 | 720 | 20 | 2.2 / **49.9**, 2.4 / 2.1, 2.2 / 1.9 | 2.2 / 1.3, 2.4 / 2.1, 2.5 / 2.0 |
+| TCV (tenant volume) | 30 | 18,090 | 1,000 | 1.6 / 1.1, 1.7 / 1.2, 1.8 / 1.1 | 3.1 / 2.5, 2.7 / 2.2, 2.5 / 2.0 |
+| TCT (target count) | 600 | 2,160 | 20 | 9.3 / **318.5**, 7.5 / 7.3, 9.5 / 8.1 | 4.4 / 3.5, 5.0 / 3.8, 4.8 / 3.9 |
+| TCS (table size) | 30 | 90,090 | 30,000 | — (not run), 1.6 / 1.0, 1.7 / 1.4 | — (not run), 9.9 / 10.6, 9.7 / 9.2 |
 
-`TC`: 553 events over 166 entity ids (20 Visits × 4, 20 Sessions × 4, 4 Corrective Actions × 3, **120 corrections × 3**, Work Order and convert events), one tenant of 500,000 noise rows, decoys: 30 other Work Orders' corrections (360 events) in the same tenant, this Work Order's correction ids under another entity type, and another tenant's rows under the same ids. All correctness assertions pass (exact seeded set, no decoy, the keyset walks, no `audit_history` scan, payload lookups limited to the page rows).
+- **The per-row id-set evaluation is eliminated.** Version 1: up to 463 (TC) and 750 (TCT) `OPENJSON` evaluations of the correction set, 47,733 and 322,438 rows parsed in the bad plan. Final: 2–28 evaluations parsing at most 435 rows in every run — the remaining ones belong to the Visit/Session/Corrective Action sets, and the correction set no longer exists.
+- **Plan stability.** Version 1 flipped between a per-id plan and the per-row plan between runs on the same code; the final query was in the same 1.3–10.6 ms band in all runs, with the same plan family (`IX_service_visit_work_order_id` seek → `IX_work_session_service_visit_id` seek → `PK_work_session` seek → `IX_time_correction_…` seek per Session → one `IX_audit_history_timeline` seek per correction).
+- **Reads are higher for large target counts.** Final `audit_history` logical reads: TC 583–585, TCV 218–221, TCT 2,507–2,528 (one index seek per correction), TCS 219–225; Version 1: 112–113, 377–382, 129, 377–384 — and Version 1 also paid one extra statement per request (the lookup: TC 63 + 131 + 31 reads, 0.4–0.6 ms; TCV up to 2,152 `service_visit` reads in one run), which the final design does not run. The cost moved from CPU (JSON re-evaluation) to index seeks proportional to the target Work Order's correction count.
+- **Table-size sensitivity (TCS).** With 30,000 other sessions in the tenant the final plan also reads 30,020 entries of `IX_service_visit_tenant_id_assigned_technician_id` and hash-joins them to apply the `visit.tenant_id` predicate (375 `service_visit` logical reads; 9–11 ms against 2–3 ms for the smaller tenants). This is linear in the tenant's Visit count; it was measured only up to 30,000.
 
-The same code produced **two different plans on two runs** (the entity ids are random GUIDs per run, which changes the statistics):
+### 14.3 Remaining limitations (reported, not mitigated here)
 
-| Run | Plan | Logical reads | Index seeks | Median (first / deep page) |
-|---|---|---|---|---|
-| A | one seek per entity id (the id set drives the nested loop) | 747 | 166 | 2.9 / 1.8 ms |
-| B | one range read of the tenant's `TIME_CORRECTION` entries, the id set re-evaluated per row (`Table-valued function ×723`, 65,024 parsed rows) | 274 | 47 | 68.4 / 50.0 ms |
+1. Measured scale only: up to 600 corrections on one Work Order, 18,090 correction audit rows or 30,000 other sessions/visits in one tenant, in a 500,000-row audit table, on LocalDB with one client. Nothing is claimed above those sizes or under concurrency.
+2. The `visit.tenant_id` predicate makes the optimizer read the tenant's Visits through a secondary index (TCS: 9–11 ms at 30,000). Removing it would be faster but would leave Visit tenant consistency to the data alone (single-column FKs); that trade-off is not taken here.
+3. The plan was inspected and recorded on one database; a different statistics profile may choose another plan. No hint, index or schema change is proposed.
 
-Other scenarios behaved as recorded earlier (for example `WO2000` 472–496 reads, `MANYIDS` 1,007–1,026, `BIGIDS` ≈ 9.7 thousand; 1.6–17 ms), within the run-to-run variation of their own plan alternatives. A separate `UNION ALL` branch for the correction ids and a join form of the id set were tried: the separate branch gave the same plan B; a join over the captured list is not viable (EF Core renders an inline `VALUES` root that rejects an empty set and grows with the id count). Both were reverted; the committed shape is the reviewed one.
-
-### 14.3 Remaining at-scale limitation (reported, not mitigated here)
-
-Plan B is cheaper in reads and dearer in CPU: its cost grows with *(rows of `TIME_CORRECTION` audit entries of the tenant) × (the Work Order's correction ids)*. At the measured size (720 entries in the tenant's range, 120 ids) it is 50–70 ms single-client, far inside the 3.0 s recommendation of D11, but it is **not measured above that size** and it is not stable (the plan may flip between A and B). Time Corrections are exceptional events, so the tenant's range is expected to stay small; if it did not, the plan would degrade linearly. No schema or index change is proposed (the existing `IX_audit_history_timeline` is used). A mitigation that needs an owner scope decision, **not applied**: resolve the correction events by a set-based join through `time_correction` → `work_session` → `service_visit` inside the page query (or a raw `JOIN OPENJSON` branch), so the plan no longer depends on the per-row probe.
-
-Reproduce: `RUN_TIMELINE_EVIDENCE=1 dotnet test tests/RepairRequest.IntegrationTests --filter "FullyQualifiedName~AuditTimelineEvidenceTests|FullyQualifiedName~AuditTimelineTimeCorrectionLookupEvidenceTests"` (writes `timeline-evidence.md` and `time-correction-lookup-evidence.md`, or `TIMELINE_EVIDENCE_PATH`).
+Reproduce: `RUN_TIMELINE_EVIDENCE=1 dotnet test tests/RepairRequest.IntegrationTests --filter "FullyQualifiedName~AuditTimelineTimeCorrectionMitigationEvidenceTests"` (writes `time-correction-mitigation-evidence.md` beside the binaries, or next to `TIMELINE_EVIDENCE_PATH`). The default (non-opt-in) suites run the `TC` scenario: exact set against the relational oracle, no decoy, keyset walks, no `audit_history` scan, payload lookups limited to the page rows.

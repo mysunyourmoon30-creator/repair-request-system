@@ -7,6 +7,8 @@ using Microsoft.Extensions.DependencyInjection;
 using RepairRequest.Application.Audit;
 using RepairRequest.Application.RepairRequests;
 using RepairRequest.Application.WorkOrders;
+using RepairRequest.Domain.WorkOrders;
+using TimeCorrectionEntity = RepairRequest.Domain.WorkOrders.TimeCorrection;
 using RepairRequest.Infrastructure.Persistence;
 using RepairRequest.IntegrationTests.Authentication;
 
@@ -27,7 +29,9 @@ public sealed record ScenarioSpec(
     bool SingleTimestamp = false,
     int[]? Groups = null,
     int TimeCorrections = 0,
-    int PerTimeCorrection = 0)
+    int PerTimeCorrection = 0,
+    int UnrelatedCorrections = 0,
+    int UnrelatedPerSession = 6)
 {
     public int SourceEvents =>
         WorkOrderEvents + Visits * PerVisit + Sessions * PerSession + CorrectiveActions * PerCorrectiveAction + TimeCorrections * PerTimeCorrection;
@@ -37,12 +41,16 @@ public sealed record Scenario(
     ScenarioSpec Spec,
     AuditTimelineSources Sources,
     IReadOnlySet<Guid> ExpectedAuditIds,
-    IReadOnlySet<Guid> DecoyAuditIds)
+    IReadOnlySet<Guid> DecoyAuditIds,
+    IReadOnlyList<Guid>? CorrectionIds = null)
 {
+    /// <summary>The ids of the target Work Order's corrections (their audit rows are expected; the rows exist relationally for the join).</summary>
+    public IReadOnlyList<Guid> TimeCorrectionIds { get; } = CorrectionIds ?? [];
+
     public int TotalExpected => ExpectedAuditIds.Count;
 
     /// <summary>Distinct entity ids the timeline query has to cover (Work Order + Repair Request + children).</summary>
-    public int EntityIdCount => 2 + Sources.VisitIds.Count + Sources.SessionIds.Count + Sources.CorrectiveActionIds.Count + Sources.TimeCorrectionIds.Count;
+    public int EntityIdCount => 2 + Sources.VisitIds.Count + Sources.SessionIds.Count + Sources.CorrectiveActionIds.Count + Spec.TimeCorrections;
 }
 
 /// <summary>
@@ -90,7 +98,20 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         new("MIX", 12, 6, 10, 6, 10, 3, 10, false, Groups: [1, 25, 1, 60, 3, 40, 1, 30, 1]),
         // A Work Order with many Time Corrections (docs/17 P11): 120 corrections x 3 audit events each across 20 sessions, next to Visit, Session and
         // Corrective Action events, with same-tenant corrections of 30 other Work Orders and another tenant's rows under the same ids as decoys.
-        new("TC", 20, 20, 4, 20, 4, 4, 3, true, TimeCorrections: 120, PerTimeCorrection: 3),
+        new("TC", 20, 20, 4, 20, 4, 4, 3, true, TimeCorrections: 120, PerTimeCorrection: 3, UnrelatedCorrections: 120),
+    ];
+
+    /// <summary>
+    /// Opt-in scaling cases (seeded only for the evidence run) that vary the two drivers of the correction branch separately: the tenant's
+    /// Time Correction audit volume (TCV: 30 corrections on the target, 6,000 unrelated corrections of the tenant) and the target Work Order's
+    /// correction count (TCT: 600 on the target, 120 unrelated).
+    /// </summary>
+    public static readonly ScenarioSpec[] EvidenceOnly =
+    [
+        new("TCV", 20, 20, 4, 20, 4, 4, 3, true, TimeCorrections: 30, PerTimeCorrection: 3, UnrelatedCorrections: 6000),
+        new("TCT", 20, 20, 4, 20, 4, 4, 3, true, TimeCorrections: 600, PerTimeCorrection: 3, UnrelatedCorrections: 120),
+        // Relational table size: 30 corrections on the target next to 30,000 single-correction sessions/visits of other Work Orders of the tenant.
+        new("TCS", 20, 20, 4, 20, 4, 4, 3, true, TimeCorrections: 30, PerTimeCorrection: 3, UnrelatedCorrections: 30000, UnrelatedPerSession: 1),
     ];
 
     public RepairRequestDbContext CreateContext()
@@ -119,7 +140,7 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         var configured = int.TryParse(Environment.GetEnvironmentVariable("TIMELINE_NOISE_ROWS"), out var n) ? n : (EvidenceRequested ? 500_000 : 100_000);
         NoiseRows = configured;
         await SeedNoiseAsync(NoiseRows);
-        foreach (var spec in Standard)
+        foreach (var spec in Standard.Concat(EvidenceRequested ? EvidenceOnly : []))
         {
             Scenarios[spec.Name] = await SeedAsync(spec);
         }
@@ -240,7 +261,8 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
     public async Task<Scenario> SeedAsync(ScenarioSpec spec)
     {
         var rng = new Random(spec.Name.GetHashCode(StringComparison.Ordinal) ^ 17);
-        var tenant = MainTenant;
+        // The Time Correction scenarios each get a tenant of their own, so the tenant's Time Correction audit volume is exactly the scenario's (a driver of the correction branch).
+        var tenant = spec.TimeCorrections > 0 ? Guid.NewGuid() : MainTenant;
         var workOrder = Guid.NewGuid();
         var repairRequest = Guid.NewGuid();
         List<Guid> Ids(int n) => Enumerable.Range(0, n).Select(_ => Guid.NewGuid()).ToList();
@@ -248,6 +270,7 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         var sessions = Ids(spec.Sessions);
         var actions = Ids(spec.CorrectiveActions);
         var corrections = Ids(spec.TimeCorrections);
+        var unrelatedCorrections = Ids(spec.UnrelatedCorrections);
 
         var stamps = new List<DateTime>();
         if (spec.SingleTimestamp)
@@ -334,17 +357,19 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         decoys.Add(sink.Add(tenant, RepairRequest, repairRequest, "REPAIR_REQUEST_SUBMITTED", Base.AddDays(-31)));
         decoys.Add(sink.Add(tenant, RepairRequest, repairRequest, "REPAIR_REQUEST_APPROVED", Base.AddDays(-30)));
         decoys.Add(sink.Add(tenant, RepairRequest, Guid.NewGuid(), Converted, Base.AddDays(-30)));
-        // Corrections of other Work Orders in the same tenant, and this Work Order's correction ids under the wrong entity type.
-        for (var other = 0; other < (spec.TimeCorrections > 0 ? 30 : 0); other++)
+        // Corrections of other Work Orders in the same tenant (real correction rows of other Work Orders, so the relational join has to exclude them),
+        // and this Work Order's correction ids under the wrong entity type.
+        foreach (var foreignCorrection in unrelatedCorrections)
         {
-            for (var c = 0; c < 4; c++)
+            for (var e = 0; e < Math.Max(1, spec.PerTimeCorrection); e++)
             {
-                var foreignCorrection = Guid.NewGuid();
-                for (var e = 0; e < 3; e++)
-                {
-                    decoys.Add(sink.Add(tenant, TimeCorrectionType, foreignCorrection, Action(TimeCorrectionType, e), Base.AddDays(5).AddMilliseconds(250)));
-                }
+                decoys.Add(sink.Add(tenant, TimeCorrectionType, foreignCorrection, Action(TimeCorrectionType, e), Base.AddDays(5).AddMilliseconds(250)));
             }
+        }
+
+        if (spec.TimeCorrections > 0)
+        {
+            await SeedCorrectionRelationsAsync(tenant, workOrder, visits, sessions, corrections, unrelatedCorrections, spec.UnrelatedPerSession);
         }
 
         foreach (var id in corrections.Take(3)) { decoys.Add(sink.Add(tenant, Session, id, "WORK_SESSION_PAUSED", Base.AddDays(10))); }
@@ -357,7 +382,95 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         }
 
         await sink.FlushAsync();
-        return new Scenario(spec, new AuditTimelineSources(tenant, workOrder, repairRequest, visits, sessions, actions, corrections), expected, decoys);
+        return new Scenario(spec, new AuditTimelineSources(tenant, workOrder, repairRequest, visits, sessions, actions), expected, decoys, corrections);
+    }
+
+    private static T WithId<T>(T entity, Guid id) where T : class
+    {
+        typeof(T).GetProperty("Id")!.SetValue(entity, id);
+        return entity;
+    }
+
+    /// <summary>
+    /// Creates the relational rows the correction branch joins through (Service Visit -> Work Session -> Time Correction) with the scenario's own ids:
+    /// the target Work Order's visits, sessions and corrections, and decided corrections of 30 other Work Orders of the same tenant. This is the
+    /// disposable evidence database, so FK checks of these three tables are switched off: the rows only need to exist with the right keys and tenant.
+    /// </summary>
+    private async Task SeedCorrectionRelationsAsync(
+        Guid tenant, Guid workOrder, IReadOnlyList<Guid> visitIds, IReadOnlyList<Guid> sessionIds, IReadOnlyList<Guid> correctionIds, IReadOnlyList<Guid> unrelatedIds, int perSession)
+    {
+        await using var db = CreateContext();
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE [service_visit] NOCHECK CONSTRAINT ALL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE [work_session] NOCHECK CONSTRAINT ALL");
+        await db.Database.ExecuteSqlRawAsync("ALTER TABLE [time_correction] NOCHECK CONSTRAINT ALL");
+
+        var technician = Guid.NewGuid();
+        var requester = Guid.NewGuid();
+        var decider = Guid.NewGuid();
+        var otherWorkOrders = Enumerable.Range(0, 30).Select(_ => Guid.NewGuid()).ToList();
+
+        ServiceVisit NewVisitRow(Guid id, Guid workOrderId) => WithId(ServiceVisit.Create(
+            tenant, workOrderId, ServiceVisitType.Initial, Guid.NewGuid(), technician, Base.AddDays(1), Base.AddDays(1).AddHours(2)), id);
+
+        WorkSession NewSessionRow(Guid id, Guid visitId)
+        {
+            var session = WorkSession.Create(tenant, visitId, technician, Base.AddHours(1));
+            session.CheckOut(Base.AddHours(2));
+            return WithId(session, id);
+        }
+
+        TimeCorrectionEntity NewCorrectionRow(Guid id, Guid sessionId, int index)
+        {
+            var correction = TimeCorrectionEntity.Request(
+                tenant, sessionId, null, TimeCorrectionTimestampType.CheckIn, Base.AddHours(1), Base.AddHours(1).AddMinutes(-(index % 50) - 1), "Clock was wrong.", requester);
+            if (index % 3 == 2)
+            {
+                correction.Reject("Not supported by the visit log.", Base.AddHours(3), decider);
+            }
+            else
+            {
+                correction.Approve(Base.AddHours(3), decider);
+            }
+
+            return WithId(correction, id);
+        }
+
+        var visits = new List<ServiceVisit>();
+        var sessions = new List<WorkSession>();
+        var corrections = new List<TimeCorrectionEntity>();
+
+        for (var i = 0; i < visitIds.Count; i++)
+        {
+            visits.Add(NewVisitRow(visitIds[i], workOrder));
+        }
+
+        for (var i = 0; i < sessionIds.Count; i++)
+        {
+            sessions.Add(NewSessionRow(sessionIds[i], visitIds[i % visitIds.Count]));
+        }
+
+        for (var i = 0; i < correctionIds.Count; i++)
+        {
+            corrections.Add(NewCorrectionRow(correctionIds[i], sessionIds[i % sessionIds.Count], i));
+        }
+
+        // Unrelated corrections: `perSession` per session, one session per visit, spread over 30 other Work Orders of the same tenant.
+        for (var group = 0; group * perSession < unrelatedIds.Count; group++)
+        {
+            var visit = NewVisitRow(Guid.NewGuid(), otherWorkOrders[group % otherWorkOrders.Count]);
+            var session = NewSessionRow(Guid.NewGuid(), visit.Id);
+            visits.Add(visit);
+            sessions.Add(session);
+            for (var i = group * perSession; i < Math.Min(unrelatedIds.Count, (group + 1) * perSession); i++)
+            {
+                corrections.Add(NewCorrectionRow(unrelatedIds[i], session.Id, i));
+            }
+        }
+
+        db.ServiceVisits.AddRange(visits);
+        db.WorkSessions.AddRange(sessions);
+        db.TimeCorrections.AddRange(corrections);
+        await db.SaveChangesAsync();
     }
 
     /// <summary>Adds one audit row (used by the append / late-commit tests).</summary>
