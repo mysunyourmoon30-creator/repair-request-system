@@ -4,7 +4,9 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using RepairRequest.Api.Contracts.WorkOrders;
 using RepairRequest.ApiTests.Approvals;
+using RepairRequest.ApiTests.Audit;
 using RepairRequest.ApiTests.WorkEvidence;
+using RepairRequest.Domain.Auditing;
 using RepairRequest.Domain.Security;
 using RepairRequest.Domain.WorkOrders;
 
@@ -233,6 +235,138 @@ public sealed class TimeCorrectionEndpointsTests : IClassFixture<TimeCorrectionA
         Assert.Equal(HttpStatusCode.Created, (await RequestAsync(world, world.Base.TeamLead, "CHECK_IN", world.At(-5))).StatusCode);
         Assert.Equal(HttpStatusCode.Created, (await RequestAsync(world, world.Base.TeamLead, "PAUSE_START", world.At(12), world.Pause1)).StatusCode);
         Assert.Equal(2, await _factory.WithDbAsync(db => db.AuditHistory.CountAsync(item => item.TenantId == world.Base.TenantId && item.EntityType == "TIME_CORRECTION")));
+    }
+
+    // ---------------- timeline (docs/17 P11): the existing AUD-API-001 route shows the three event types ----------------
+
+    private Task<HttpResponseMessage> TimelineAsync(EvidenceCaller? caller, Guid workOrderId, int pageSize = 100) =>
+        _api.SendAsync(HttpMethod.Get, $"/api/v1/entities/WORK_ORDER/{workOrderId}/timeline?pageSize={pageSize}", caller);
+
+    [Fact]
+    public async Task Timeline_ShowsRequestedApprovedAndRejectedEvents_ToTheExistingReaders_WithAllowlistedDetailsOnly()
+    {
+        const string requestReason = "SENTINEL-TIMELINE-REQUEST-REASON-41f2";
+        const string decisionReason = "SENTINEL-TIMELINE-DECISION-REASON-41f2";
+        var world = await WorldAsync();
+        var sessionId = await SessionIdAsync(world);
+
+        var approved = await RequestAsync(world, world.Base.TeamLead, "CHECK_IN", world.At(-5), reason: requestReason);
+        var approvedId = (await EvidenceApiClient.Json(approved)).GetProperty("timeCorrectionId").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await DecideAsync("approve", approvedId, world.Base.Supervisor, approved.Headers.ETag!.Tag)).StatusCode);
+        var rejected = await RequestAsync(world, world.Base.TeamLead, "CHECK_OUT", world.At(55), reason: requestReason);
+        var rejectedId = (await EvidenceApiClient.Json(rejected)).GetProperty("timeCorrectionId").GetGuid();
+        Assert.Equal(
+            HttpStatusCode.OK,
+            (await DecideAsync("reject", rejectedId, world.Base.Supervisor, rejected.Headers.ETag!.Tag, new { decisionReason })).StatusCode);
+
+        foreach (var reader in new[] { world.Base.Supervisor, world.Base.TeamLead, world.Base.Coordinator })
+        {
+            var response = await TimelineAsync(reader, world.Base.WorkOrderId);
+            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+            var text = await response.Content.ReadAsStringAsync();
+            Assert.DoesNotContain(requestReason, text, StringComparison.Ordinal);
+            Assert.DoesNotContain(decisionReason, text, StringComparison.Ordinal);
+            Assert.DoesNotContain("visitCompletedAtSynchronized", text, StringComparison.OrdinalIgnoreCase);
+            TimelineRedactionAssertions.AssertPage(JsonDocument.Parse(text).RootElement);
+
+            var items = JsonDocument.Parse(text).RootElement.GetProperty("items").EnumerateArray()
+                .Where(item => item.GetProperty("entityType").GetString() == "TIME_CORRECTION").ToList();
+            Assert.Equal(
+                new[] { "TIME_CORRECTION_APPROVED", "TIME_CORRECTION_REJECTED", "TIME_CORRECTION_REQUESTED", "TIME_CORRECTION_REQUESTED" },
+                items.Select(item => item.GetProperty("actionCode").GetString()!).Order(StringComparer.Ordinal));
+            Assert.All(items, item =>
+            {
+                var details = item.GetProperty("details").EnumerateObject().Select(property => property.Name).ToList();
+                Assert.All(details, name => Assert.Contains(name, new[] { "workSessionId", "workSessionPauseId", "timestampType", "oldValue", "newValue" }));
+                Assert.Equal(sessionId, Guid.Parse(item.GetProperty("details").GetProperty("workSessionId").GetString()!));
+                Assert.Equal("USER", item.GetProperty("actor").GetProperty("kind").GetString());
+            });
+            var approvedEvent = items.Single(item => item.GetProperty("actionCode").GetString() == "TIME_CORRECTION_APPROVED");
+            Assert.Equal(world.CheckIn, approvedEvent.GetProperty("details").GetProperty("oldValue").GetDateTime().ToUniversalTime(), TimeSpan.FromMilliseconds(1));
+            Assert.Equal(world.At(-5), approvedEvent.GetProperty("details").GetProperty("newValue").GetDateTime().ToUniversalTime(), TimeSpan.FromMilliseconds(1));
+            Assert.Equal(world.Base.Supervisor.UserId, approvedEvent.GetProperty("actor").GetProperty("actorId").GetGuid());
+        }
+
+        // Unchanged access rules: Technician and Administrator are refused, another tenant gets the identical not-found, anonymous is 401.
+        foreach (var refused in new[] { world.Base.Technician, world.Base.Administrator })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, (await TimelineAsync(refused, world.Base.WorkOrderId)).StatusCode);
+        }
+
+        Assert.Equal(HttpStatusCode.NotFound, (await TimelineAsync(world.Base.OtherTenantSupervisor, world.Base.WorkOrderId)).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await TimelineAsync(null, world.Base.WorkOrderId)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Timeline_MixedPages_NeverExposeBeforeAfterOutsideTheThreeCorrectionActions_EvenForForgedPayloads()
+    {
+        const string forged =
+            "{\"workSessionId\":\"11111111-1111-1111-1111-111111111111\",\"timestampType\":\"CHECK_IN\",\"oldValue\":\"2026-01-01T00:00:00\","
+            + "\"newValue\":\"2026-01-02T00:00:00\",\"pausedAt\":\"2026-01-03T00:00:00\",\"reason\":\"SENTINEL-FORGED-REASON\","
+            + "\"visitCompletedAtSynchronized\":true,\"nested\":{\"oldValue\":\"x\"}}";
+        var world = await WorldAsync();
+        var sessionId = await SessionIdAsync(world);
+        var request = await RequestAsync(world, world.Base.TeamLead, "CHECK_IN", world.At(-5));
+        var correctionId = (await EvidenceApiClient.Json(request)).GetProperty("timeCorrectionId").GetGuid();
+        Assert.Equal(HttpStatusCode.OK, (await DecideAsync("approve", correctionId, world.Base.Supervisor, request.Headers.ETag!.Tag)).StatusCode);
+
+        // Legacy and future events interleaved with the real ones, all carrying before/after keys in their payload.
+        var now = DateTime.UtcNow;
+        var actor = world.Base.Supervisor.UserId;
+        var tenant = world.Base.TenantId;
+        await _factory.WithDbAsync(async db =>
+        {
+            AuditHistory Row(string type, Guid entityId, string action, int seconds) =>
+                new(tenant, type, entityId, action, null, null, null, forged, "SENTINEL-FORGED-ROW-REASON", actor, now.AddSeconds(seconds), Guid.NewGuid());
+            db.AuditHistory.AddRange(
+                Row("WORK_ORDER", world.Base.WorkOrderId, "WORK_ORDER_STARTED", 1),                 // not allowlisted at all
+                Row("WORK_SESSION", sessionId, "WORK_SESSION_PAUSED", 2),                         // allowlisted: only pausedAt may pass
+                Row("TIME_CORRECTION", correctionId, "TIME_CORRECTION_FUTURE_ACTION", 3),         // unknown action on a correction row
+                Row("WORK_SESSION", sessionId, "TIME_CORRECTION_APPROVED", 4),                    // correction action on another entity type
+                Row("SERVICE_VISIT", world.Base.VisitId, "SOME_FUTURE_UNKNOWN_CODE", 5));
+            await db.SaveChangesAsync();
+            return 0;
+        });
+
+        // Every page size walks the same mixed set; every page passes the context-aware redaction rules.
+        foreach (var pageSize in new[] { 1, 2, 3, 100 })
+        {
+            var items = new List<JsonElement>();
+            string? cursor = null;
+            do
+            {
+                var url = $"/api/v1/entities/WORK_ORDER/{world.Base.WorkOrderId}/timeline?pageSize={pageSize}" + (cursor is null ? string.Empty : $"&cursor={Uri.EscapeDataString(cursor)}");
+                var response = await _api.SendAsync(HttpMethod.Get, url, world.Base.Supervisor);
+                Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+                var text = await response.Content.ReadAsStringAsync();
+                Assert.DoesNotContain("SENTINEL-FORGED", text, StringComparison.Ordinal);
+                var page = JsonDocument.Parse(text).RootElement.Clone();
+                TimelineRedactionAssertions.AssertPage(page);
+                items.AddRange(page.GetProperty("items").EnumerateArray());
+                cursor = page.GetProperty("nextCursor").GetString();
+            }
+            while (cursor is not null);
+
+            Assert.Equal(items.Count, items.Select(item => item.GetProperty("auditId").GetGuid()).Distinct().Count());
+            var forgedRows = items.Where(item => item.GetProperty("actionCode").GetString() is "WORK_ORDER_STARTED" or "WORK_SESSION_PAUSED" or "TIME_CORRECTION_FUTURE_ACTION" or "SOME_FUTURE_UNKNOWN_CODE"
+                || (item.GetProperty("entityType").GetString() == "WORK_SESSION" && item.GetProperty("actionCode").GetString() == "TIME_CORRECTION_APPROVED")).ToList();
+            Assert.Equal(5, forgedRows.Count);
+            Assert.All(forgedRows, item =>
+            {
+                var details = item.GetProperty("details");
+                Assert.False(details.TryGetProperty("oldValue", out _));
+                Assert.False(details.TryGetProperty("newValue", out _));
+                Assert.False(details.TryGetProperty("reason", out _));
+            });
+            Assert.Equal(
+                ["pausedAt"],
+                forgedRows.Single(item => item.GetProperty("actionCode").GetString() == "WORK_SESSION_PAUSED").GetProperty("details").EnumerateObject().Select(property => property.Name));
+
+            // The genuine correction events are still there, exactly once each, with their before/after.
+            var genuine = items.Where(item => item.GetProperty("entityType").GetString() == "TIME_CORRECTION" && item.GetProperty("actionCode").GetString() != "TIME_CORRECTION_FUTURE_ACTION").ToList();
+            Assert.Equal(2, genuine.Count);
+            Assert.All(genuine, item => Assert.True(item.GetProperty("details").TryGetProperty("newValue", out _)));
+        }
     }
 
     [Fact]

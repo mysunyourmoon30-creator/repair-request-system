@@ -15,6 +15,7 @@ Cross-reference of `docs/01`–`docs/11`, `docs/12`, `docs/13`, `docs/14` and th
 | Baseline commit | `39612793df1b7f12a9f8d9d0efb65cb213d4e873` (`main`, merge of PR #21) |
 | Extends / cross-references | RR-REQ-001 (`01_...pdf`), BR-RR-BASELINE (`02_...pdf`), UC-RR-001 v1.7 (`04_...pdf`), RR-DD-001 (`05_...pdf`), RR-TC-001 (`06_...pdf`), RR-DBD-001 v1.2 (`08_...pdf`), RR-API-001 v1.2 (`09_...pdf`), RR-UI-001 (`10_...pdf`), RR-PERF-001 (`11_...pdf`), RR-ARCH-001, RR-DEC-001 v1.2 (`12_...md`), RR-API-001-ADD v1.0 (`13_...md`), RR-DEC-S2-001 (`14_...md`) |
 | Approval | Portfolio Project Owner Approval — D1–D12 (7 October 2026); Phase 0 review corrections 1–2 applied in v1.1 (7 October 2026), D1–D12 unchanged |
+| Revision (Sprint 6 Time Correction timeline) | 14 October 2026 — the Work Order timeline also composes the `TIME_CORRECTION` audit rows of the Work Sessions' corrections (`docs/17` P11, owner order of 13 October 2026): D2 gains one source, §4.1 three allowlist rows, §9 loses one exclusion. D1, D3–D12 are unchanged; no schema change. Evidence and one open at-scale limitation: §14. |
 | Revision history | v1.0 — Phase 0 sheet. v1.1 — (1) the validation order is now 401, 403, 400 (pageSize/cursor syntax), 400 (cursor HMAC/version/binding), 404 (unsupported entity type / scoped lookup); the HMAC is verified from the server context and the route before any Work Order lookup; the earlier claim that checking the signature after the scope check prevents existence disclosure is withdrawn (§4, §5, §6, §8); (2) the "about 5 × (pageSize + 1) rows" read-volume statement is withdrawn and replaced by the index/ordering facts, a prohibition on client-side Guid comparison or pagination, an executable Phase 1 spike with a stop rule, and a mandatory 150-row same-timestamp test (§5, §7, §8, §8.1). Status correction (11 October 2026, documentation only, Sprint 5 Ticket 2 / `docs/16`): the Status row and the Scope note now record that the implementation was committed and merged to `main` through PR #22 (merge commit `9eb05a7e5fbc41ffa569b931a18ca4b33dbbd91b`); no decision (D1–D12), contract, evidence or measurement was changed. |
 | Audience | Portfolio Project Owner, SA, Backend/Frontend Developer, Tester |
 | Purpose | Fix the contract, security/PII rules, cursor design, performance profile and acceptance criteria for the Work Order timeline, without guessing any business rule the baseline does not state. |
@@ -72,7 +73,7 @@ Cross-reference of `docs/01`–`docs/11`, `docs/12`, `docs/13`, `docs/14` and th
 | ID | Decision |
 |---|---|
 | **D1 Endpoint** | Use the baseline endpoint `GET /api/v1/entities/{entityType}/{entityId}/timeline`. V1 accepts `entityType = WORK_ORDER` only; any other `entityType` returns the same non-leaking `404 NOT_FOUND`. |
-| **D2 Composition** | One timeline merges: `WORK_ORDER` rows of the Work Order; `SERVICE_VISIT` rows of its Visits; `WORK_SESSION` rows under those Visits; `CORRECTIVE_ACTION` rows of the Work Order; and **only** the `REPAIR_REQUEST_CONVERTED` row of the originating Repair Request. All child ids are derived on the server from the scoped Work Order; none is accepted from the client. |
+| **D2 Composition** | One timeline merges: `WORK_ORDER` rows of the Work Order; `SERVICE_VISIT` rows of its Visits; `WORK_SESSION` rows under those Visits; `TIME_CORRECTION` rows of the corrections of those Work Sessions (added 14 October 2026, `docs/17` P11); `CORRECTIVE_ACTION` rows of the Work Order; and **only** the `REPAIR_REQUEST_CONVERTED` row of the originating Repair Request. All child ids are derived on the server from the scoped Work Order; none is accepted from the client. |
 | **D3 Readers** | Same roles and scope as `WorkOrder.Read`: REQUESTER (own Work Orders only), APPROVER, COORDINATOR, TEAM_LEAD, SUPERVISOR. TECHNICIAN and ADMINISTRATOR → `403`. Out-of-scope, missing and non-owner → one identical `404`. |
 | **D4 Payload / redaction** | Action-specific *allowlisted* `details` only. `old_value_json` / `new_value_json` are never sent. Never sent: `totalAmount`/`currencyCode`, `acceptanceContactSnapshot`/email/phone, notes or any free-text reason, Work Summary text, Corrective Action plan text, or any payload key outside the allowlist. **The V1 DTO has no raw `reason` field.** A future reason disclosure needs its own role-aware decision. |
 | **D5 Actor** | Send `actorId` and `kind` ∈ `USER`/`SYSTEM`/`UNKNOWN`. No email or display-name lookup. System actors are `SYSTEM`; an actor that cannot be resolved is `UNKNOWN`. |
@@ -136,6 +137,7 @@ The projection maps an `actionCode` to a fixed set of JSON keys; every other key
 | `SERVICE_VISIT_CHECKED_IN`, `SERVICE_VISIT_COMPLETED` | `workSessionId` |
 | `WORK_SESSION_PAUSED` | `workSessionPauseId`, `pausedAt` |
 | `WORK_SESSION_RESUMED` | `workSessionPauseId`, `resumedAt` |
+| `TIME_CORRECTION_REQUESTED`, `TIME_CORRECTION_APPROVED`, `TIME_CORRECTION_REJECTED` | `workSessionId`, `workSessionPauseId` (only when present), `timestampType`, `oldValue`, `newValue` — read from each event's own payload (never `reason`, `visitCompletedAtSynchronized` or any other key) |
 | `WORK_SUMMARY_SUBMITTED` | `workSummaryId`, `repairOutcomeCode` |
 | `WORK_ORDER_REJECTED` | `customerAcceptanceId`, `correctiveActionId` |
 | `COST_SUMMARY_PREPARED`, `COST_SUMMARY_UPDATED`, `COST_SUMMARY_REVIEWED`, `WORK_ORDER_CLOSED` | `costSummaryId` (never `totalAmount`, `currencyCode`) |
@@ -290,7 +292,7 @@ e. **Logical reads and rows read** for the first page and a deep page, for Work 
 - A role-aware disclosure of `reason` and of before/after values; an actor directory (email/display name); `correlationId`; grouping of paired events; filters, search and sort options.
 - A Site time-zone model (`time_zone_id`) and Site-local display.
 - Security-auditing of timeline reads (D8) and any change to existing audit writers, or a `work_order_id` column/backfill/migration on `audit_history` (D12).
-- UC-REP-001 / REP-API-001 (search, reports, export) and the rest of FR-09; SLA and Notification events; Time Correction (held branch, untouched); Technician access to the timeline.
+- UC-REP-001 / REP-API-001 (search, reports, export) and the rest of FR-09; SLA and Notification events; Time Correction actions other than its three audit events (the three events are on the timeline since 14 October 2026); a Time Correction reason disclosure; Technician access to the timeline.
 - Making the k6 performance run a mandatory CI gate (D11).
 
 ---
@@ -671,3 +673,46 @@ The counts equal §12.7: this phase changed no production source file. The perfo
 
 ### 13.11 Limits of this evidence
 Single laptop with all three roles; SQL Server Express LocalDB (one tempdb data file); 571,225 audit rows instead of several million; 5,187 Work Orders instead of 100,000 per Site; one 2.5-minute hold per profile instead of 30 minutes; k6 closed-loop model; the API was not sampled for CPU in the first pass. The figures show that the approved two-step query meets the p95 ≤ 3.0 s target on this dataset and does not scan `audit_history`; they do not predict production capacity.
+
+---
+
+## 14. Time Correction events on the timeline — evidence (Sprint 6 timeline ticket, recorded 14 October 2026)
+
+**Scope.** `docs/17` P11: the three `TIME_CORRECTION` audit actions join the Work Order timeline (D2, §4.1). No schema, index, migration or endpoint change; D6 (keyset order, `items`/`nextCursor`/`hasMore`, no filters, no total count) is unchanged. Production change: the store resolves the corrections of the Work Order (correction → Work Session → Service Visit → Work Order, every hop within the tenant) and adds one more `OPENJSON` id set to the existing index-only main branch; the details projection is entity-type aware (the before/after keys exist only on the three actions of a `TIME_CORRECTION` row).
+
+**Redaction rule, context-aware.** `oldValue` / `newValue` stay forbidden for every other event type and for unknown actions; they are allowed only inside `details` of a `TIME_CORRECTION` item with one of the three approved actions. The API redaction assertion is now one shared, context-aware helper (`TimelineRedactionAssertions`), used by the legacy-lifecycle redaction test (unchanged strictness for legacy events) and by the Time Correction timeline tests, including mixed pages and forged payloads (a before/after payload on a legacy action, an unknown action on a correction row, a correction action on another entity type).
+
+**Evidence method.** Isolated LocalDB databases built from the real migrations (SQL Server Express LocalDB, compatibility level 150, one client); opt-in runs with `RUN_TIMELINE_EVIDENCE=1` (`AuditTimelineEvidenceTests`, `AuditTimelineTimeCorrectionLookupEvidenceTests`); the production store's captured commands re-executed under `SET STATISTICS IO/XML`; correctness asserted against the extended oracle. An empty correction set is not used as evidence for the new path.
+
+### 14.1 Correction lookup (new statement, one per request)
+
+Populated set: 120 corrections on the target Work Order (20 Visits/Sessions × 6, every third rejected), 3,600 corrections of 300 unrelated Work Orders of the same tenant, 180 corrections of another tenant; 3,900 `time_correction`, 652 `work_session` and 652 `service_visit` rows; statistics refreshed with FULLSCAN. The exact id set (120) is asserted.
+
+| Measure | Value |
+|---|---|
+| Rows returned | 120 |
+| Logical reads | `time_correction` 44, `work_session` 80, `service_visit` 26 |
+| Plan | `service_visit` scan → `IX_work_session_service_visit_id` seek ×20 → `PK_work_session` seek ×20 → `IX_time_correction_tenant_id_work_session_id_work_session_pause_id` seek ×20 |
+| Median (15 warm runs, informational) | 0.40 ms |
+| Comparison: the existing Work Session id lookup (same join shape) | scans `service_visit` and `work_session`; 26 + 14 logical reads; 0.67 ms |
+
+The new lookup uses the existing indexes; it reads the (small) `service_visit` table like the existing lookups do and needs no index.
+
+### 14.2 Page query (the `TC` scenario of the audit fixture)
+
+`TC`: 553 events over 166 entity ids (20 Visits × 4, 20 Sessions × 4, 4 Corrective Actions × 3, **120 corrections × 3**, Work Order and convert events), one tenant of 500,000 noise rows, decoys: 30 other Work Orders' corrections (360 events) in the same tenant, this Work Order's correction ids under another entity type, and another tenant's rows under the same ids. All correctness assertions pass (exact seeded set, no decoy, the keyset walks, no `audit_history` scan, payload lookups limited to the page rows).
+
+The same code produced **two different plans on two runs** (the entity ids are random GUIDs per run, which changes the statistics):
+
+| Run | Plan | Logical reads | Index seeks | Median (first / deep page) |
+|---|---|---|---|---|
+| A | one seek per entity id (the id set drives the nested loop) | 747 | 166 | 2.9 / 1.8 ms |
+| B | one range read of the tenant's `TIME_CORRECTION` entries, the id set re-evaluated per row (`Table-valued function ×723`, 65,024 parsed rows) | 274 | 47 | 68.4 / 50.0 ms |
+
+Other scenarios behaved as recorded earlier (for example `WO2000` 472–496 reads, `MANYIDS` 1,007–1,026, `BIGIDS` ≈ 9.7 thousand; 1.6–17 ms), within the run-to-run variation of their own plan alternatives. A separate `UNION ALL` branch for the correction ids and a join form of the id set were tried: the separate branch gave the same plan B; a join over the captured list is not viable (EF Core renders an inline `VALUES` root that rejects an empty set and grows with the id count). Both were reverted; the committed shape is the reviewed one.
+
+### 14.3 Remaining at-scale limitation (reported, not mitigated here)
+
+Plan B is cheaper in reads and dearer in CPU: its cost grows with *(rows of `TIME_CORRECTION` audit entries of the tenant) × (the Work Order's correction ids)*. At the measured size (720 entries in the tenant's range, 120 ids) it is 50–70 ms single-client, far inside the 3.0 s recommendation of D11, but it is **not measured above that size** and it is not stable (the plan may flip between A and B). Time Corrections are exceptional events, so the tenant's range is expected to stay small; if it did not, the plan would degrade linearly. No schema or index change is proposed (the existing `IX_audit_history_timeline` is used). A mitigation that needs an owner scope decision, **not applied**: resolve the correction events by a set-based join through `time_correction` → `work_session` → `service_visit` inside the page query (or a raw `JOIN OPENJSON` branch), so the plan no longer depends on the per-row probe.
+
+Reproduce: `RUN_TIMELINE_EVIDENCE=1 dotnet test tests/RepairRequest.IntegrationTests --filter "FullyQualifiedName~AuditTimelineEvidenceTests|FullyQualifiedName~AuditTimelineTimeCorrectionLookupEvidenceTests"` (writes `timeline-evidence.md` and `time-correction-lookup-evidence.md`, or `TIMELINE_EVIDENCE_PATH`).

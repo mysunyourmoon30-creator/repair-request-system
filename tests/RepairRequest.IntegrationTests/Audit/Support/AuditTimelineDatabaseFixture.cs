@@ -25,9 +25,12 @@ public sealed record ScenarioSpec(
     int CorrectiveActions, int PerCorrectiveAction,
     bool Convert,
     bool SingleTimestamp = false,
-    int[]? Groups = null)
+    int[]? Groups = null,
+    int TimeCorrections = 0,
+    int PerTimeCorrection = 0)
 {
-    public int SourceEvents => WorkOrderEvents + Visits * PerVisit + Sessions * PerSession + CorrectiveActions * PerCorrectiveAction;
+    public int SourceEvents =>
+        WorkOrderEvents + Visits * PerVisit + Sessions * PerSession + CorrectiveActions * PerCorrectiveAction + TimeCorrections * PerTimeCorrection;
 }
 
 public sealed record Scenario(
@@ -39,7 +42,7 @@ public sealed record Scenario(
     public int TotalExpected => ExpectedAuditIds.Count;
 
     /// <summary>Distinct entity ids the timeline query has to cover (Work Order + Repair Request + children).</summary>
-    public int EntityIdCount => 2 + Sources.VisitIds.Count + Sources.SessionIds.Count + Sources.CorrectiveActionIds.Count;
+    public int EntityIdCount => 2 + Sources.VisitIds.Count + Sources.SessionIds.Count + Sources.CorrectiveActionIds.Count + Sources.TimeCorrectionIds.Count;
 }
 
 /// <summary>
@@ -85,6 +88,9 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         new("BIGIDS", 20, 1300, 1, 1000, 1, 100, 1, true),
         new("KS1", 30, 3, 15, 3, 15, 2, 15, false, SingleTimestamp: true),
         new("MIX", 12, 6, 10, 6, 10, 3, 10, false, Groups: [1, 25, 1, 60, 3, 40, 1, 30, 1]),
+        // A Work Order with many Time Corrections (docs/17 P11): 120 corrections x 3 audit events each across 20 sessions, next to Visit, Session and
+        // Corrective Action events, with same-tenant corrections of 30 other Work Orders and another tenant's rows under the same ids as decoys.
+        new("TC", 20, 20, 4, 20, 4, 4, 3, true, TimeCorrections: 120, PerTimeCorrection: 3),
     ];
 
     public RepairRequestDbContext CreateContext()
@@ -151,6 +157,7 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
     private const string Visit = WorkOrderAudit.ServiceVisitEntityType;
     private const string Session = WorkOrderAudit.WorkSessionEntityType;
     private const string Corrective = WorkOrderAudit.CorrectiveActionEntityType;
+    private const string TimeCorrectionType = WorkOrderAudit.TimeCorrectionEntityType;
     private const string RepairRequest = RepairRequestAudit.EntityType;
     private const string Converted = RepairRequestAudit.ConvertedAction;
 
@@ -240,6 +247,7 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         var visits = Ids(spec.Visits);
         var sessions = Ids(spec.Sessions);
         var actions = Ids(spec.CorrectiveActions);
+        var corrections = Ids(spec.TimeCorrections);
 
         var stamps = new List<DateTime>();
         if (spec.SingleTimestamp)
@@ -283,6 +291,7 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
             WorkOrder => new[] { "WORK_ORDER_SCHEDULED", "WORK_ORDER_STARTED", "WORK_SUMMARY_SUBMITTED", "WORK_ORDER_CLOSED" }[i % 4],
             Visit => new[] { "SERVICE_VISIT_CHECKED_IN", "SERVICE_VISIT_COMPLETED", "SERVICE_VISIT_CANCELLED" }[i % 3],
             Session => new[] { "WORK_SESSION_PAUSED", "WORK_SESSION_RESUMED", "WORK_SESSION_CHECKED_OUT" }[i % 3],
+            TimeCorrectionType => new[] { "TIME_CORRECTION_REQUESTED", "TIME_CORRECTION_APPROVED", "TIME_CORRECTION_REJECTED" }[i % 3],
             _ => new[] { "CORRECTIVE_ACTION_PLAN_SUBMITTED", "CORRECTIVE_ACTION_PLAN_APPROVED", "CORRECTIVE_ACTION_REWORK_SCHEDULED" }[i % 3],
         };
 
@@ -298,6 +307,7 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         foreach (var id in visits) { Source(Visit, id, spec.PerVisit); }
         foreach (var id in sessions) { Source(Session, id, spec.PerSession); }
         foreach (var id in actions) { Source(Corrective, id, spec.PerCorrectiveAction); }
+        foreach (var id in corrections) { Source(TimeCorrectionType, id, spec.PerTimeCorrection); }
         if (spec.Convert)
         {
             expected.Add(sink.Add(tenant, RepairRequest, repairRequest, Converted, Base.AddDays(-30)));
@@ -309,6 +319,7 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         sample.AddRange(visits.Take(10).Select(v => (Visit, v)));
         sample.AddRange(sessions.Take(10).Select(v => (Session, v)));
         sample.AddRange(actions.Take(5).Select(v => (Corrective, v)));
+        sample.AddRange(corrections.Take(spec.TimeCorrections > 10 ? corrections.Count : 0).Select(v => (TimeCorrectionType, v)));   // another tenant, same ids
         foreach (var (type, id) in sample)
         {
             for (var i = 0; i < 2; i++)
@@ -323,6 +334,21 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         decoys.Add(sink.Add(tenant, RepairRequest, repairRequest, "REPAIR_REQUEST_SUBMITTED", Base.AddDays(-31)));
         decoys.Add(sink.Add(tenant, RepairRequest, repairRequest, "REPAIR_REQUEST_APPROVED", Base.AddDays(-30)));
         decoys.Add(sink.Add(tenant, RepairRequest, Guid.NewGuid(), Converted, Base.AddDays(-30)));
+        // Corrections of other Work Orders in the same tenant, and this Work Order's correction ids under the wrong entity type.
+        for (var other = 0; other < (spec.TimeCorrections > 0 ? 30 : 0); other++)
+        {
+            for (var c = 0; c < 4; c++)
+            {
+                var foreignCorrection = Guid.NewGuid();
+                for (var e = 0; e < 3; e++)
+                {
+                    decoys.Add(sink.Add(tenant, TimeCorrectionType, foreignCorrection, Action(TimeCorrectionType, e), Base.AddDays(5).AddMilliseconds(250)));
+                }
+            }
+        }
+
+        foreach (var id in corrections.Take(3)) { decoys.Add(sink.Add(tenant, Session, id, "WORK_SESSION_PAUSED", Base.AddDays(10))); }
+
         var otherWorkOrder = Guid.NewGuid();
         for (var i = 0; i < 5; i++)
         {
@@ -331,7 +357,7 @@ public sealed class AuditTimelineDatabaseFixture : IAsyncLifetime
         }
 
         await sink.FlushAsync();
-        return new Scenario(spec, new AuditTimelineSources(tenant, workOrder, repairRequest, visits, sessions, actions), expected, decoys);
+        return new Scenario(spec, new AuditTimelineSources(tenant, workOrder, repairRequest, visits, sessions, actions, corrections), expected, decoys);
     }
 
     /// <summary>Adds one audit row (used by the append / late-commit tests).</summary>

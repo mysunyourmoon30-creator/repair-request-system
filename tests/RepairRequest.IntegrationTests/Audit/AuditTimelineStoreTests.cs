@@ -17,7 +17,7 @@ namespace RepairRequest.IntegrationTests.Audit;
 public sealed class AuditTimelineStoreTests(AuditTimelineDatabaseFixture fixture)
 {
     public static IEnumerable<object[]> CompositeScenarios() =>
-        new[] { "WO20", "WO200", "WO2000", "MANYIDS", "BIGIDS" }.Select(s => new object[] { s });
+        new[] { "WO20", "WO200", "WO2000", "MANYIDS", "BIGIDS", "TC" }.Select(s => new object[] { s });
 
     public static IEnumerable<object[]> Ks1PageSizes() =>
         new[] { 1, 7, 20, 50, 100, 149, 150, 151 }.Select(s => new object[] { s });
@@ -47,6 +47,7 @@ WHERE a.tenant_id = '{s.TenantId}' AND (
   OR (a.entity_type = 'SERVICE_VISIT' AND a.entity_id IN ({Ids(s.VisitIds)}))
   OR (a.entity_type = 'WORK_SESSION' AND a.entity_id IN ({Ids(s.SessionIds)}))
   OR (a.entity_type = 'CORRECTIVE_ACTION' AND a.entity_id IN ({Ids(s.CorrectiveActionIds)}))
+  OR (a.entity_type = 'TIME_CORRECTION' AND a.entity_id IN ({Ids(s.TimeCorrectionIds)}))
   OR (a.entity_type = 'REPAIR_REQUEST' AND a.entity_id = '{s.RepairRequestId}' AND a.action_code = 'REPAIR_REQUEST_CONVERTED'))
 ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         return await db.Database.SqlQueryRaw<OracleRow>(sql).ToListAsync();
@@ -165,7 +166,7 @@ ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         Assert.DoesNotContain("action_code", sql[firstFrom..unionAt], StringComparison.Ordinal);
 
         // Entity types are server constants in the SQL text, not parameters.
-        foreach (var type in new[] { "WORK_ORDER", "SERVICE_VISIT", "WORK_SESSION", "CORRECTIVE_ACTION", "REPAIR_REQUEST" })
+        foreach (var type in new[] { "WORK_ORDER", "SERVICE_VISIT", "WORK_SESSION", "CORRECTIVE_ACTION", "TIME_CORRECTION", "REPAIR_REQUEST" })
         {
             Assert.Contains($"'{type}'", sql[firstFrom..], StringComparison.Ordinal);
         }
@@ -178,12 +179,12 @@ ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         foreach (var name in new[] { "WO20", "MANYIDS", "BIGIDS" })
         {
             var scenario = fixture.Scenarios[name];
-            var children = scenario.Sources.VisitIds.Count + scenario.Sources.SessionIds.Count + scenario.Sources.CorrectiveActionIds.Count;
+            var children = scenario.Sources.VisitIds.Count + scenario.Sources.SessionIds.Count + scenario.Sources.CorrectiveActionIds.Count + scenario.Sources.TimeCorrectionIds.Count;
             var (_, command) = await ReadCapturedAsync(scenario.Sources, null, 21);
 
-            Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(command.Sql, "OPENJSON").Count);
+            Assert.Equal(4, System.Text.RegularExpressions.Regex.Matches(command.Sql, "OPENJSON").Count);   // visits, sessions, corrective actions, time corrections
             Assert.Matches(@"WITH \(\[value\] uniqueidentifier '\$'\)", command.Sql);
-            Assert.DoesNotContain(command.Parameters, p => System.Text.RegularExpressions.Regex.IsMatch(p.ParameterName, @"^@(visits|sessions|actions)\d+$"));
+            Assert.DoesNotContain(command.Parameters, p => System.Text.RegularExpressions.Regex.IsMatch(p.ParameterName, @"^@(visits|sessions|actions|corrections)\d+$"));
             Assert.True(command.Parameters.Count <= 12, $"{name}: {command.Parameters.Count} parameters for {children} child ids");
             counts.Add(command.Parameters.Count);
 
@@ -385,6 +386,8 @@ ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
     [InlineData("MANYIDS", false)]
     [InlineData("BIGIDS", false)]
     [InlineData("BIGIDS", true)]
+    [InlineData("TC", false)]
+    [InlineData("TC", true)]
     public async Task ActualPlan_HasNoAuditHistoryScan_AndPayloadLookupsAreLimitedToThePageRows(string name, bool deepPage)
     {
         var scenario = fixture.Scenarios[name];

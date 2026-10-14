@@ -27,7 +27,7 @@ public class AuditTimelineServiceTests
     {
         _service = new AuditTimelineService(_store, _cursors);
         _user = new CurrentUser(Guid.NewGuid(), _tenantId, [RoleCodes.Supervisor]);
-        _store.Sources = new AuditTimelineSources(_tenantId, _workOrderId, Guid.NewGuid(), [], [], []);
+        _store.Sources = new AuditTimelineSources(_tenantId, _workOrderId, Guid.NewGuid(), [], [], [], []);
     }
 
     private static AuditTimelineRow Row(int minutesAgo, string code = "WORK_ORDER_STARTED", Guid? actor = null, string? json = null) =>
@@ -266,6 +266,49 @@ public class AuditTimelineServiceTests
 
         Assert.Equal(["costSummaryId"], items[0].Details.Keys);
         Assert.Empty(items[1].Details);
+    }
+
+    [Fact]
+    public async Task MixedPage_ExposesBeforeAfterOnlyForTheThreeTimeCorrectionActionsOnTimeCorrectionRows()
+    {
+        const string payload =
+            "{\"workSessionId\":\"s-1\",\"timestampType\":\"CHECK_IN\",\"oldValue\":\"2026-10-01T08:00:00\",\"newValue\":\"2026-10-01T07:55:00\","
+            + "\"reason\":\"SENTINEL-REASON\",\"visitCompletedAtSynchronized\":false}";
+        AuditTimelineRow Typed(int minutesAgo, string entityType, string code) =>
+            new(Guid.NewGuid(), new DateTime(2026, 10, 1, 12, 0, 0, DateTimeKind.Unspecified).AddMinutes(-minutesAgo),
+                entityType, Guid.NewGuid(), code, null, null, Guid.NewGuid(), payload);
+
+        _store.Rows =
+        [
+            Typed(1, "TIME_CORRECTION", "TIME_CORRECTION_REQUESTED"),     // exposed
+            Typed(2, "TIME_CORRECTION", "TIME_CORRECTION_APPROVED"),      // exposed
+            Typed(3, "TIME_CORRECTION", "TIME_CORRECTION_REJECTED"),      // exposed
+            Typed(4, "TIME_CORRECTION", "TIME_CORRECTION_FUTURE_CODE"),   // unknown action on a correction row
+            Typed(5, "TIME_CORRECTION", "WORK_ORDER_CLOSED"),             // another action's code on a correction row
+            Typed(6, "WORK_SESSION", "TIME_CORRECTION_APPROVED"),         // a correction action on another entity type
+            Typed(7, "WORK_ORDER", "TIME_CORRECTION_REJECTED"),
+            Typed(8, "WORK_ORDER", "WORK_ORDER_STARTED"),                 // legacy event whose payload carries before/after keys
+            Typed(9, "WORK_SESSION", "WORK_SESSION_PAUSED"),
+            Typed(10, "SERVICE_VISIT", "SOME_FUTURE_UNKNOWN_CODE"),
+        ];
+
+        var items = (await GetAsync()).Page!.Items;
+
+        foreach (var item in items.Take(3))
+        {
+            Assert.Equal(["workSessionId", "timestampType", "oldValue", "newValue"], item.Details.Keys);
+        }
+
+        foreach (var item in items.Skip(3))
+        {
+            Assert.DoesNotContain("oldValue", item.Details.Keys);
+            Assert.DoesNotContain("newValue", item.Details.Keys);
+        }
+
+        Assert.All(items.Skip(3).Take(4), item => Assert.Empty(item.Details));
+        Assert.All(items, item => Assert.DoesNotContain("reason", item.Details.Keys));
+        Assert.All(items, item => Assert.DoesNotContain("visitCompletedAtSynchronized", item.Details.Keys));
+        Assert.All(items, item => Assert.DoesNotContain(item.Details.Values, value => value is string text && text.Contains("SENTINEL", StringComparison.Ordinal)));
     }
 
     [Fact]

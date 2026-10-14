@@ -65,17 +65,6 @@ public sealed class AuditTimelineEndpointsTests : IClassFixture<AuditTimelineApi
     private static readonly string[] AllSentinels =
         [SummarySentinel, PauseSentinel, RejectSentinel, PlanSentinel, CancelSentinel, CostNoteSentinel, CostAmount, "9876543"];
 
-    private static readonly HashSet<string> AllowedDetailKeys =
-    [
-        "workOrderId", "workOrderNo", "serviceVisitId", "ownerTeamId", "assignedTechnicianId", "scheduledStartAt", "scheduledEndAt",
-        "workSessionId", "workSessionPauseId", "pausedAt", "resumedAt", "workSummaryId", "repairOutcomeCode", "customerAcceptanceId",
-        "correctiveActionId", "costSummaryId", "assignedTeamId", "decision", "newServiceVisitId",
-    ];
-
-    private static readonly string[] ForbiddenPropertyNames =
-        ["reason", "correlationId", "oldValue", "oldValueJson", "newValue", "newValueJson", "totalAmount", "currencyCode", "note", "email",
-         "displayName", "userName", "phone", "acceptanceContactSnapshot", "summaryText", "planText", "decisionReason", "cancelReason"];
-
     private readonly AuditTimelineApiFactory _factory;
 
     public AuditTimelineEndpointsTests(AuditTimelineApiFactory factory)
@@ -399,51 +388,13 @@ public sealed class AuditTimelineEndpointsTests : IClassFixture<AuditTimelineApi
             Assert.DoesNotMatch(@"[\w.+-]+@[\w-]+\.[\w.]+", all);
             Assert.DoesNotContain(CostCurrency, all, StringComparison.Ordinal);
 
-            // No forbidden property name anywhere in the tree, and `details` only carries allowlisted scalar keys.
+            // Context-aware redaction (shared with the Time Correction timeline tests): forbidden names nowhere, `details` only allowlisted
+            // scalar keys, oldValue/newValue only inside the three approved TIME_CORRECTION actions (none exist in these legacy-only worlds).
             foreach (var document in all.Split('\n', StringSplitOptions.RemoveEmptyEntries).Select(line => JsonDocument.Parse(line)))
             {
-                foreach (var name in PropertyNames(document.RootElement))
-                {
-                    Assert.DoesNotContain(name, ForbiddenPropertyNames);
-                }
-
-                foreach (var item in document.RootElement.GetProperty("items").EnumerateArray())
-                {
-                    foreach (var detail in item.GetProperty("details").EnumerateObject())
-                    {
-                        Assert.Contains(detail.Name, AllowedDetailKeys);
-                        Assert.True(detail.Value.ValueKind is JsonValueKind.String or JsonValueKind.Number or JsonValueKind.True or JsonValueKind.False or JsonValueKind.Null);
-                    }
-                }
+                TimelineRedactionAssertions.AssertPage(document.RootElement);
+                Assert.DoesNotContain("TIME_CORRECTION", document.RootElement.GetRawText(), StringComparison.Ordinal);
             }
-        }
-    }
-
-    private static IEnumerable<string> PropertyNames(JsonElement element)
-    {
-        switch (element.ValueKind)
-        {
-            case JsonValueKind.Object:
-                foreach (var property in element.EnumerateObject())
-                {
-                    yield return property.Name;
-                    foreach (var child in PropertyNames(property.Value))
-                    {
-                        yield return child;
-                    }
-                }
-
-                break;
-            case JsonValueKind.Array:
-                foreach (var item in element.EnumerateArray())
-                {
-                    foreach (var child in PropertyNames(item))
-                    {
-                        yield return child;
-                    }
-                }
-
-                break;
         }
     }
 
