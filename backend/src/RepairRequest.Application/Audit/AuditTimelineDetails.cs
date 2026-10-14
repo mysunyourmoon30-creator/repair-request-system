@@ -20,6 +20,11 @@ public static class AuditTimelineDetails
         ["SERVICE_VISIT_COMPLETED"] = ["workSessionId"],
         ["WORK_SESSION_PAUSED"] = ["workSessionPauseId", "pausedAt"],
         ["WORK_SESSION_RESUMED"] = ["workSessionPauseId", "resumedAt"],
+        // Time Correction (docs/17 P11): the historical before/after values come from each audit event itself. The free-text
+        // reason is the audit row's own column and the payload's other keys (for example visitCompletedAtSynchronized) are not listed.
+        ["TIME_CORRECTION_REQUESTED"] = ["workSessionId", "workSessionPauseId", "timestampType", "oldValue", "newValue"],
+        ["TIME_CORRECTION_APPROVED"] = ["workSessionId", "workSessionPauseId", "timestampType", "oldValue", "newValue"],
+        ["TIME_CORRECTION_REJECTED"] = ["workSessionId", "workSessionPauseId", "timestampType", "oldValue", "newValue"],
         ["WORK_SUMMARY_SUBMITTED"] = ["workSummaryId", "repairOutcomeCode"],
         ["WORK_ORDER_REJECTED"] = ["customerAcceptanceId", "correctiveActionId"],
         // Cost events expose only the Cost Summary id — never totalAmount, currencyCode or the note.
@@ -34,10 +39,27 @@ public static class AuditTimelineDetails
         // WORK_ORDER_SUBMITTED_FOR_ACCEPTANCE deliberately has no entry: acceptanceContactId and the snapshot are not exposed.
     };
 
+    private const string TimeCorrectionEntityType = "TIME_CORRECTION";
+
+    private static readonly string[] TimeCorrectionCodes =
+        ["TIME_CORRECTION_REQUESTED", "TIME_CORRECTION_APPROVED", "TIME_CORRECTION_REJECTED"];
+
     /// <summary>The action codes that have an allowlist entry; the store reads <c>new_value_json</c> only for these.</summary>
     public static readonly string[] CodesWithDetails = [.. Allowed.Keys];
 
     private static readonly IReadOnlyDictionary<string, object?> Empty = new Dictionary<string, object?>();
+
+    /// <summary>
+    /// The projection the timeline uses: the action-specific allowlist, plus the entity type of the row. The before/after keys
+    /// (<c>oldValue</c>, <c>newValue</c>) belong to the three Time Correction actions on a <c>TIME_CORRECTION</c> row and nowhere else:
+    /// a Time Correction action code on any other entity type, or any other (or unknown) action code on a <c>TIME_CORRECTION</c> row, yields empty details.
+    /// </summary>
+    public static IReadOnlyDictionary<string, object?> Project(string entityType, string actionCode, string? newValueJson)
+    {
+        var isTimeCorrectionEntity = string.Equals(entityType, TimeCorrectionEntityType, StringComparison.Ordinal);
+        var isTimeCorrectionAction = Array.IndexOf(TimeCorrectionCodes, actionCode) >= 0;
+        return isTimeCorrectionEntity == isTimeCorrectionAction ? Project(actionCode, newValueJson) : Empty;
+    }
 
     public static IReadOnlyDictionary<string, object?> Project(string actionCode, string? newValueJson)
     {

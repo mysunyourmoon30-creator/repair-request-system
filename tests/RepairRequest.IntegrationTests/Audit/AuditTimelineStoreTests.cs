@@ -17,7 +17,7 @@ namespace RepairRequest.IntegrationTests.Audit;
 public sealed class AuditTimelineStoreTests(AuditTimelineDatabaseFixture fixture)
 {
     public static IEnumerable<object[]> CompositeScenarios() =>
-        new[] { "WO20", "WO200", "WO2000", "MANYIDS", "BIGIDS" }.Select(s => new object[] { s });
+        new[] { "WO20", "WO200", "WO2000", "MANYIDS", "BIGIDS", "TC" }.Select(s => new object[] { s });
 
     public static IEnumerable<object[]> Ks1PageSizes() =>
         new[] { 1, 7, 20, 50, 100, 149, 150, 151 }.Select(s => new object[] { s });
@@ -47,6 +47,11 @@ WHERE a.tenant_id = '{s.TenantId}' AND (
   OR (a.entity_type = 'SERVICE_VISIT' AND a.entity_id IN ({Ids(s.VisitIds)}))
   OR (a.entity_type = 'WORK_SESSION' AND a.entity_id IN ({Ids(s.SessionIds)}))
   OR (a.entity_type = 'CORRECTIVE_ACTION' AND a.entity_id IN ({Ids(s.CorrectiveActionIds)}))
+  OR (a.entity_type = 'TIME_CORRECTION' AND a.entity_id IN (
+        SELECT c.time_correction_id FROM time_correction c
+        JOIN work_session ws ON ws.work_session_id = c.work_session_id AND ws.tenant_id = c.tenant_id
+        JOIN service_visit sv ON sv.service_visit_id = ws.service_visit_id AND sv.tenant_id = c.tenant_id
+        WHERE c.tenant_id = '{s.TenantId}' AND sv.work_order_id = '{s.WorkOrderId}'))
   OR (a.entity_type = 'REPAIR_REQUEST' AND a.entity_id = '{s.RepairRequestId}' AND a.action_code = 'REPAIR_REQUEST_CONVERTED'))
 ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         return await db.Database.SqlQueryRaw<OracleRow>(sql).ToListAsync();
@@ -126,11 +131,11 @@ ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         var oracle = await OracleAsync(scenario.Sources);
         var (rows, command) = await ReadCapturedAsync(scenario.Sources, PositionOf(oracle[40]), 21);
 
-        // Both branches of the UNION ALL carry the keyset predicate, executed by SQL Server.
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(command.Sql, @"\[a0?\]\.\[occurred_at\]\s*<=\s*@").Count);
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(command.Sql, @"\[a0?\]\.\[occurred_at\]\s*<\s*@").Count);
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(command.Sql, @"\[a0?\]\.\[occurred_at\]\s*=\s*@").Count);
-        Assert.Equal(2, System.Text.RegularExpressions.Regex.Matches(command.Sql, @"\[a0?\]\.\[audit_history_id\]\s*<\s*@").Count);
+        // All three branches of the UNION ALL (main sources, Time Correction events, Repair Request convert) carry the keyset predicate, executed by SQL Server.
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(command.Sql, @"\[a\d?\]\.\[occurred_at\]\s*<=\s*@").Count);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(command.Sql, @"\[a\d?\]\.\[occurred_at\]\s*<\s*@").Count);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(command.Sql, @"\[a\d?\]\.\[occurred_at\]\s*=\s*@").Count);
+        Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(command.Sql, @"\[a\d?\]\.\[audit_history_id\]\s*<\s*@").Count);
         Assert.Matches(@"ORDER BY \[\w+\]\.\[OccurredAt\] DESC, \[\w+\]\.\[Id\] DESC", command.Sql);
         Assert.Equal(oracle.Skip(41).Take(21).Select(r => r.AuditId), rows.Select(r => r.AuditId));
     }
@@ -144,9 +149,9 @@ ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
 
         // Step 1: TOP over index-only columns (Id, OccurredAt) of a UNION ALL of the main source predicate and the Repair Request
         // converted branch, ordered; step 2: joined back to the table by primary key; the outer order is repeated.
-        Assert.Matches(@"FROM \(\s*SELECT TOP\(@\w+\) \[u\]\.\[Id\], \[u\]\.\[OccurredAt\]\s+FROM \(", sql);
+        Assert.Matches(@"FROM \(\s*SELECT TOP\(@\w+\) \[u\d*\]\.\[Id\], \[u\d*\]\.\[OccurredAt\]\s+FROM \(", sql);
         Assert.Contains("UNION ALL", sql, StringComparison.Ordinal);
-        Assert.Matches(@"ORDER BY \[u\]\.\[OccurredAt\] DESC, \[u\]\.\[Id\] DESC\s*\) AS \[\w+\]\s+INNER JOIN \[audit_history\] AS \[\w+\] ON \[\w+\]\.\[Id\] = \[\w+\]\.\[audit_history_id\]", sql);
+        Assert.Matches(@"ORDER BY \[u\d*\]\.\[OccurredAt\] DESC, \[u\d*\]\.\[Id\] DESC\s*\) AS \[\w+\]\s+INNER JOIN \[audit_history\] AS \[\w+\] ON \[\w+\]\.\[Id\] = \[\w+\]\.\[audit_history_id\]", sql);
         Assert.Matches(@"ORDER BY \[\w+\]\.\[OccurredAt\] DESC, \[\w+\]\.\[Id\] DESC\s*$", sql.Trim());
 
         // The payload column is read only in the outer select (before the first FROM), and only for allowlisted action codes;
@@ -165,7 +170,7 @@ ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         Assert.DoesNotContain("action_code", sql[firstFrom..unionAt], StringComparison.Ordinal);
 
         // Entity types are server constants in the SQL text, not parameters.
-        foreach (var type in new[] { "WORK_ORDER", "SERVICE_VISIT", "WORK_SESSION", "CORRECTIVE_ACTION", "REPAIR_REQUEST" })
+        foreach (var type in new[] { "WORK_ORDER", "SERVICE_VISIT", "WORK_SESSION", "CORRECTIVE_ACTION", "TIME_CORRECTION", "REPAIR_REQUEST" })
         {
             Assert.Contains($"'{type}'", sql[firstFrom..], StringComparison.Ordinal);
         }
@@ -178,10 +183,10 @@ ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         foreach (var name in new[] { "WO20", "MANYIDS", "BIGIDS" })
         {
             var scenario = fixture.Scenarios[name];
-            var children = scenario.Sources.VisitIds.Count + scenario.Sources.SessionIds.Count + scenario.Sources.CorrectiveActionIds.Count;
+            var children = scenario.Sources.VisitIds.Count + scenario.Sources.SessionIds.Count + scenario.Sources.CorrectiveActionIds.Count + scenario.Spec.TimeCorrections;
             var (_, command) = await ReadCapturedAsync(scenario.Sources, null, 21);
 
-            Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(command.Sql, "OPENJSON").Count);
+            Assert.Equal(3, System.Text.RegularExpressions.Regex.Matches(command.Sql, "OPENJSON").Count);   // visits, sessions, corrective actions — the correction branch is relational
             Assert.Matches(@"WITH \(\[value\] uniqueidentifier '\$'\)", command.Sql);
             Assert.DoesNotContain(command.Parameters, p => System.Text.RegularExpressions.Regex.IsMatch(p.ParameterName, @"^@(visits|sessions|actions)\d+$"));
             Assert.True(command.Parameters.Count <= 12, $"{name}: {command.Parameters.Count} parameters for {children} child ids");
@@ -385,6 +390,8 @@ ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
     [InlineData("MANYIDS", false)]
     [InlineData("BIGIDS", false)]
     [InlineData("BIGIDS", true)]
+    [InlineData("TC", false)]
+    [InlineData("TC", true)]
     public async Task ActualPlan_HasNoAuditHistoryScan_AndPayloadLookupsAreLimitedToThePageRows(string name, bool deepPage)
     {
         var scenario = fixture.Scenarios[name];

@@ -88,6 +88,7 @@ internal sealed class AuditTimelineStore : IAuditTimelineStore
         const string visitType = WorkOrderAudit.ServiceVisitEntityType;
         const string sessionType = WorkOrderAudit.WorkSessionEntityType;
         const string correctiveActionType = WorkOrderAudit.CorrectiveActionEntityType;
+        const string timeCorrectionType = WorkOrderAudit.TimeCorrectionEntityType;
         const string repairRequestType = RepairRequestAudit.EntityType;
         const string convertedAction = RepairRequestAudit.ConvertedAction;
 
@@ -103,6 +104,23 @@ internal sealed class AuditTimelineStore : IAuditTimelineStore
                 || (audit.EntityType == visitType && EF.Parameter(visitIds).Contains(audit.EntityId))
                 || (audit.EntityType == sessionType && EF.Parameter(sessionIds).Contains(audit.EntityId))
                 || (audit.EntityType == correctiveActionType && EF.Parameter(correctiveActionIds).Contains(audit.EntityId))));
+
+        // Time Correction events (docs/17 P11): a branch of their own, reached RELATIONALLY — the correction's audit rows (entity type TIME_CORRECTION,
+        // keyed on the correction id) joined through time_correction -> work_session -> service_visit to THIS Work Order, every hop inside the Work Order's
+        // tenant. No id list is built or probed per audit row (an OPENJSON id set probed per audit row cost up to 318 ms in a populated case, docs/15 section 14).
+        // Not filtered by the correction's current status: PENDING, APPROVED and REJECTED corrections all keep their history.
+        var corrections =
+            from audit in _db.AuditHistory.AsNoTracking()
+            join correction in _db.TimeCorrections.AsNoTracking() on audit.EntityId equals correction.Id
+            join session in _db.WorkSessions.AsNoTracking() on correction.WorkSessionId equals session.Id
+            join visit in _db.ServiceVisits.AsNoTracking() on session.ServiceVisitId equals visit.Id
+            where audit.TenantId == tenantId
+                && audit.EntityType == timeCorrectionType
+                && correction.TenantId == tenantId
+                && session.TenantId == tenantId
+                && visit.TenantId == tenantId
+                && visit.WorkOrderId == workOrderId
+            select audit;
 
         var converted = _db.AuditHistory.AsNoTracking().Where(audit =>
             audit.TenantId == tenantId
@@ -120,12 +138,16 @@ internal sealed class AuditTimelineStore : IAuditTimelineStore
             main = main.Where(audit =>
                 audit.OccurredAt <= occurredAt
                 && (audit.OccurredAt < occurredAt || (audit.OccurredAt == occurredAt && audit.Id.CompareTo(auditId) < 0)));
+            corrections = corrections.Where(audit =>
+                audit.OccurredAt <= occurredAt
+                && (audit.OccurredAt < occurredAt || (audit.OccurredAt == occurredAt && audit.Id.CompareTo(auditId) < 0)));
             converted = converted.Where(audit =>
                 audit.OccurredAt <= occurredAt
                 && (audit.OccurredAt < occurredAt || (audit.OccurredAt == occurredAt && audit.Id.CompareTo(auditId) < 0)));
         }
 
         var page = main.Select(audit => new { audit.Id, audit.OccurredAt })
+            .Concat(corrections.Select(audit => new { audit.Id, audit.OccurredAt }))
             .Concat(converted.Select(audit => new { audit.Id, audit.OccurredAt }))
             .OrderByDescending(candidate => candidate.OccurredAt).ThenByDescending(candidate => candidate.Id)
             .Take(take);

@@ -28,6 +28,9 @@ public class AuditTimelineDetailsTests
         ["SERVICE_VISIT_RESCHEDULED", new[] { "scheduledStartAt", "scheduledEndAt" }],
         ["SERVICE_VISIT_REASSIGNED", new[] { "assignedTeamId", "assignedTechnicianId" }],
         ["SERVICE_VISIT_MISSED_DECIDED", new[] { "decision", "newServiceVisitId" }],
+        ["TIME_CORRECTION_REQUESTED", new[] { "workSessionId", "workSessionPauseId", "timestampType", "oldValue", "newValue" }],
+        ["TIME_CORRECTION_APPROVED", new[] { "workSessionId", "workSessionPauseId", "timestampType", "oldValue", "newValue" }],
+        ["TIME_CORRECTION_REJECTED", new[] { "workSessionId", "workSessionPauseId", "timestampType", "oldValue", "newValue" }],
     ];
 
     private static readonly string[] ForbiddenKeys =
@@ -39,7 +42,7 @@ public class AuditTimelineDetailsTests
     private static string JsonWith(IEnumerable<string> allowed)
     {
         var members = allowed.Select(key => $"\"{key}\":\"value-of-{key}\"")
-            .Concat(ForbiddenKeys.Select(key => $"\"{key}\":\"{Sentinel}\""));
+            .Concat(ForbiddenKeys.Where(key => !allowed.Contains(key)).Select(key => $"\"{key}\":\"{Sentinel}\""));
         return "{" + string.Join(",", members) + "}";
     }
 
@@ -55,12 +58,12 @@ public class AuditTimelineDetailsTests
     }
 
     [Fact]
-    public void CodesWithDetails_AreExactlyTheSixteenAllowlistedCodes()
+    public void CodesWithDetails_AreExactlyTheNineteenAllowlistedCodes()
     {
         var expected = AllowedKeysByCode().Select(row => (string)row[0]).OrderBy(c => c);
 
         Assert.Equal(expected, AuditTimelineDetails.CodesWithDetails.OrderBy(c => c));
-        Assert.Equal(16, AuditTimelineDetails.CodesWithDetails.Length);
+        Assert.Equal(19, AuditTimelineDetails.CodesWithDetails.Length);
     }
 
     [Theory]
@@ -79,6 +82,63 @@ public class AuditTimelineDetailsTests
     {
         Assert.Empty(AuditTimelineDetails.Project(code, JsonWith(["workSessionId", "serviceVisitId", "costSummaryId", "decision"])));
         Assert.DoesNotContain(code, AuditTimelineDetails.CodesWithDetails);
+    }
+
+    [Theory]
+    [InlineData("TIME_CORRECTION_REQUESTED")]
+    [InlineData("TIME_CORRECTION_APPROVED")]
+    [InlineData("TIME_CORRECTION_REJECTED")]
+    public void TimeCorrectionEvents_ExposeTheHistoricalBeforeAfterFromTheEvent_AndNothingElseOfThePayload(string code)
+    {
+        const string json =
+            "{\"workSessionId\":\"11111111-1111-1111-1111-111111111111\",\"workSessionPauseId\":\"22222222-2222-2222-2222-222222222222\","
+            + "\"timestampType\":\"RESUME\",\"oldValue\":\"2026-10-14T08:20:00\",\"newValue\":\"2026-10-14T08:25:00\","
+            + "\"visitCompletedAtSynchronized\":true,\"reason\":\"SENTINEL-SECRET-VALUE\",\"decisionReason\":\"SENTINEL-SECRET-VALUE\","
+            + "\"nested\":{\"oldValue\":\"x\"}}";
+
+        var details = AuditTimelineDetails.Project(code, json);
+
+        Assert.Equal(["newValue", "oldValue", "timestampType", "workSessionId", "workSessionPauseId"], details.Keys.Order(StringComparer.Ordinal));
+        Assert.Equal("2026-10-14T08:20:00", details["oldValue"]);
+        Assert.Equal("2026-10-14T08:25:00", details["newValue"]);
+        Assert.Equal("RESUME", details["timestampType"]);
+        Assert.DoesNotContain(details.Values, value => value is string text && text.Contains("SENTINEL", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void TimeCorrectionEvents_WithoutAPauseTarget_OmitThePauseKey_AndAnUnparseablePayloadYieldsNothing()
+    {
+        var details = AuditTimelineDetails.Project(
+            "TIME_CORRECTION_APPROVED",
+            "{\"workSessionId\":\"11111111-1111-1111-1111-111111111111\",\"timestampType\":\"CHECK_IN\",\"oldValue\":\"a\",\"newValue\":\"b\"}");
+
+        Assert.DoesNotContain("workSessionPauseId", details.Keys);
+        Assert.Empty(AuditTimelineDetails.Project("TIME_CORRECTION_REJECTED", "not json"));
+        Assert.Empty(AuditTimelineDetails.Project("TIME_CORRECTION_REQUESTED", null));
+    }
+
+    [Theory]
+    [InlineData("TIME_CORRECTION", "TIME_CORRECTION_REQUESTED", true)]
+    [InlineData("TIME_CORRECTION", "TIME_CORRECTION_APPROVED", true)]
+    [InlineData("TIME_CORRECTION", "TIME_CORRECTION_REJECTED", true)]
+    [InlineData("TIME_CORRECTION", "TIME_CORRECTION_SOMETHING_ELSE", false)]
+    [InlineData("TIME_CORRECTION", "WORK_ORDER_CLOSED", false)]
+    [InlineData("WORK_SESSION", "TIME_CORRECTION_APPROVED", false)]
+    [InlineData("WORK_ORDER", "TIME_CORRECTION_REQUESTED", false)]
+    [InlineData("WORK_ORDER", "WORK_ORDER_CLOSED", true)]
+    [InlineData("WORK_SESSION", "WORK_SESSION_PAUSED", true)]
+    public void TheEntityTypeAwareProjection_AllowsTheBeforeAfterKeysOnlyForTimeCorrectionActionsOnTimeCorrectionRows(string entityType, string code, bool exposesAnything)
+    {
+        const string json = "{\"workSessionPauseId\":\"p\",\"costSummaryId\":\"c\",\"oldValue\":\"a\",\"newValue\":\"b\",\"timestampType\":\"CHECK_IN\",\"workSessionId\":\"s\",\"pausedAt\":\"t\"}";
+
+        var details = AuditTimelineDetails.Project(entityType, code, json);
+
+        Assert.Equal(exposesAnything, details.Count > 0);
+        if (code != "TIME_CORRECTION_REQUESTED" && code != "TIME_CORRECTION_APPROVED" && code != "TIME_CORRECTION_REJECTED")
+        {
+            Assert.DoesNotContain("oldValue", details.Keys);
+            Assert.DoesNotContain("newValue", details.Keys);
+        }
     }
 
     [Fact]

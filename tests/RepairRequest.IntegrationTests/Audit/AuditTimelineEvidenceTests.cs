@@ -74,9 +74,9 @@ public sealed class AuditTimelineEvidenceTests(AuditTimelineDatabaseFixture fixt
                 var ms = await SqlPlanEvidence.MedianMillisecondsAsync(AuditTimelineDatabaseFixture.ConnectionString, command.Sql, command.Parameters);
                 md.AppendLine($"| {name} | {scenario.TotalExpected} | {scenario.EntityIdCount} | {label} | {m.RowsReturned} | {m.LogicalReads} | {m.ScanCount} | {ix.Sum(o => o.Executions)} | {ix.Sum(o => o.ActualRowsRead)} | {pk.Sum(o => o.Executions)} | {m.Operators.Count(o => o.PhysicalOp.Contains("Sort", StringComparison.Ordinal))} | {m.SpillWritesToTempDb} | {m.ParameterCount} | {ms:F1} |");
 
-                if (label == "first" && name is "WO2000" or "BIGIDS")
+                if ((label == "first" && name is "WO2000" or "BIGIDS") || name == "TC")
                 {
-                    samples.AppendLine($"### {name} / first page — captured command ({command.Parameters.Count} parameters)");
+                    samples.AppendLine($"### {name} / {label} page — captured command ({command.Parameters.Count} parameters)");
                     samples.AppendLine("```sql");
                     samples.AppendLine(command.Sql);
                     samples.AppendLine("```");
@@ -102,6 +102,11 @@ WHERE a.tenant_id = '{s.TenantId}' AND (
   OR (a.entity_type = 'SERVICE_VISIT' AND a.entity_id IN ({Ids(s.VisitIds)}))
   OR (a.entity_type = 'WORK_SESSION' AND a.entity_id IN ({Ids(s.SessionIds)}))
   OR (a.entity_type = 'CORRECTIVE_ACTION' AND a.entity_id IN ({Ids(s.CorrectiveActionIds)}))
+  OR (a.entity_type = 'TIME_CORRECTION' AND a.entity_id IN (
+        SELECT c.time_correction_id FROM time_correction c
+        JOIN work_session ws ON ws.work_session_id = c.work_session_id AND ws.tenant_id = c.tenant_id
+        JOIN service_visit sv ON sv.service_visit_id = ws.service_visit_id AND sv.tenant_id = c.tenant_id
+        WHERE c.tenant_id = '{s.TenantId}' AND sv.work_order_id = '{s.WorkOrderId}'))
   OR (a.entity_type = 'REPAIR_REQUEST' AND a.entity_id = '{s.RepairRequestId}' AND a.action_code = 'REPAIR_REQUEST_CONVERTED'))
 ORDER BY a.occurred_at DESC, a.audit_history_id DESC";
         return await db.Database.SqlQueryRaw<OracleRow>(sql).ToListAsync();

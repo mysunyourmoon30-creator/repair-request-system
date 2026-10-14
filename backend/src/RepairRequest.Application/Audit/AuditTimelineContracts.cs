@@ -3,7 +3,9 @@ namespace RepairRequest.Application.Audit;
 /// <summary>
 /// The server-derived set of audit subjects that make up one Work Order's timeline (docs/15 D2): the Work Order, its
 /// Service Visits, the Work Sessions under those Visits, its Corrective Actions and the originating Repair Request
-/// (whose only contribution is the REPAIR_REQUEST_CONVERTED event). Child ids are never taken from the client.
+/// (whose only contribution is the REPAIR_REQUEST_CONVERTED event). Child ids are never taken from the client. The Time
+/// Corrections of the Work Sessions have no id list: the store reaches their audit rows relationally (correction -> Work
+/// Session -> Visit -> this Work Order), so no id set is carried or re-evaluated per audit row.
 /// </summary>
 public sealed record AuditTimelineSources(
     Guid TenantId,

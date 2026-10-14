@@ -81,7 +81,7 @@ public sealed class AuditTimelineService
                 row.FromState,
                 row.ToState,
                 new AuditTimelineActorDto(row.ActorId, ClassifyActor(row.ActorId, knownUsers)),
-                AuditTimelineDetails.Project(row.ActionCode, row.NewValueJson)))
+                AuditTimelineDetails.Project(row.EntityType, row.ActionCode, row.NewValueJson)))
             .ToList();
 
         string? nextCursor = null;
