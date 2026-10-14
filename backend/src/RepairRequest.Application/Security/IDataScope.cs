@@ -76,6 +76,28 @@ public interface IDataScope
     /// </summary>
     IQueryable<WorkSession> OwnWorkSessions(CurrentUser user);
 
+    /// <summary>
+    /// Work Sessions a caller may request a Time Correction on (UC-TIME-001, "Technician/Team Lead request"): for TECHNICIAN exactly
+    /// <see cref="OwnWorkSessions"/>; for TEAM_LEAD every session whose Visit's Work Order's Repair Request Site is in the caller's
+    /// current <c>user_site_scope</c> (the same correlation <see cref="WorkOrders"/> uses for its site-wide roles); every other
+    /// caller sees none. Another Technician's, another Site's, cross-tenant and nonexistent sessions are indistinguishable (404).
+    /// </summary>
+    IQueryable<WorkSession> WorkSessionsForTimeCorrectionRequest(CurrentUser user);
+
+    /// <summary>
+    /// Time Corrections visible to the caller (read only — the response of their own Request or decision): TECHNICIAN only the ones they
+    /// requested; TEAM_LEAD and SUPERVISOR every request on their Sites; every other caller none. Use
+    /// <see cref="TimeCorrectionsForDecision"/> to authorize Approve/Reject.
+    /// </summary>
+    IQueryable<TimeCorrection> TimeCorrections(CurrentUser user);
+
+    /// <summary>
+    /// Time Corrections a Supervisor may decide and list: every request on a Site of the caller's current <c>user_site_scope</c>.
+    /// Every non-Supervisor caller sees none (Team Lead may request but never decide); out-of-scope, cross-tenant and nonexistent
+    /// requests are indistinguishable (404).
+    /// </summary>
+    IQueryable<TimeCorrection> TimeCorrectionsForDecision(CurrentUser user);
+
     /// <summary>Validates a client-supplied Site id against the caller's <see cref="BusinessSites"/> scope in a single query.</summary>
     Task<bool> IsSiteInScopeAsync(CurrentUser user, Guid siteId, CancellationToken cancellationToken);
 }

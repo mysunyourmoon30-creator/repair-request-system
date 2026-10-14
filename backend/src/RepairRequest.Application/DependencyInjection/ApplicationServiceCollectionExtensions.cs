@@ -63,6 +63,9 @@ public static class ApplicationServiceCollectionExtensions
         // S3-002: Pause of the Technician's own Work Session (ST-WS-002) and the read of their current session.
         services.AddScoped<WorkSessionService>();
 
+        // Time Correction (ST-TC-001..003; UC-TIME-001; `docs/17`): request by Technician/Team Lead, decision by Supervisor.
+        services.AddScoped<TimeCorrectionService>();
+
         // Work Summary Submit (ST-WO-003; Technician) and Submit for Acceptance (ST-WO-004; Team Lead/Supervisor); `docs/13` §4.15.
         services.AddScoped<WorkSummaryService>();
 

@@ -70,6 +70,8 @@ public class RepairRequestDbContext : IdentityDbContext<ApplicationUser, Applica
 
     public DbSet<WorkSessionPause> WorkSessionPauses => Set<WorkSessionPause>();
 
+    public DbSet<TimeCorrection> TimeCorrections => Set<TimeCorrection>();
+
     public DbSet<WorkSummary> WorkSummaries => Set<WorkSummary>();
 
     public DbSet<CustomerAcceptance> CustomerAcceptances => Set<CustomerAcceptance>();

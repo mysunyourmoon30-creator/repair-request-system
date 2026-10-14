@@ -30,6 +30,8 @@ public class AuthorizationPoliciesTests
         { AuthorizationPolicies.WorkSessionResume, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionCheckOut, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkSessionRead, [RoleCodes.Technician] },
+        { AuthorizationPolicies.TimeCorrectionRequest, [RoleCodes.Technician, RoleCodes.TeamLead] },
+        { AuthorizationPolicies.TimeCorrectionDecide, [RoleCodes.Supervisor] },
         { AuthorizationPolicies.WorkOrderSubmitWorkSummary, [RoleCodes.Technician] },
         { AuthorizationPolicies.WorkOrderSubmitForAcceptance, [RoleCodes.TeamLead, RoleCodes.Supervisor] },
         { AuthorizationPolicies.WorkOrderReadWorkSummary, [RoleCodes.Technician, RoleCodes.TeamLead, RoleCodes.Supervisor] },
@@ -61,7 +63,7 @@ public class AuthorizationPoliciesTests
     [Fact]
     public void Catalog_DefinesOnlyTheApprovedPolicies()
     {
-        Assert.Equal(35, AuthorizationPolicies.AllowedRoles.Count);
+        Assert.Equal(37, AuthorizationPolicies.AllowedRoles.Count);
     }
 
     [Theory]
@@ -107,6 +109,15 @@ public class AuthorizationPoliciesTests
         // ST-WS-001; UC-WO-016; BR-05; S3-001 — My Visits and Check-in are Technician-only.
         Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.MyVisitsRead]);
         Assert.Equal([RoleCodes.Technician], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.WorkSessionCheckIn]);
+    }
+
+    [Fact]
+    public void TimeCorrection_Request_IsTechnicianAndTeamLead_AndDecide_IsSupervisorOnly()
+    {
+        Assert.Equal([RoleCodes.Technician, RoleCodes.TeamLead], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.TimeCorrectionRequest]);
+        Assert.Equal([RoleCodes.Supervisor], AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.TimeCorrectionDecide]);
+        Assert.DoesNotContain(RoleCodes.Administrator, AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.TimeCorrectionRequest]);
+        Assert.DoesNotContain(RoleCodes.TeamLead, AuthorizationPolicies.AllowedRoles[AuthorizationPolicies.TimeCorrectionDecide]);
     }
 
     [Fact]

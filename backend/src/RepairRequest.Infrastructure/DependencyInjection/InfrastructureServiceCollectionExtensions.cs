@@ -94,6 +94,9 @@ public static class InfrastructureServiceCollectionExtensions
         // S3-001: "My Visits" (read) and Check-in (ST-WS-001) persistence port.
         services.AddScoped<IWorkSessionStore, WorkSessionStore>();
 
+        // Time Correction persistence port (ST-TC-001..003; UC-TIME-001); `docs/17`.
+        services.AddScoped<ITimeCorrectionStore, TimeCorrectionStore>();
+
         // Work Summary Submit/Review persistence port; `docs/13` §4.15.
         services.AddScoped<IWorkSummaryStore, WorkSummaryStore>();
 

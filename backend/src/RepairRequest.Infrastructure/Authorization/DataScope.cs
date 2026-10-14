@@ -185,6 +185,86 @@ internal sealed class DataScope : IDataScope
                         scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId))));
     }
 
+    public IQueryable<WorkSession> WorkSessionsForTimeCorrectionRequest(CurrentUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        if (user.IsTechnician)
+        {
+            return OwnWorkSessions(user);
+        }
+
+        var sessions = _db.WorkSessions.Where(session => session.TenantId == tenantId);
+
+        // Only TEAM_LEAD holds this Site-scoped request scope; every other role (TECHNICIAN handled above) sees none.
+        if (!user.IsTeamLead)
+        {
+            return sessions.Where(_ => false);
+        }
+
+        return sessions.Where(session => _db.ServiceVisits.Any(visit => visit.Id == session.ServiceVisitId
+            && visit.TenantId == tenantId
+            && _db.WorkOrders.Any(workOrder => workOrder.Id == visit.WorkOrderId
+                && _db.RepairRequests.Any(request => request.Id == workOrder.RepairRequestId
+                    && request.SiteId != null
+                    && _db.UserSiteScopes.Any(scope =>
+                        scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId)))));
+    }
+
+    public IQueryable<TimeCorrection> TimeCorrections(CurrentUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        var corrections = _db.TimeCorrections.Where(correction => correction.TenantId == tenantId);
+
+        if (user.IsSupervisor || user.IsTeamLead)
+        {
+            return corrections.Where(correction => _db.WorkSessions.Any(session => session.Id == correction.WorkSessionId
+                && _db.ServiceVisits.Any(visit => visit.Id == session.ServiceVisitId
+                    && visit.TenantId == tenantId
+                    && _db.WorkOrders.Any(workOrder => workOrder.Id == visit.WorkOrderId
+                        && _db.RepairRequests.Any(request => request.Id == workOrder.RepairRequestId
+                            && request.SiteId != null
+                            && _db.UserSiteScopes.Any(scope =>
+                                scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId))))));
+        }
+
+        if (user.IsTechnician)
+        {
+            return corrections.Where(correction => correction.RequestedBy == userId);
+        }
+
+        return corrections.Where(_ => false);
+    }
+
+    public IQueryable<TimeCorrection> TimeCorrectionsForDecision(CurrentUser user)
+    {
+        ArgumentNullException.ThrowIfNull(user);
+        var tenantId = user.TenantId;
+        var userId = user.UserId;
+
+        var corrections = _db.TimeCorrections.Where(correction => correction.TenantId == tenantId);
+
+        // Only SUPERVISOR holds this scope; every other role sees none (Team Lead requests, never decides).
+        if (!user.IsSupervisor)
+        {
+            return corrections.Where(_ => false);
+        }
+
+        return corrections.Where(correction => _db.WorkSessions.Any(session => session.Id == correction.WorkSessionId
+            && _db.ServiceVisits.Any(visit => visit.Id == session.ServiceVisitId
+                && visit.TenantId == tenantId
+                && _db.WorkOrders.Any(workOrder => workOrder.Id == visit.WorkOrderId
+                    && _db.RepairRequests.Any(request => request.Id == workOrder.RepairRequestId
+                        && request.SiteId != null
+                        && _db.UserSiteScopes.Any(scope =>
+                            scope.TenantId == tenantId && scope.UserId == userId && scope.SiteId == request.SiteId))))));
+    }
+
     public IQueryable<WorkSession> OwnWorkSessions(CurrentUser user)
     {
         ArgumentNullException.ThrowIfNull(user);

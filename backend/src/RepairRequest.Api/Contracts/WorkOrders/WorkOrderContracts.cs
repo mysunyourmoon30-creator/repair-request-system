@@ -156,6 +156,77 @@ public sealed record WorkSessionResponse(
 /// </summary>
 public sealed record SubmitWorkSummaryRequest(string? SummaryText, string? RepairOutcomeCode, IReadOnlyList<Guid>? EvidenceIds);
 
+/// <summary>
+/// TIME-API-001 Request Time Correction body (`docs/17`). <c>timestampType</c>, <c>newValue</c> and <c>reason</c> are required;
+/// <c>workSessionPauseId</c> is required for PAUSE_START and RESUME (the exact pause to correct) and must be absent for CHECK_IN and
+/// CHECK_OUT. <c>newValue</c> needs an explicit UTC offset and cannot be in the future. The client never supplies the old value,
+/// status, requester, tenant or session id of the body — the server snapshots the old value and always starts the request PENDING.
+/// </summary>
+public sealed record RequestTimeCorrectionRequest(
+    string? TimestampType,
+    Guid? WorkSessionPauseId,
+    [property: JsonConverter(typeof(ExplicitOffsetDateTimeOffsetConverter))] DateTimeOffset? NewValue,
+    string? Reason);
+
+/// <summary>TIME-API-003 Reject body. A decision reason is required.</summary>
+public sealed record RejectTimeCorrectionRequest(string? DecisionReason);
+
+/// <summary>Pending Time Corrections list query: paging only — always the caller's own Site-scoped PENDING requests.</summary>
+public sealed class PendingTimeCorrectionsListRequest
+{
+    public int? Page { get; init; }
+
+    public int? PageSize { get; init; }
+}
+
+/// <summary>
+/// Time Correction response (RR-DD-001 TC-001..012): returned by Request, Approve, Reject and the pending list. <see cref="RowVersion"/>
+/// is the correction's own token, the If-Match value of Approve/Reject.
+/// </summary>
+public sealed record TimeCorrectionResponse(
+    Guid TimeCorrectionId,
+    Guid WorkSessionId,
+    Guid? WorkSessionPauseId,
+    Guid ServiceVisitId,
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    string? SiteCode,
+    string? EquipmentCode,
+    string TimestampType,
+    DateTime OldValue,
+    DateTime NewValue,
+    string Reason,
+    Guid RequestedBy,
+    string Status,
+    Guid? DecidedBy,
+    string? DecisionReason,
+    DateTime? DecidedAt,
+    string RowVersion);
+
+public static class TimeCorrectionResponses
+{
+    public static TimeCorrectionResponse ToResponse(TimeCorrectionDto dto) =>
+        new(
+            dto.TimeCorrectionId,
+            dto.WorkSessionId,
+            dto.WorkSessionPauseId,
+            dto.ServiceVisitId,
+            dto.WorkOrderId,
+            dto.WorkOrderNo,
+            dto.SiteCode,
+            dto.EquipmentCode,
+            TimeCorrectionTimestampTypeCodes.ToCode(dto.TimestampType),
+            dto.OldValue,
+            dto.NewValue,
+            dto.Reason,
+            dto.RequestedBy,
+            TimeCorrectionStatusCodes.ToCode(dto.Status),
+            dto.DecidedBy,
+            dto.DecisionReason,
+            dto.DecidedAt,
+            Convert.ToBase64String(dto.RowVersion));
+}
+
 /// <summary>WSM-API-002 Submit for Acceptance body (`docs/13` §4.16 Decision 2). Required — the caller must explicitly confirm the contact, even when only one candidate exists.</summary>
 public sealed record SubmitForAcceptanceRequest(Guid? AcceptanceContactId);
 

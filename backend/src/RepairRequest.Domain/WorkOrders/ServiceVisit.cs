@@ -227,6 +227,21 @@ public sealed class ServiceVisit
         CompletedAt = utcCompletedAt;
     }
 
+    /// <summary>
+    /// Keeps the completion time equal to an approved CHECK_OUT Time Correction of the Work Session whose Check-out wrote it
+    /// (`docs/17` P3, conditional owner approval of 13 October 2026). Only a COMPLETED Visit has a completion time; the caller
+    /// (the Application service) proves the corrected Check-out is the authoritative source before calling this.
+    /// </summary>
+    public void CorrectCompletedAt(DateTime completedAt)
+    {
+        if (Status != ServiceVisitStatus.Completed || CompletedAt is null)
+        {
+            throw new DomainRuleViolationException("Only a COMPLETED Service Visit has a completion time to correct.");
+        }
+
+        CompletedAt = DomainGuard.Utc(completedAt, nameof(completedAt));
+    }
+
     private void SetSchedule(DateTime start, DateTime end)
     {
         DomainGuard.Utc(start, nameof(start));
