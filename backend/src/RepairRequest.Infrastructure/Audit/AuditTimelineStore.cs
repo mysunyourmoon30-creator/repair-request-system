@@ -107,7 +107,7 @@ internal sealed class AuditTimelineStore : IAuditTimelineStore
 
         // Time Correction events (docs/17 P11): a branch of their own, reached RELATIONALLY — the correction's audit rows (entity type TIME_CORRECTION,
         // keyed on the correction id) joined through time_correction -> work_session -> service_visit to THIS Work Order, every hop inside the Work Order's
-        // tenant. No id list is built or probed per audit row (an OPENJSON id set probed per row cost 50-68 ms in a populated case, docs/15 section 14).
+        // tenant. No id list is built or probed per audit row (an OPENJSON id set probed per audit row cost up to 318 ms in a populated case, docs/15 section 14).
         // Not filtered by the correction's current status: PENDING, APPROVED and REJECTED corrections all keep their history.
         var corrections =
             from audit in _db.AuditHistory.AsNoTracking()
