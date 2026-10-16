@@ -50,7 +50,7 @@ public class AuthApiFactory : ApiHostFactory, IAsyncLifetime
         var context = scope.ServiceProvider.GetRequiredService<RepairRequestDbContext>();
         await using (await LocalDbLifecycleGate.EnterAsync(ConnectionString))
         {
-            await context.Database.EnsureDeletedAsync();
+            await FixtureDatabaseDropDiagnostics.RunAsync(() => context.Database.EnsureDeletedAsync(), ConnectionString, GetType().Name);
             await context.Database.MigrateAsync();
         }
     }
@@ -61,7 +61,8 @@ public class AuthApiFactory : ApiHostFactory, IAsyncLifetime
         {
             await using (await LocalDbLifecycleGate.EnterAsync(ConnectionString))
             {
-                await scope.ServiceProvider.GetRequiredService<RepairRequestDbContext>().Database.EnsureDeletedAsync();
+                var context = scope.ServiceProvider.GetRequiredService<RepairRequestDbContext>();
+                await FixtureDatabaseDropDiagnostics.RunAsync(() => context.Database.EnsureDeletedAsync(), ConnectionString, GetType().Name);
             }
         }
 
