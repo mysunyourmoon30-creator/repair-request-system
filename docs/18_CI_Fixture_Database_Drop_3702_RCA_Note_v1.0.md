@@ -9,8 +9,8 @@ Test-infrastructure note only. It changes no business rule, no baseline document
 | Field | Value |
 |---|---|
 | Document ID | RR-RCA-CI-001 |
-| Version | 1.0 (14–16 October 2026) |
-| Status | OPEN — cause not established; bounded diagnostics added |
+| Version | 1.1 (14–17 October 2026): 1.0 recorded the first incident and the diagnostics; 1.1 adds the first recurrence (section 8) |
+| Status | OPEN — cause not established; bounded diagnostics merged (PR #29); first recurrence captured and only partially informative |
 | Subject run | GitHub Actions run `38586343631`, **attempt 1**, Backend (.NET), on `c1b1b1980d3009d687443d135a78277214828a37` (`main`, merge of PR #28); attempt 2 (same commit) passed |
 | Evidence | the attempt-1 `backend-test-results` artifact (`11905233681`, created 15:16:05 UTC, inside attempt 1); the attempt-2 artifact (`11906951651`) was not used |
 | Related | PR #26 (`94aff48`, LocalDB lifecycle gate); `tests/RepairRequest.ApiTests/LocalDbLifecycleGate.cs`, `ApiHostFactory.cs`, `FixtureDatabaseDropDiagnostics.cs` |
@@ -66,3 +66,33 @@ Not collected: SQL text, parameters, other databases (system database names are 
 | an empty snapshot or "no longer exists" | the holder was gone | no conclusion; keep the diagnostics; consider collecting earlier only with an owner decision (it would change the cleanup path) |
 
 No retry, suppression, forced disconnect, pool clearing or parallelism change is proposed by this note.
+
+## 8. First recurrence with diagnostics — run 39009375793, attempt 1 (17 October 2026)
+
+First post-merge run after PR #29 (`129897e91da71b4e1d504a4c98d1c67a467b1228`, Backend attempt 1; artifact `12092038202`, created 06:28:40 UTC, preserved before any rerun). The Frontend job passed; the Backend job failed with **two independent problems**.
+
+### 8.1 The 3702 recurrence
+
+| Item | Value |
+|---|---|
+| Fixture / class | `DevelopmentFakeScanningFactory` / `DevelopmentMalwareScanningDevelopmentTests` (the **other** fixture that hosts the 200 ms scan runner; the first incident was `TestingFakeScanningFactory`) |
+| Database | `RepairRequestDb_DevScanDevelopmentApiTest` (database id 6) |
+| Error | 3702, state 4, class 16, "currently in use" |
+| Drop | started 06:20:15.033, failed 06:20:35.215 UTC — **20,182 ms** (same 20 s wait as before). The class's only test had ended at 06:20:08.1, about 7 s before the drop started; this evidence does not explain the interval (a wait for the lifecycle gate is plausible, not shown) |
+| Snapshot | taken 06:20:35.254, ≈ 40 ms after the failure |
+| Sessions (1) | session 88, `sleeping`, program name `EFCore/10.0.12 (Microsoft Windows …)`, user process, 0 open transactions, login time and last request both within 06:20:35 (server-local time equals UTC on the runner) |
+| Requests (0) | none |
+| Locks (1) | session 88 — `DATABASE`, mode `S`, status `GRANT`, count 1 |
+
+**Reading — informative but not conclusive.**
+
+- *Shown:* at collection time the fixture's database was in use by one sleeping connection whose program name is the default of **EF Core connections in a test process** — not by another program, not by an open transaction, not by a running request, and not blocked on anything.
+- *Not shown:* that this session is what blocked the drop during the 20 s. It logged in **in the same second the drop failed**, so it may have been created after the wait ended (for example by the still-running host); whatever held the database earlier was gone by collection. The snapshot therefore does not name the holder of the 20 s wait.
+- *Consistency, not proof:* both incidents are in the two fixtures that run the 200 ms polling runner; none occurred in the Production scanning fixture (no runner) or in the other API fixtures, over the ≈ 41 run-attempts examined plus this one. Two events are too few to treat the association as established.
+- The log shows the host shutting down at 06:20:35, right after the failure.
+
+Effect on the hypotheses of section 4: H1 (the fixture's own EF-based component, the runner) is supported a little more strongly; H2 (another process) is less likely; H3 is not distinguishable. Nothing is proven and **no fix is claimed**. Decision-table row 1 of section 7 now applies *partially*: the reordering fix (stop the fixture's host and release its pool before the drop) can be evaluated, but it needs an explicit decision and a way to verify it against a failure that is rare.
+
+### 8.2 A failed test in the same attempt (unrelated to 3702)
+
+One API test failed in attempt 1: `FixtureDatabaseDropDiagnosticsTests.Error3702_ReportsIdentityTimingError…`, assertion `Assert.Contains("OnError", thrown.StackTrace)`. Which SqlClient frames appear in a stack trace depends on JIT inlining; the same assertion passed in the PR's CI run. It is a defect of the test, not of the diagnostics or the drop: it is replaced by comparing the rethrown stack with the stack captured at the original catch (`throw;` keeps that text as its start, `throw exception;` resets it — verified by a mutation check, in Debug and Release).
