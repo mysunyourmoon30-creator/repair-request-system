@@ -102,6 +102,7 @@ public sealed class FixtureDatabaseDropDiagnosticsTests : IAsyncLifetime
         var unrelated = await HolderAsync(other, "rr-drop-diag-holder-other");
         var output = new StringWriter();
         SqlException? original = null;
+        string? stackAtOriginalCatch = null;
 
         var thrown = await Assert.ThrowsAsync<SqlException>(() => FixtureDatabaseDropDiagnostics.RunAsync(
             async () =>
@@ -113,6 +114,7 @@ public sealed class FixtureDatabaseDropDiagnosticsTests : IAsyncLifetime
                 catch (SqlException exception)
                 {
                     original = exception;
+                    stackAtOriginalCatch = exception.StackTrace;
                     throw;
                 }
             },
@@ -121,10 +123,13 @@ public sealed class FixtureDatabaseDropDiagnosticsTests : IAsyncLifetime
             output: output));
 
         // The original exception object is rethrown, with its original frames still in the stack.
+        // (Compared with the stack captured at the original catch, not with frame names: which SqlClient frames are inlined depends on the JIT and
+        // made a name-based assertion fail once in CI. A rethrow with `throw;` keeps that text as the start of the stack; `throw exception;` resets it.)
         Assert.Same(original, thrown);
         Assert.Equal(3702, thrown.Number);
-        Assert.Contains("OnError", thrown.StackTrace, StringComparison.Ordinal);
-        Assert.Contains(nameof(DropFromInsideAsync), thrown.StackTrace, StringComparison.Ordinal);
+        Assert.False(string.IsNullOrEmpty(stackAtOriginalCatch));
+        Assert.Contains("Microsoft.Data.SqlClient", stackAtOriginalCatch, StringComparison.Ordinal);
+        Assert.StartsWith(stackAtOriginalCatch, thrown.StackTrace, StringComparison.Ordinal);
 
         var text = output.ToString();
         Assert.Contains("fixture=FakeFixtureFactory", text, StringComparison.Ordinal);
