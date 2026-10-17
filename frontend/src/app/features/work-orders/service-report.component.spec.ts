@@ -330,4 +330,43 @@ describe('ServiceReportComponent', () => {
       expect(root.querySelector('[role="alert"]')).toBeNull();
     });
   });
+
+  describe('time correction request (Technician and Team Lead surface, docs/17 row 17)', () => {
+    const targetsUrl = `${environment.apiBaseUrl}/v1/work-orders/wo-1/time-correction-targets`;
+    const toggle = (root: HTMLElement) => buttonNamed(root, 'Request time correction');
+
+    it.each(['TECHNICIAN', 'TEAM_LEAD'])('offers the request to a %s and reads the sessions only once it is opened', (role) => {
+      localStorage.setItem('accessToken', tokenWithPayload({ sub: 'u-1', role }));
+      const { fixture, root } = load(operational);
+
+      expect(toggle(root)).toBeDefined();
+      httpMock.expectNone(targetsUrl);
+
+      toggle(root)!.click();
+      fixture.detectChanges();
+
+      httpMock.expectOne(targetsUrl).flush({
+      workOrderId: 'wo-1',
+      workOrderNo: 'WO-1',
+      workOrderStatus: 'IN_PROGRESS',
+      siteCode: 'SITE-A',
+      equipmentCode: null,
+      sessions: [],
+    });
+      expect(root.querySelector('app-time-correction-request')).not.toBeNull();
+    });
+
+    it.each(['SUPERVISOR', 'REQUESTER', 'ADMIN'])('does not offer it to a %s', (role) => {
+      localStorage.setItem('accessToken', tokenWithPayload({ sub: 'u-1', role }));
+      const { root } = load(operational);
+
+      expect(toggle(root)).toBeUndefined();
+    });
+
+    it('does not offer it when nobody is signed in', () => {
+      const { root } = load(operational);
+
+      expect(toggle(root)).toBeUndefined();
+    });
+  });
 });

@@ -28,6 +28,31 @@ public sealed record TimeCorrectionDto(
     DateTime? DecidedAt,
     byte[] RowVersion);
 
+/// <summary>One pause of a Work Session as a Time Correction target (the id PAUSE_START/RESUME must name).</summary>
+public sealed record TimeCorrectionTargetPauseDto(Guid WorkSessionPauseId, DateTime PausedAt, DateTime? ResumedAt);
+
+/// <summary>One Work Session the caller may request a correction for, with its pauses (TIME-API-ADD-002; `docs/13` §4.29).</summary>
+public sealed record TimeCorrectionTargetSessionDto(
+    Guid WorkSessionId,
+    Guid ServiceVisitId,
+    WorkSessionStatus Status,
+    DateTime CheckInAt,
+    DateTime? CheckOutAt,
+    IReadOnlyList<TimeCorrectionTargetPauseDto> Pauses);
+
+/// <summary>
+/// TIME-API-ADD-002: what a request screen needs for ONE Work Order — only the sessions of that Work Order inside the caller's Time Correction
+/// request scope (the scope TIME-API-001 applies), their pauses and the Work Order's status. No reason, no pending information, no other user's
+/// id and nothing about SLA, cost or acceptance.
+/// </summary>
+public sealed record TimeCorrectionRequestTargetsDto(
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    WorkOrderStatus WorkOrderStatus,
+    string? SiteCode,
+    string? EquipmentCode,
+    IReadOnlyList<TimeCorrectionTargetSessionDto> Sessions);
+
 /// <summary>Pending Time Corrections list query: paging only — always the caller's own Site-scoped PENDING requests, oldest first.</summary>
 public sealed record PendingTimeCorrectionsQuery(PageRequest Paging);
 

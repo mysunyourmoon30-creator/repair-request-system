@@ -172,6 +172,58 @@ internal sealed class TimeCorrectionStore : ITimeCorrectionStore
         Project(_scope.TimeCorrections(user).AsNoTracking().Where(correction => correction.Id == timeCorrectionId))
             .SingleOrDefaultAsync(cancellationToken);
 
+    public async Task<TimeCorrectionRequestTargetsDto?> GetRequestTargetsAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken)
+    {
+        // Only the sessions of this Work Order inside the caller's request scope (the scope TIME-API-001 applies); none in scope = the caller learns nothing.
+        var sessions = await (
+                from session in _scope.WorkSessionsForTimeCorrectionRequest(user).AsNoTracking()
+                join visit in _db.ServiceVisits.AsNoTracking() on session.ServiceVisitId equals visit.Id
+                where visit.TenantId == user.TenantId && visit.WorkOrderId == workOrderId
+                orderby session.CheckInAt, session.Id
+                select new { session.Id, VisitId = visit.Id, session.Status, session.CheckInAt, session.CheckOutAt })
+            .ToListAsync(cancellationToken);
+        if (sessions.Count == 0)
+        {
+            return null;
+        }
+
+        var header = await (
+                from workOrder in _db.WorkOrders.AsNoTracking()
+                join request in _db.RepairRequests.AsNoTracking() on workOrder.RepairRequestId equals request.Id
+                where workOrder.Id == workOrderId && workOrder.TenantId == user.TenantId
+                select new
+                {
+                    workOrder.WorkOrderNo,
+                    workOrder.Status,
+                    SiteCode = _db.Sites.Where(site => site.Id == request.SiteId).Select(site => site.SiteCode).FirstOrDefault(),
+                    EquipmentCode = _db.Equipment.Where(item => item.Id == request.EquipmentId).Select(item => item.EquipmentCode).FirstOrDefault()
+                })
+            .SingleAsync(cancellationToken);
+
+        var sessionIds = sessions.Select(session => session.Id).ToList();
+        var pauses = await _db.WorkSessionPauses.AsNoTracking()
+            .Where(pause => pause.TenantId == user.TenantId && sessionIds.Contains(pause.WorkSessionId))
+            .OrderBy(pause => pause.PausedAt).ThenBy(pause => pause.Id)
+            .Select(pause => new { pause.WorkSessionId, pause.Id, pause.PausedAt, pause.ResumedAt })
+            .ToListAsync(cancellationToken);
+
+        return new TimeCorrectionRequestTargetsDto(
+            workOrderId,
+            header.WorkOrderNo,
+            header.Status,
+            header.SiteCode,
+            header.EquipmentCode,
+            sessions.Select(session => new TimeCorrectionTargetSessionDto(
+                session.Id,
+                session.VisitId,
+                session.Status,
+                session.CheckInAt,
+                session.CheckOutAt,
+                pauses.Where(pause => pause.WorkSessionId == session.Id)
+                    .Select(pause => new TimeCorrectionTargetPauseDto(pause.Id, pause.PausedAt, pause.ResumedAt))
+                    .ToList())).ToList());
+    }
+
     public async Task<PagedResult<TimeCorrectionDto>> ListPendingAsync(CurrentUser user, PendingTimeCorrectionsQuery query, CancellationToken cancellationToken)
     {
         var source = _scope.TimeCorrectionsForDecision(user).AsNoTracking()

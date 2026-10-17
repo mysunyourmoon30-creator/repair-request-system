@@ -10,6 +10,8 @@ import {
   ServiceReportVisit,
   hasCostSection,
 } from './service-report.models';
+import { getCurrentUserRoles } from '../../core/auth/current-user-role';
+import { TimeCorrectionRequestComponent } from '../time-corrections/time-correction-request.component';
 import { ServiceReportService } from './service-report.service';
 import { EvidenceType } from './work-evidence.models';
 
@@ -37,7 +39,7 @@ const EVIDENCE_TYPE_LABELS: Record<EvidenceType, string> = {
 @Component({
   selector: 'app-service-report',
   standalone: true,
-  imports: [RouterLink],
+  imports: [RouterLink, TimeCorrectionRequestComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   styles: `
     .report-section {
@@ -110,6 +112,18 @@ const EVIDENCE_TYPE_LABELS: Record<EvidenceType, string> = {
           }
         </dl>
       </section>
+
+      @if (canRequestTimeCorrection()) {
+        <section class="report-section" aria-labelledby="sr-time-correction">
+          <h2 id="sr-time-correction">Time corrections</h2>
+          <button type="button" [attr.aria-expanded]="timeCorrectionOpen()" (click)="timeCorrectionOpen.set(!timeCorrectionOpen())">
+            {{ timeCorrectionOpen() ? 'Hide time correction request' : 'Request time correction' }}
+          </button>
+          @if (timeCorrectionOpen()) {
+            <app-time-correction-request [workOrderId]="report.workOrder.workOrderId" />
+          }
+        </section>
+      }
 
       <section class="report-section" aria-labelledby="sr-visits">
         <h2 id="sr-visits">Service Visits</h2>
@@ -227,6 +241,16 @@ const EVIDENCE_TYPE_LABELS: Record<EvidenceType, string> = {
 export class ServiceReportComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly reports = inject(ServiceReportService);
+
+  /**
+   * Technician and Team Lead may request a time correction for sessions already on this report, completed ones included (`docs/17` row 17).
+   * Convenience only: TIME-API-ADD-002 returns only the caller's own (Technician) or Site-scoped (Team Lead) sessions and TIME-API-001 re-checks.
+   */
+  protected readonly timeCorrectionOpen = signal(false);
+  protected canRequestTimeCorrection(): boolean {
+    const roles = getCurrentUserRoles();
+    return roles.includes('TECHNICIAN') || roles.includes('TEAM_LEAD');
+  }
 
   protected readonly report = signal<ServiceReportResponse | null>(null);
   protected readonly loading = signal(true);

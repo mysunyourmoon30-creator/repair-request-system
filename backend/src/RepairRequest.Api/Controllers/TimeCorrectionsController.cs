@@ -49,6 +49,24 @@ public sealed class TimeCorrectionsController : CommandControllerBase
             page.Items.Select(TimeCorrectionResponses.ToResponse).ToList(), page.Page, page.PageSize, page.TotalCount));
     }
 
+    /// <summary>
+    /// TIME-API-ADD-002 (`docs/13` §4.29, technical addition): the sessions of ONE Work Order the caller may request a correction for, with the
+    /// pause ids PAUSE_START/RESUME must name. Policy and scope are those of TIME-API-001 (Technician: own sessions; Team Lead: Site scope);
+    /// when none of the Work Order's sessions is in that scope the answer is the same non-leaking 404. Read-only; <c>Cache-Control: no-store</c>.
+    /// </summary>
+    [HttpGet("~/api/v1/work-orders/{workOrderId:guid}/time-correction-targets")]
+    [Authorize(Policy = AuthorizationPolicies.TimeCorrectionRequest)]
+    [ProducesResponseType<TimeCorrectionRequestTargetsResponse>(StatusCodes.Status200OK)]
+    public async Task<IActionResult> RequestTargets(Guid workOrderId, CancellationToken cancellationToken)
+    {
+        Response.Headers.CacheControl = "no-store";
+
+        var targets = await _timeCorrections.GetRequestTargetsAsync(await CallerAsync(cancellationToken), workOrderId, cancellationToken);
+        return targets is null
+            ? ApiProblemResults.ResourceNotFound(HttpContext, ResourceType)
+            : Ok(TimeCorrectionResponses.ToResponse(targets));
+    }
+
     /// <summary>TIME-API-002 Approve (ST-TC-002): a PENDING request only, within the Supervisor's Site scope. Empty body.</summary>
     [HttpPost("{timeCorrectionId:guid}/approve")]
     [Authorize(Policy = AuthorizationPolicies.TimeCorrectionDecide)]

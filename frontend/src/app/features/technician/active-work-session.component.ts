@@ -3,6 +3,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { RouterLink } from '@angular/router';
 import { REPAIR_OUTCOME_CODES } from '../work-orders/work-summary.models';
 import { WorkSummaryService } from '../work-orders/work-summary.service';
+import { TimeCorrectionRequestComponent } from '../time-corrections/time-correction-request.component';
 import { WorkSession } from './work-session.models';
 import { WorkEvidencePanelComponent } from './work-evidence-panel.component';
 import { MAX_SELECTED_EVIDENCE, WorkEvidenceSelectionComponent } from './work-evidence-selection.component';
@@ -32,7 +33,7 @@ const SUMMARY_TEXT_MAX_LENGTH = 4000;
 @Component({
   selector: 'app-active-work-session',
   standalone: true,
-  imports: [RouterLink, WorkEvidencePanelComponent, WorkEvidenceSelectionComponent],
+  imports: [RouterLink, WorkEvidencePanelComponent, WorkEvidenceSelectionComponent, TimeCorrectionRequestComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     @if (session(); as current) {
@@ -73,6 +74,12 @@ const SUMMARY_TEXT_MAX_LENGTH = 4000;
         <a [routerLink]="['/work-orders', current.workOrderId, 'service-report']">Service Report</a>
         @if (evidenceOpen()) {
           <app-work-evidence-panel [workOrderId]="current.workOrderId" />
+        }
+        <button type="button" [attr.aria-expanded]="timeCorrectionOpen()" (click)="timeCorrectionOpen.set(!timeCorrectionOpen())">
+          {{ timeCorrectionOpen() ? 'Hide time correction request' : 'Request time correction' }}
+        </button>
+        @if (timeCorrectionOpen()) {
+          <app-time-correction-request [workOrderId]="current.workOrderId" />
         }
       </section>
 
@@ -155,6 +162,8 @@ export class ActiveWorkSessionComponent {
 
   protected readonly session = signal<WorkSession | null>(null);
   protected readonly evidenceOpen = signal(false);
+  /** Technician surface of Time Correction (`docs/17` row 17): the caller's own sessions of this Work Order, completed ones included. */
+  protected readonly timeCorrectionOpen = signal(false);
   protected readonly loadError = signal<string | null>(null);
   protected readonly actionError = signal<string | null>(null);
 

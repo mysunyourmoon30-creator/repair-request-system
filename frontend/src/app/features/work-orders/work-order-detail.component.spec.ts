@@ -1291,4 +1291,49 @@ describe('WorkOrderDetailComponent', () => {
     const link = Array.from((fixture.nativeElement as HTMLElement).querySelectorAll('a')).find((anchor) => anchor.textContent?.trim() === 'View Service Report');
     expect(link?.getAttribute('href')).toBe('/work-orders/abc-123/service-report');
   });
+
+  describe('time correction request (Team Lead surface, docs/17 row 17)', () => {
+    const toggle = (root: HTMLElement) => buttonNamed(root, 'Request time correction');
+    const targetsUrl = `${environment.apiBaseUrl}/v1/work-orders/abc-123/time-correction-targets`;
+
+    it('offers the request to a signed-in Team Lead, and reads nothing until it is opened', () => {
+      localStorage.setItem('accessToken', tokenWithPayload({ sub: 'tl-1', role: 'TEAM_LEAD' }));
+      const fixture = createComponent('abc-123');
+      loadWorkOrder(fixture, baseWorkOrder);
+      const root = fixture.nativeElement as HTMLElement;
+
+      expect(toggle(root)).toBeDefined();
+      expect(root.querySelector('app-time-correction-request')).toBeNull();
+      httpMock.expectNone(targetsUrl);
+
+      toggle(root)!.click();
+      fixture.detectChanges();
+
+      expect(root.querySelector('app-time-correction-request')).not.toBeNull();
+      httpMock.expectOne(targetsUrl).flush({
+      workOrderId: 'abc-123',
+      workOrderNo: 'WO-1',
+      workOrderStatus: 'IN_PROGRESS',
+      siteCode: 'SITE-A',
+      equipmentCode: null,
+      sessions: [],
+    });
+      expect(buttonNamed(root, 'Hide time correction request')).toBeDefined();
+    });
+
+    it.each(['TECHNICIAN', 'SUPERVISOR', 'REQUESTER', 'ADMIN'])('does not offer it to a %s', (role) => {
+      localStorage.setItem('accessToken', tokenWithPayload({ sub: 'u-1', role }));
+      const fixture = createComponent('abc-123');
+      loadWorkOrder(fixture, baseWorkOrder);
+
+      expect(toggle(fixture.nativeElement as HTMLElement)).toBeUndefined();
+    });
+
+    it('does not offer it when nobody is signed in', () => {
+      const fixture = createComponent('abc-123');
+      loadWorkOrder(fixture, baseWorkOrder);
+
+      expect(toggle(fixture.nativeElement as HTMLElement)).toBeUndefined();
+    });
+  });
 });

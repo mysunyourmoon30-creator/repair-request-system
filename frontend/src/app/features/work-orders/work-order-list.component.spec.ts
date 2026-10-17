@@ -78,4 +78,38 @@ describe('WorkOrderListComponent', () => {
     const text = (fixture.nativeElement as HTMLElement).textContent ?? '';
     expect(text).toContain('not signed in');
   });
+
+  describe('Time Correction review entry (Supervisor only)', () => {
+    function tokenWithPayload(payload: Record<string, unknown>): string {
+      const base64url = (value: string) => btoa(value).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+      return `${base64url('{"alg":"HS256"}')}.${base64url(JSON.stringify(payload))}.signature`;
+    }
+
+    function entryFor(token: string | null): HTMLAnchorElement | null {
+      if (token !== null) {
+        localStorage.setItem('accessToken', token);
+      }
+      const fixture = TestBed.createComponent(WorkOrderListComponent);
+      fixture.detectChanges();
+      httpMock.expectOne((request) => request.url === baseUrl).flush({ items: [], page: 1, pageSize: 20, totalCount: 0 });
+      fixture.detectChanges();
+      return (fixture.nativeElement as HTMLElement).querySelector('a[href="/time-correction-review"]');
+    }
+
+    afterEach(() => localStorage.clear());
+
+    it('shows one link to the review screen to a Supervisor', () => {
+      const link = entryFor(tokenWithPayload({ sub: 'sup-1', role: 'SUPERVISOR' }));
+
+      expect(link?.textContent).toContain('Time corrections awaiting review');
+    });
+
+    it.each(['TECHNICIAN', 'TEAM_LEAD', 'REQUESTER', 'COORDINATOR', 'APPROVER', 'ADMIN'])('shows no link to a %s', (role) => {
+      expect(entryFor(tokenWithPayload({ sub: 'u-1', role }))).toBeNull();
+    });
+
+    it('shows no link when nobody is signed in', () => {
+      expect(entryFor(null)).toBeNull();
+    });
+  });
 });

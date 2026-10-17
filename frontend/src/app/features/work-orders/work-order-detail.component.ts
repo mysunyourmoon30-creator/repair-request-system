@@ -4,6 +4,7 @@ import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Observable } from 'rxjs';
 import { getCurrentUserId, getCurrentUserRoles } from '../../core/auth/current-user-role';
 import { MISSED_VISIT_DECISIONS, ServiceVisit, WorkOrder } from './work-order.models';
+import { TimeCorrectionRequestComponent } from '../time-corrections/time-correction-request.component';
 import { WorkOrderTimelineComponent } from './work-order-timeline.component';
 import { CostSummary, WorkOrderService } from './work-order.service';
 
@@ -24,7 +25,7 @@ import { CostSummary, WorkOrderService } from './work-order.service';
 @Component({
   selector: 'app-work-order-detail',
   standalone: true,
-  imports: [RouterLink, WorkOrderTimelineComponent],
+  imports: [RouterLink, WorkOrderTimelineComponent, TimeCorrectionRequestComponent],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
     <p><a routerLink="/work-orders">&larr; Back to Work Orders</a></p>
@@ -242,6 +243,18 @@ import { CostSummary, WorkOrderService } from './work-order.service';
         }
       }
 
+      @if (canRequestTimeCorrection()) {
+        <section aria-labelledby="time-correction-heading">
+          <h2 id="time-correction-heading">Time corrections</h2>
+          <button type="button" [attr.aria-expanded]="timeCorrectionOpen()" (click)="timeCorrectionOpen.set(!timeCorrectionOpen())">
+            {{ timeCorrectionOpen() ? 'Hide time correction request' : 'Request time correction' }}
+          </button>
+          @if (timeCorrectionOpen()) {
+            <app-time-correction-request [workOrderId]="workOrder.workOrderId" />
+          }
+        </section>
+      }
+
       <app-work-order-timeline [workOrderId]="workOrder.workOrderId" [refreshKey]="workOrder.rowVersion" />
 
       @if (actionError()) {
@@ -253,6 +266,15 @@ import { CostSummary, WorkOrderService } from './work-order.service';
 export class WorkOrderDetailComponent {
   private readonly route = inject(ActivatedRoute);
   private readonly workOrders = inject(WorkOrderService);
+
+  /**
+   * Team Lead surface of Time Correction (`docs/17` row 17): the sessions of this Work Order within the caller's Site scope. Convenience only —
+   * TIME-API-ADD-002 and TIME-API-001 re-check role, scope and state. The Technician has no access to this page at all.
+   */
+  protected readonly timeCorrectionOpen = signal(false);
+  protected canRequestTimeCorrection(): boolean {
+    return getCurrentUserRoles().includes('TEAM_LEAD');
+  }
 
   protected readonly workOrder = signal<WorkOrder | null>(null);
   protected readonly loading = signal(true);

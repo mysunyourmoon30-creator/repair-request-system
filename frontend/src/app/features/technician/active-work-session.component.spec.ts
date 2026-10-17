@@ -715,4 +715,48 @@ describe('ActiveWorkSessionComponent', () => {
     expect(root.querySelector('[role="alert"]')?.textContent).toContain('The selected evidence is not valid for this Work Summary.');
     expect(root.textContent).not.toContain('Please fill in both the summary and the repair outcome code.');
   });
+
+  describe('time correction request (Technician surface, docs/17 row 17)', () => {
+    const targetsUrl = `${workOrdersBaseUrl}/wo-1/time-correction-targets`;
+
+    it('is closed by default, reads nothing, and opens the request for the current Work Order on demand', () => {
+      const { fixture, root } = load(checkedIn);
+
+      expect(root.querySelector('app-time-correction-request')).toBeNull();
+      httpMock.expectNone(targetsUrl);
+
+      buttonNamed(root, 'Request time correction')!.click();
+      fixture.detectChanges();
+
+      httpMock.expectOne(targetsUrl).flush({
+      workOrderId: 'wo-1',
+      workOrderNo: 'WO-1',
+      workOrderStatus: 'IN_PROGRESS',
+      siteCode: 'SITE-A',
+      equipmentCode: null,
+      sessions: [],
+    });
+      expect(root.querySelector('app-time-correction-request')).not.toBeNull();
+      expect(buttonNamed(root, 'Hide time correction request')).toBeDefined();
+    });
+
+    it('can be closed again without a call', () => {
+      const { fixture, root } = load(paused);
+      buttonNamed(root, 'Request time correction')!.click();
+      fixture.detectChanges();
+      httpMock.expectOne(targetsUrl).flush({
+      workOrderId: 'wo-1',
+      workOrderNo: 'WO-1',
+      workOrderStatus: 'IN_PROGRESS',
+      siteCode: 'SITE-A',
+      equipmentCode: null,
+      sessions: [],
+    });
+
+      buttonNamed(root, 'Hide time correction request')!.click();
+      fixture.detectChanges();
+
+      expect(root.querySelector('app-time-correction-request')).toBeNull();
+    });
+  });
 });

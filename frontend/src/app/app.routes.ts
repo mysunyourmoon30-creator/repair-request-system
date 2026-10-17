@@ -37,6 +37,14 @@ export const routes: Routes = [
       import('./features/work-orders/cost-summary-review.component').then((m) => m.CostSummaryReviewComponent),
   },
   {
+    path: 'time-correction-review',
+    canActivate: [supervisorOnlyGuard],
+    loadComponent: () =>
+      import('./features/time-corrections/time-correction-review.component').then(
+        (m) => m.TimeCorrectionReviewComponent,
+      ),
+  },
+  {
     path: 'repair-requests',
     loadComponent: () =>
       import('./features/repair-requests/repair-request-list.component').then((m) => m.RepairRequestListComponent),

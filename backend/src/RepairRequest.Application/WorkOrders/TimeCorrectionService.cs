@@ -42,6 +42,9 @@ public sealed class TimeCorrectionService
     public Task<TimeCorrectionDto?> GetAsync(CurrentUser user, Guid timeCorrectionId, CancellationToken cancellationToken) =>
         _store.GetAsync(user, timeCorrectionId, cancellationToken);
 
+    public Task<TimeCorrectionRequestTargetsDto?> GetRequestTargetsAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
+        _store.GetRequestTargetsAsync(user, workOrderId, cancellationToken);
+
     public Task<PagedResult<TimeCorrectionDto>> ListPendingAsync(CurrentUser user, PendingTimeCorrectionsQuery query, CancellationToken cancellationToken) =>
         _store.ListPendingAsync(user, query, cancellationToken);
 

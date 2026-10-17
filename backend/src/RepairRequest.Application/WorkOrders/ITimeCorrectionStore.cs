@@ -50,6 +50,12 @@ public interface ITimeCorrectionStore
 
     Task<TimeCorrectionDto?> GetAsync(CurrentUser user, Guid timeCorrectionId, CancellationToken cancellationToken);
 
+    /// <summary>
+    /// TIME-API-ADD-002: the sessions of one Work Order inside <see cref="IDataScope.WorkSessionsForTimeCorrectionRequest"/> with their pauses and the
+    /// Work Order's status; null when no session of that Work Order is in the caller's request scope. Read-only, no locks.
+    /// </summary>
+    Task<TimeCorrectionRequestTargetsDto?> GetRequestTargetsAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken);
+
     /// <summary>The caller's Site-scoped PENDING requests (Supervisor review), oldest first.</summary>
     Task<PagedResult<TimeCorrectionDto>> ListPendingAsync(CurrentUser user, PendingTimeCorrectionsQuery query, CancellationToken cancellationToken);
 }
