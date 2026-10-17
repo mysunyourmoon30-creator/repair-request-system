@@ -9,8 +9,8 @@ Test-infrastructure note only. It changes no business rule, no baseline document
 | Field | Value |
 |---|---|
 | Document ID | RR-RCA-CI-001 |
-| Version | 1.1 (14–17 October 2026): 1.0 recorded the first incident and the diagnostics; 1.1 adds the first recurrence (section 8) |
-| Status | OPEN — cause not established; bounded diagnostics merged (PR #29); first recurrence captured and only partially informative |
+| Version | 1.2 (14–17 October 2026): 1.0 recorded the first incident and the diagnostics; 1.1 added the first recurrence (section 8); 1.2 adds the second recurrence, the lifecycle findings and the host-first disposal order (section 9) |
+| Status | OPEN — cause not established; diagnostics merged (PR #29, #30); the fixture's host is now stopped before its database is dropped (section 9); whether that removes the failure is **unproven** |
 | Subject run | GitHub Actions run `38586343631`, **attempt 1**, Backend (.NET), on `c1b1b1980d3009d687443d135a78277214828a37` (`main`, merge of PR #28); attempt 2 (same commit) passed |
 | Evidence | the attempt-1 `backend-test-results` artifact (`11905233681`, created 15:16:05 UTC, inside attempt 1); the attempt-2 artifact (`11906951651`) was not used |
 | Related | PR #26 (`94aff48`, LocalDB lifecycle gate); `tests/RepairRequest.ApiTests/LocalDbLifecycleGate.cs`, `ApiHostFactory.cs`, `FixtureDatabaseDropDiagnostics.cs` |
@@ -96,3 +96,46 @@ Effect on the hypotheses of section 4: H1 (the fixture's own EF-based component,
 ### 8.2 A failed test in the same attempt (unrelated to 3702)
 
 One API test failed in attempt 1: `FixtureDatabaseDropDiagnosticsTests.Error3702_ReportsIdentityTimingError…`, assertion `Assert.Contains("OnError", thrown.StackTrace)`. Which SqlClient frames appear in a stack trace depends on JIT inlining; the same assertion passed in the PR's CI run. It is a defect of the test, not of the diagnostics or the drop: it is replaced by comparing the rethrown stack with the stack captured at the original catch (`throw;` keeps that text as its start, `throw exception;` resets it — verified by a mutation check, in Debug and Release).
+
+## 9. Lifecycle findings and the host-first disposal order (17 October 2026)
+
+### 9.1 Second recurrence with diagnostics — run 39034861271, attempt 1 (`12b7e643c6567d36c3acca8cc16ec3426d94a568`, artifact `12101199434`)
+
+| Item | Value |
+|---|---|
+| Fixture | `DevelopmentFakeScanningFactory` / `DevelopmentMalwareScanningDevelopmentTests` (again a runner-hosting fixture) |
+| Drop | 13:05:36.199 → 13:05:56.237 UTC, 20,038 ms, error 3702 state 4; the class's only test had ended at 13:05:34.4 |
+| Snapshot | 13:05:56.246 (9 ms after the failure): exactly one session (id 85), `sleeping`, program name `EFCore/10.0.12 (…)`, 0 open transactions, no request, `DATABASE` `S` lock; login time and last request in 13:05:56 |
+
+Same shape as section 8.1: one EF Core session of the test process whose login falls in the second the drop failed. All three incidents so far are in the two runner-hosting fixtures. Attempt 2 of the same run passed. The same attempt had all 737 API tests green; the failure is again only the class-cleanup error.
+
+### 9.2 What the disposal path really does (proven from code and tests)
+
+1. **Old order.** `AuthApiFactory.DisposeAsync` dropped the database through a DbContext from the host's own DI scope, inside the PR #26 gate, and only afterwards disposed the host (`WebApplicationFactory.DisposeAsync`, which stops the hosted services). During the drop the fixture's host and its `DevelopmentOnlyPendingScanRunner` (polling every 200 ms, scanning fixtures only) were alive. If the drop threw, the host was not disposed at that point at all.
+2. **EF Core's drop is two statements** (verified in `Microsoft.EntityFrameworkCore.SqlServer.dll` and by test): `ALTER DATABASE … SET SINGLE_USER WITH ROLLBACK IMMEDIATE`, then `DROP DATABASE`. The first statement **disconnects the existing sessions**: a test with a live, unpooled, idle session shows that the drop then succeeds and that session is killed. An ordinary pre-existing idle session is therefore not what blocks the drop; the simplest remaining explanation is a connection (re)established **after** that ALTER (a session still rolling back from the ALTER is not excluded by this test). This corrects the wording of hypothesis H1 in section 4 ("held a session"): the suspected mechanism is an auto-reconnecting client of the fixture's own process, not a long-lived holder.
+3. **Reading of the two snapshots, revised.** Both show a fresh session whose login falls in the failure second. In single-user mode that session could connect only once the slot was free, i.e. after the failed `DROP` ended — it is plausibly an **effect** (the still-running runner reconnecting right after the failure), not the blocker. The snapshots therefore still do not name what blocked the 20 s wait; they are consistent with a client of the fixture's own host being active in the window. This is a reading, not a finding.
+4. **PR run versus main-push run** (existing logs and workflow only): one workflow and one job definition serve both events; both ran on image `windows-2025-vs2026` (provisioner `20261002.596`); the only structural difference is the checked-out ref (`refs/remotes/pull/N/merge` against `origin/main`, same content); the Integration and API test processes start within about a second of each other in both. API test run time varied (6 m 15 s in a PR run, 9 m 22 s in the failed push attempt, 7 m 55 s in its rerun). Nothing in the evidence explains why the last three `main` push runs failed their first attempt while the PR runs of the same changes passed; no incident rate is inferred.
+
+### 9.3 The change
+
+`AuthApiFactory.DisposeAsync` now (a) captures the factory's own connection string, (b) disposes the host first (hosted services stopped and awaited), (c) takes the same PR #26 lifecycle gate, (d) drops through a standalone `RepairRequestDbContext` built from that connection string, wrapped by the unchanged bounded 3702 diagnostics. It does not retry, suppress, disconnect, skip, or clear any connection pool; start-up is unchanged. A failed drop still throws the original exception, now with the host already stopped. Two small seams exist for the lifecycle tests: the gate resource name and the drop call itself are `protected virtual` (defaults unchanged).
+
+### 9.4 Validation (controlled; not a reproduction of the CI incident)
+
+`AuthApiFactoryDisposalOrderTests` (isolated `RepairRequestDb_DisposalProbe_*` databases, a gate resource of their own, explicit synchronization: the test holds the gate, lets `DisposeAsync` run into it, and inspects the state at that point):
+
+- *Ordinary factory:* when `DisposeAsync` is parked at the gate the host's `ApplicationStopped` has fired and the database still exists; after release the database is gone.
+- *Runner-hosting factory:* a positive control shows the runner keeping the database busy while the host runs (last-request time advances); at the gate the runner's `ExecuteTask` has completed, and over more than three poll intervals nothing of the database moves (no new login, no newer request); after release the database is gone.
+- *Failed drop:* with the drop made to fail with a real error 3702, `DisposeAsync` throws that original `SqlException`, the host is already stopped, and the diagnostics identify the fixture, database and a surviving session.
+- *EF behavior:* a live session is disconnected by EF's own drop (9.2 point 2).
+- *Pool observation (not verified further):* in one run, with other classes running, the host's two idle pooled sessions had disappeared 800 ms after shutdown. That is consistent with another fixture's EF drop clearing pools in the same process, and it is why the "nothing moves" check asserts **no new** session, login or request rather than an unchanged session count. No pool is cleared by this change.
+- *Mutation check:* restoring the old order (drop first, host disposed afterwards) fails the three ordering/propagation tests on their own assertions.
+
+### 9.5 What remains unproven
+
+- That the fixture's own host was what blocked the historical drops. The change removes that component from the drop window; it is not shown to remove the failure, and a passing CI run proves nothing about it.
+- What the session in the snapshots is a cause or an effect of (9.2 point 3).
+- Why the last three `main` push runs failed first attempts (9.2 point 4).
+- Other fixtures that drop databases (Integration tests, schema tests) are unchanged and were never observed to fail this way.
+
+If 3702 recurs after this change, the diagnostics are still in place; a recurrence in a **runner-hosting fixture whose host is already stopped** would contradict the host-involvement hypothesis, and a recurrence elsewhere would point to a different cause.
