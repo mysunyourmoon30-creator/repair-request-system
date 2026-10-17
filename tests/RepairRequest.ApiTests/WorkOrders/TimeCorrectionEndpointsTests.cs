@@ -237,6 +237,165 @@ public sealed class TimeCorrectionEndpointsTests : IClassFixture<TimeCorrectionA
         Assert.Equal(2, await _factory.WithDbAsync(db => db.AuditHistory.CountAsync(item => item.TenantId == world.Base.TenantId && item.EntityType == "TIME_CORRECTION")));
     }
 
+    // ---------------- TIME-API-ADD-002: the request targets (sessions + pause ids) of ONE Work Order inside the caller's request scope ----------------
+
+    private Task<HttpResponseMessage> TargetsAsync(EvidenceCaller? caller, Guid workOrderId) =>
+        _api.SendAsync(HttpMethod.Get, $"/api/v1/work-orders/{workOrderId}/time-correction-targets", caller);
+
+    [Fact]
+    public async Task RequestTargets_ForTheOwningTechnician_ListTheCompletedSessionWithItsPauseIdsInOrder_AndNothingElse()
+    {
+        var world = await WorldAsync();
+        var sessionId = await SessionIdAsync(world);
+
+        var response = await TargetsAsync(world.Base.Technician, world.Base.WorkOrderId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Contains("no-store", response.Headers.CacheControl?.ToString() ?? string.Empty, StringComparison.Ordinal);
+        Assert.Null(response.Headers.ETag);
+        var body = await EvidenceApiClient.Json(response);
+        Assert.Equal(world.Base.WorkOrderId, body.GetProperty("workOrderId").GetGuid());
+        Assert.Equal("IN_PROGRESS", body.GetProperty("workOrderStatus").GetString());
+        var sessions = body.GetProperty("sessions").EnumerateArray().ToList();
+        var session = Assert.Single(sessions);
+        Assert.Equal(sessionId, session.GetProperty("workSessionId").GetGuid());
+        Assert.Equal("CHECKED_OUT", session.GetProperty("status").GetString());                       // completed sessions are included
+        Assert.Equal(world.CheckIn, session.GetProperty("checkInAt").GetDateTime().ToUniversalTime(), TimeSpan.FromMilliseconds(1));
+        Assert.Equal(world.At(60), session.GetProperty("checkOutAt").GetDateTime().ToUniversalTime(), TimeSpan.FromMilliseconds(1));
+        var pauses = session.GetProperty("pauses").EnumerateArray().ToList();
+        Assert.Equal([world.Pause1, world.Pause2], pauses.Select(pause => pause.GetProperty("workSessionPauseId").GetGuid()));
+        Assert.Equal(world.At(10), pauses[0].GetProperty("pausedAt").GetDateTime().ToUniversalTime(), TimeSpan.FromMilliseconds(1));
+        Assert.Equal(world.At(20), pauses[0].GetProperty("resumedAt").GetDateTime().ToUniversalTime(), TimeSpan.FromMilliseconds(1));
+
+        // No tenant id, no reason or pending information, no SLA / cost / acceptance member, no other user's id.
+        var names = TimelineRedactionAssertions.PropertyNames(body).Select(name => name.ToLowerInvariant()).ToList();
+        Assert.DoesNotContain(names, name => name.Contains("tenant") || name.Contains("sla") || name.Contains("reason") || name.Contains("pending")
+            || name.Contains("cost") || name.Contains("acceptance") || name.Contains("technician") || name.Contains("requestedby") || name.Contains("rowversion"));
+    }
+
+    /// <summary>A second Visit of the SAME Work Order, assigned to the other Technician, with a checked-out session and one closed pause of their own.</summary>
+    private async Task<(Guid SessionId, Guid PauseId)> AddOtherTechniciansSessionAsync(World world)
+    {
+        var sessionId = await _factory.WithDbAsync(async db =>
+        {
+            var visit = ServiceVisit.Create(
+                world.Base.TenantId, world.Base.WorkOrderId, ServiceVisitType.Initial, Guid.NewGuid(), world.Base.OtherTechnician.UserId, DateTime.UtcNow.AddHours(1), DateTime.UtcNow.AddHours(3));
+            visit.CheckIn();
+            db.ServiceVisits.Add(visit);
+            var session = WorkSession.Create(world.Base.TenantId, visit.Id, world.Base.OtherTechnician.UserId, DateTime.UtcNow.AddHours(-2));
+            session.CheckOut(DateTime.UtcNow.AddHours(-1));
+            db.WorkSessions.Add(session);
+            await db.SaveChangesAsync();
+            return session.Id;
+        });
+        var pauseId = Guid.NewGuid();
+        await _factory.WithDbAsync(db => db.Database.ExecuteSqlInterpolatedAsync($"""
+            INSERT INTO [work_session_pause] ([work_session_pause_id], [tenant_id], [work_session_id], [paused_at], [pause_reason], [resumed_at])
+            VALUES ({pauseId}, {world.Base.TenantId}, {sessionId}, {DateTime.UtcNow.AddMinutes(-100)}, 'Waiting', {DateTime.UtcNow.AddMinutes(-90)})
+            """));
+        return (sessionId, pauseId);
+    }
+
+    [Fact]
+    public async Task RequestTargets_OnAMixedOwnerWorkOrder_GiveEachTechnicianOnlyTheirOwnSessionsAndPauses_AndTheTeamLeadBoth()
+    {
+        var world = await WorldAsync();
+        var mine = await SessionIdAsync(world);
+        var theirs = await AddOtherTechniciansSessionAsync(world);
+
+        var asTechnician = await TargetsAsync(world.Base.Technician, world.Base.WorkOrderId);
+        var asOther = await TargetsAsync(world.Base.OtherTechnician, world.Base.WorkOrderId);
+        var asTeamLead = await TargetsAsync(world.Base.TeamLead, world.Base.WorkOrderId);
+
+        Assert.Equal(HttpStatusCode.OK, asTechnician.StatusCode);
+        var technicianText = await asTechnician.Content.ReadAsStringAsync();
+        var technicianSession = Assert.Single(JsonDocument.Parse(technicianText).RootElement.GetProperty("sessions").EnumerateArray());
+        Assert.Equal(mine, technicianSession.GetProperty("workSessionId").GetGuid());
+        Assert.Equal([world.Pause1, world.Pause2], technicianSession.GetProperty("pauses").EnumerateArray().Select(pause => pause.GetProperty("workSessionPauseId").GetGuid()));
+        Assert.DoesNotContain(theirs.SessionId.ToString(), technicianText, StringComparison.OrdinalIgnoreCase);       // the other technician's session and pause never leak
+        Assert.DoesNotContain(theirs.PauseId.ToString(), technicianText, StringComparison.OrdinalIgnoreCase);
+
+        Assert.Equal(HttpStatusCode.OK, asOther.StatusCode);
+        var otherText = await asOther.Content.ReadAsStringAsync();
+        var otherSession = Assert.Single(JsonDocument.Parse(otherText).RootElement.GetProperty("sessions").EnumerateArray());
+        Assert.Equal(theirs.SessionId, otherSession.GetProperty("workSessionId").GetGuid());
+        Assert.Equal([theirs.PauseId], otherSession.GetProperty("pauses").EnumerateArray().Select(pause => pause.GetProperty("workSessionPauseId").GetGuid()));
+        Assert.DoesNotContain(mine.ToString(), otherText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(world.Pause1.ToString(), otherText, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(world.Pause2.ToString(), otherText, StringComparison.OrdinalIgnoreCase);
+
+        // The Team Lead's read stays Site-scoped, not owner-scoped: both sessions, each with its own pauses.
+        Assert.Equal(HttpStatusCode.OK, asTeamLead.StatusCode);
+        var teamLeadSessions = (await EvidenceApiClient.Json(asTeamLead)).GetProperty("sessions").EnumerateArray().ToList();
+        Assert.Equal(2, teamLeadSessions.Count);
+        Assert.Equal(
+            new[] { world.Pause1, world.Pause2, theirs.PauseId }.Order(),
+            teamLeadSessions.SelectMany(item => item.GetProperty("pauses").EnumerateArray()).Select(pause => pause.GetProperty("workSessionPauseId").GetGuid()).Order());
+    }
+
+    [Fact]
+    public async Task RequestTargets_ForATeamLeadOfTheSite_SeeTheSessions_AndAnOutOfSiteTeamLeadAndAnotherTechnicianGetTheSameNotFound()
+    {
+        var world = await WorldAsync();
+
+        var teamLead = await TargetsAsync(world.Base.TeamLead, world.Base.WorkOrderId);
+        Assert.Equal(HttpStatusCode.OK, teamLead.StatusCode);
+        Assert.Single((await EvidenceApiClient.Json(teamLead)).GetProperty("sessions").EnumerateArray());
+
+        var codes = new List<string>();
+        foreach (var caller in new[] { world.Base.OutOfSiteTeamLead, world.Base.OtherTechnician })
+        {
+            var response = await TargetsAsync(caller, world.Base.WorkOrderId);
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            codes.Add(await CodeAsync(response));
+        }
+
+        var unknown = await TargetsAsync(world.Base.TeamLead, Guid.NewGuid());
+        Assert.Equal(HttpStatusCode.NotFound, unknown.StatusCode);
+        codes.Add(await CodeAsync(unknown));
+        Assert.Single(codes.Distinct());
+    }
+
+    [Fact]
+    public async Task RequestTargets_AreForbiddenToEveryOtherRole_AndUnauthenticatedIs401()
+    {
+        var world = await WorldAsync();
+
+        Assert.Equal(HttpStatusCode.Unauthorized, (await TargetsAsync(null, world.Base.WorkOrderId)).StatusCode);
+        foreach (var caller in new[] { world.Base.Supervisor, world.Base.Coordinator, world.Base.Approver, world.Base.Administrator, world.Base.Contact, world.Base.OtherTenantSupervisor })
+        {
+            Assert.Equal(HttpStatusCode.Forbidden, (await TargetsAsync(caller, world.Base.WorkOrderId)).StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task RequestTargets_StayReadableAfterTheWorkOrderIsClosed_AndSayWhichStatusItIs()
+    {
+        var world = await WorldAsync();
+        await _factory.WithDbAsync(db => db.Database.ExecuteSqlInterpolatedAsync($"UPDATE [work_order] SET [status] = 'CLOSED' WHERE [work_order_id] = {world.Base.WorkOrderId}"));
+
+        var response = await TargetsAsync(world.Base.TeamLead, world.Base.WorkOrderId);
+
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        Assert.Equal("CLOSED", (await EvidenceApiClient.Json(response)).GetProperty("workOrderStatus").GetString());
+    }
+
+    [Fact]
+    public async Task RequestTargets_WriteNoAuditRow_AndAnotherTenantsDataNeverAppears()
+    {
+        var world = await WorldAsync();
+        var other = await WorldAsync();                                  // another tenant with its own session and pauses
+        var before = await _factory.WithDbAsync(db => db.AuditHistory.CountAsync());
+
+        var response = await TargetsAsync(world.Base.TeamLead, world.Base.WorkOrderId);
+
+        var text = await response.Content.ReadAsStringAsync();
+        Assert.DoesNotContain(other.Pause1.ToString(), text, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain(other.Pause2.ToString(), text, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(before, await _factory.WithDbAsync(db => db.AuditHistory.CountAsync()));
+        Assert.Equal(HttpStatusCode.NotFound, (await TargetsAsync(world.Base.TeamLead, other.Base.WorkOrderId)).StatusCode);   // the other tenant's Work Order is the same 404
+    }
+
     // ---------------- timeline (docs/17 P11): the existing AUD-API-001 route shows the three event types ----------------
 
     private Task<HttpResponseMessage> TimelineAsync(EvidenceCaller? caller, Guid workOrderId, int pageSize = 100) =>

@@ -81,6 +81,9 @@ internal sealed class FakeTimeCorrectionStore : ITimeCorrectionStore
     public Task<TimeCorrectionDto?> GetAsync(CurrentUser user, Guid timeCorrectionId, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 
+    public Task<TimeCorrectionRequestTargetsDto?> GetRequestTargetsAsync(CurrentUser user, Guid workOrderId, CancellationToken cancellationToken) =>
+        throw new NotSupportedException();
+
     public Task<PagedResult<TimeCorrectionDto>> ListPendingAsync(CurrentUser user, PendingTimeCorrectionsQuery query, CancellationToken cancellationToken) =>
         throw new NotSupportedException();
 }

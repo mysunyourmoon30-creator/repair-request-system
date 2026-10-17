@@ -203,8 +203,44 @@ public sealed record TimeCorrectionResponse(
     DateTime? DecidedAt,
     string RowVersion);
 
+/// <summary>One pause of a Work Session as a Time Correction target (TIME-API-ADD-002).</summary>
+public sealed record TimeCorrectionTargetPauseResponse(Guid WorkSessionPauseId, DateTime PausedAt, DateTime? ResumedAt);
+
+/// <summary>One Work Session the caller may request a correction for (TIME-API-ADD-002).</summary>
+public sealed record TimeCorrectionTargetSessionResponse(
+    Guid WorkSessionId,
+    Guid ServiceVisitId,
+    string Status,
+    DateTime CheckInAt,
+    DateTime? CheckOutAt,
+    IReadOnlyList<TimeCorrectionTargetPauseResponse> Pauses);
+
+/// <summary>TIME-API-ADD-002 response (`docs/13` §4.29): one Work Order's sessions inside the caller's request scope, with pause ids. Never a tenant id, user id of another user, reason or SLA member.</summary>
+public sealed record TimeCorrectionRequestTargetsResponse(
+    Guid WorkOrderId,
+    string WorkOrderNo,
+    string WorkOrderStatus,
+    string? SiteCode,
+    string? EquipmentCode,
+    IReadOnlyList<TimeCorrectionTargetSessionResponse> Sessions);
+
 public static class TimeCorrectionResponses
 {
+    public static TimeCorrectionRequestTargetsResponse ToResponse(TimeCorrectionRequestTargetsDto dto) =>
+        new(
+            dto.WorkOrderId,
+            dto.WorkOrderNo,
+            WorkOrderStatusCodes.ToCode(dto.WorkOrderStatus),
+            dto.SiteCode,
+            dto.EquipmentCode,
+            dto.Sessions.Select(session => new TimeCorrectionTargetSessionResponse(
+                session.WorkSessionId,
+                session.ServiceVisitId,
+                WorkSessionStatusCodes.ToCode(session.Status),
+                session.CheckInAt,
+                session.CheckOutAt,
+                session.Pauses.Select(pause => new TimeCorrectionTargetPauseResponse(pause.WorkSessionPauseId, pause.PausedAt, pause.ResumedAt)).ToList())).ToList());
+
     public static TimeCorrectionResponse ToResponse(TimeCorrectionDto dto) =>
         new(
             dto.TimeCorrectionId,

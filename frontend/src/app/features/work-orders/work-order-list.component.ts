@@ -1,6 +1,7 @@
 import { HttpErrorResponse } from '@angular/common/http';
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { RouterLink } from '@angular/router';
+import { getCurrentUserRoles } from '../../core/auth/current-user-role';
 import { WORK_ORDER_STATUSES, WorkOrder } from './work-order.models';
 import { WorkOrderService } from './work-order.service';
 
@@ -28,6 +29,10 @@ const PAGE_SIZE = 20;
         }
       </select>
     </label>
+
+    @if (canReviewTimeCorrections()) {
+      <p><a routerLink="/time-correction-review">Time corrections awaiting review</a></p>
+    }
 
     @if (loading()) {
       <p>Loading…</p>
@@ -77,6 +82,14 @@ export class WorkOrderListComponent {
   private readonly workOrders = inject(WorkOrderService);
 
   protected readonly statuses = WORK_ORDER_STATUSES;
+
+  /**
+   * Entry to the Supervisor's Time Correction review (`docs/17` row 17). Discoverability only: the route is guarded by `supervisorOnlyGuard`
+   * and the backend authorizes every call, so the role claim read here is never a security boundary.
+   */
+  protected canReviewTimeCorrections(): boolean {
+    return getCurrentUserRoles().includes('SUPERVISOR');
+  }
 
   protected readonly items = signal<WorkOrder[]>([]);
   protected readonly page = signal(1);

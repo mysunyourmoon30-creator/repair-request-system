@@ -24,6 +24,14 @@ describe('app routes', () => {
     expect(byPath('repair-requests/:id')).toBeDefined();
   });
 
+  it('adds the Time Correction review route for the Supervisor, loaded lazily and guarded', () => {
+    const route = byPath('time-correction-review');
+
+    expect(route).toBeDefined();
+    expect(route?.loadComponent).toBeDefined();
+    expect(route?.canActivate).toHaveLength(1);
+  });
+
   it('adds no Repair Request creation, approval or login screen', () => {
     expect(routes.map((route) => route.path)).not.toContain('login');
     expect(routes.map((route) => route.path).filter((path) => path?.includes('approval'))).toEqual([]);
